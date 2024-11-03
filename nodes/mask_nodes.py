@@ -1,0 +1,460 @@
+# -*- coding: utf-8 -*-
+# Created time : 2024/10/01 16:45 
+# Auther : ygh
+# File   : mask_nodes.py
+# Description :
+import numpy as np
+import time
+import torch
+from comfy import model_management
+from custom_nodes.facerestore_cf.facelib.utils.face_restoration_helper import FaceRestoreHelper
+from custom_nodes.facerestore_cf.facelib.detection.retinaface import retinaface
+from torchvision.transforms.functional import normalize
+from torchvision.utils import make_grid
+from comfy_extras.chainner_models import model_loading
+import torch.nn.functional as F
+import random
+import math
+import os
+import re
+import json
+import hashlib
+import cv2
+from PIL import ImageGrab, ImageDraw, ImageFont, Image, ImageSequence, ImageOps
+from comfy.cli_args import args
+from comfy.utils import ProgressBar, common_upscale
+import folder_paths
+from nodes import MAX_RESOLUTION
+import warnings
+from .segment_anything_func import *
+from .imagefunc import *
+
+# from custom_nodes.A_my_nodes.nodes.get_result_text_p import run_script_with_subprocess, get_list_from_txt
+
+warnings.filterwarnings("ignore")
+
+
+class CreateTextMask:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {"image": ("IMAGE",),
+                             "device": ([-1, 0], {"default": -1, "tooltip": "-1:cpu, 0:gpu"}),
+                             }}
+
+    RETURN_TYPES = ("IMAGE", "MASK")
+    RETURN_NAMES = ("bbox_image", "mask")
+    FUNCTION = "crop_text"
+    CATEGORY = "My_node/mask"
+
+    def crop_text(self, image, device):
+        if device == -1:
+            use_gpu = False
+        else:
+            use_gpu = True
+        image_np = image.squeeze(0).detach().cpu().numpy()  # 去掉 batch 维度，并转换为 NumPy 数组
+        # concurrent_dir = os.path.dirname(os.path.dirname(__file__))
+        # image_np_save_path = os.path.join(concurrent_dir, "temp", "image_np_save.jpg")
+        # cv2.imwrite(image_np_save_path, image_np)
+        # save_text_path = os.path.join(concurrent_dir, "temp", r"result_ocr_img_numpy.txt")
+        # run_script_with_subprocess(image_np_save_path, save_text_path, use_gpu)
+        # if os.path.exists(save_text_path):
+        #     result_list = get_numpy_from_txt(save_text_path)
+
+        # if os.path.exists(image_np_save_path):
+        # 假设 ComfyUI 的张量像素值范围是 [0, 1]，将其转换为 [0, 255]，并将类型转换为 uint8
+        image_np = (image_np * 255).astype(np.uint8)
+        width, height = image_np.shape[1], image_np.shape[0]
+        # new_bbox_list = []
+        # 创建一个与图像相同大小的空白蒙版，初始化为黑色
+        mask = np.zeros((height, width), dtype=np.uint8)
+        # for i in range(len(result_list)):
+        #     # 将这些点转换为所需的形状（-1, 1, 2）以便在图像上绘制
+        #     points = result_list[i]
+        #     points = points.reshape((-1, 1, 2))
+        #
+        #     # 使用 OpenCV 画出多边形，参数 (图像, 点, 是否闭合, 颜色, 线条宽度)
+        #     cv2.polylines(image_np, [points], isClosed=True, color=(0, 255, 0), thickness=2)
+        #     # 填充多边形的内部为白色
+        #     cv2.fillPoly(mask, [points], color=(255, 255, 255))
+        # 可选：将蒙版应用到原图像，生成框内区域的图片
+        image_np_bgra = image_np
+        # masked_image = cv2.bitwise_and(image_np_bgr, image_np_bgr, mask=mask)
+        masked_image = torch.tensor(image_np_bgra).unsqueeze(0)  # 添加 batch 维度
+        masked_image = masked_image.float() / 255.0  # 如果你想标准化为 [0, 1] 的范围
+        mask_out = torch.tensor(mask).unsqueeze(0)  # 变为 [1, height, width, 1]
+        # # 2. 将蒙版和应用蒙版的图像从 NumPy 数组转换为 PyTorch 张量
+        # # (height, width, channels) -> (1, height, width, channels)
+        # mask_tensor = torch.tensor(mask_3ch).unsqueeze(0)  # 添加 batch 维度
+        # 3. 确保数据类型为 float32，如果需要 (比如应用到神经网络)
+        mask_out = mask_out.float() / 255.0  # 如果你想标准化为 [0, 1] 的范围
+        # 4. 输出四维张量的形状
+        # print("mask_tensor", mask_out.shape)  # 输出: torch.Size([1, height, width, channels])
+        # print(masked_image.shape)  # 输出: torch.Size([1, height, width, channels])
+        return (masked_image, mask_out)
+
+
+class TextMaskMy:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "model": (
+                    ['DB_IC15_resnet18.onnx', 'DB_IC15_resnet50.onnx', 'DB_TD500_resnet18.onnx',
+                     'DB_TD500_resnet50.onnx'],
+                    {"default": "DB_TD500_resnet50.onnx", "tooltip": "选择检测模型"}),
+            },
+
+        }
+
+    CATEGORY = "My_node/example"
+    RETURN_TYPES = ("IMAGE", "MASK")
+    FUNCTION = "example_func"
+
+    def example_func(self, image, model):
+        start_time = time.time()
+        image_np = image.squeeze(0).detach().cpu().numpy()
+        # 假设 ComfyUI 的张量像素值范围是 [0, 1]，将其转换为 [0, 255]，并将类型转换为 uint8
+        image_np = (image_np * 255).astype(np.uint8)
+        # concurrent_dir = os.path.dirname(os.path.dirname(__file__))
+        # image_np_save_path = os.path.join(concurrent_dir, "temp", "image_np_save.jpg")
+        # cv2.imwrite(image_np_save_path, image_np)
+        width, height = image_np.shape[1], image_np.shape[0]
+        # 创建一个与图像相同大小的空白蒙版，初始化为黑色
+        mask = np.zeros((height, width), dtype=np.uint8)
+
+        # 1. 加载预训练模型的权重和配置文件
+        dir_node = os.path.dirname(os.path.dirname(__file__))
+        model_dir = os.path.join(dir_node, "models", "text_det_model")
+        model_weights = os.path.join(model_dir, model)
+        model = cv2.dnn_TextDetectionModel_DB(model_weights)
+        # 2. 设置模型输入的预处理参数
+        model.setInputParams(
+            scale=1.0 / 255.0,
+            size=(736, 736),
+            mean=(122.67891434, 116.66876762, 104.00698793),
+            swapRB=True,
+        )
+        # 3. 读取图像
+        # image = cv2.imread(image_np_save_path)
+        # 4. 执行文本检测
+        boxes, scores = model.detect(image_np)
+        # 5. 可视化检测结果
+        for box in boxes:
+            points = box.astype(np.int32)
+            cv2.polylines(image_np, [points], isClosed=True, color=(0, 255, 0), thickness=2)
+            cv2.fillPoly(mask, [points], color=(255, 255, 255))
+        image_np_bgra = image_np
+        masked_image = torch.tensor(image_np_bgra).unsqueeze(0)  # 添加 batch 维度
+        masked_image = masked_image.float() / 255.0  # 如果你想标准化为 [0, 1] 的范围
+        mask_out = torch.tensor(mask).unsqueeze(0)  # 变为 [1, height, width, 1]
+        mask_out = mask_out.float() / 255.0  # 如果你想标准化为 [0, 1] 的范围
+        print(f"TextMaskMy cost time: {time.time() - start_time} s")
+        return (masked_image, mask_out)
+
+
+previous_dino_model = ""
+
+
+class GroundingDinoGetBbox:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "grounding_dino_model": (list_groundingdino_model(),),
+                "threshold": ("FLOAT", {"default": 0.3, "min": 0, "max": 1.0, "step": 0.01}),
+                "prompt": ("STRING", {"default": "subject"}),
+            },
+        }
+
+    CATEGORY = "My_node/mask"
+
+    RETURN_TYPES = ("IMAGE", "STRING")
+    FUNCTION = "example_func"
+
+    def example_func(self, image, grounding_dino_model, threshold, prompt):
+        global DINO_MODEL
+        global previous_dino_model
+
+        if previous_dino_model != grounding_dino_model:
+            DINO_MODEL = load_groundingdino_model(grounding_dino_model)
+            previous_dino_model = grounding_dino_model
+        # DINO_MODEL = load_groundingdino_model(grounding_dino_model)
+        start_time = time.time()
+        image_ = image.squeeze(0).detach().cpu()
+        image_np = image_.numpy()
+        i = pil2tensor(tensor2pil(image_).convert('RGB'))
+        _image = tensor2pil(i).convert('RGBA')
+        # 假设 ComfyUI 的张量像素值范围是 [0, 1]，将其转换为 [0, 255]，并将类型转换为 uint8
+        image_np = (image_np * 255).astype(np.uint8)
+        # concurrent_dir = os.path.dirname(os.path.dirname(__file__))
+        # image_np_save_path = os.path.join(concurrent_dir, "temp", "image_np_save.jpg")
+        # cv2.imwrite(image_np_save_path, image_np)
+        # width, height = image_np.shape[1], image_np.shape[0]
+        boxes = groundingdino_predict(DINO_MODEL, _image, prompt, threshold)
+        # 转化为list
+        boxes = boxes.tolist()
+        str_bbox_list = []
+        if len(boxes) != 0:
+            for box in boxes:
+                print(box)
+                print(type(box))
+                x_y_dict = {"x": int((box[0] + box[2]) / 2), "y": int((box[1] + box[3]) / 2)}
+                str_bbox_list.append(x_y_dict)
+                # 使用 cv2.rectangle 在图像上绘制矩形
+                cv2.rectangle(image_np, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), color=(255, 0, 0),
+                              thickness=5)
+                cv2.circle(image_np, (int((box[0] + box[2]) / 2), int((box[1] + box[3]) / 2)), 8, (0, 0, 255), -1)
+
+        # else:
+        #     str_bbox_list = [{"x": 0, "y": 0}]
+
+        # boxes = boxes.astype(np.int32)
+        print(boxes)
+        # print(boxes.shape)
+        print(len(boxes))
+        # for box in boxes:
+        #     points = box.astype(np.int32)
+        #     cv2.polylines(image_np, [points], isClosed=True, color=(0, 255, 0), thickness=2)
+        # image_np_bgra = image_np
+        masked_image = torch.tensor(image_np).unsqueeze(0)  # 添加 batch 维度
+        masked_image = masked_image.float() / 255.0  # 如果你想标准化为 [0, 1] 的范围
+        # mask_out = torch.tensor(mask).unsqueeze(0)  # 变为 [1, height, width, 1]
+        # mask_out = mask_out.float() / 255.0  # 如果你想标准化为 [0, 1] 的范围
+        print(f"GroundingDinoGetBbox cost time: {time.time() - start_time} s")
+        return (masked_image, str(str_bbox_list))
+        # return (image,)
+
+"""遮罩相加"""
+def add_masks(dilation_erosion, *masks):
+    if not masks:
+        return None
+    
+    result_mask = masks[0].cpu()  # 初始化为第0个mask
+    for mask in masks[1:]:
+        mask = mask.cpu()
+        cv2_mask = np.array(mask) * 255
+        # 如果cv2_mask为纯黑，跳过
+        if cv2_mask.sum() == 0:
+            continue
+        # Check if result_mask and cv2_mask have the same shape
+        if result_mask.shape == cv2_mask.shape:
+            cv2_result_mask = cv2.add(np.array(result_mask, dtype=np.uint8) * 255, cv2_mask, dtype=cv2.CV_8U)
+            result_mask = torch.from_numpy(cv2_result_mask)
+            # Clamp the result after each addition
+            result_mask = torch.clamp(result_mask / 255.0, min=0, max=1)
+        # else:
+        #     # If shapes are incompatible, skip this mask
+        #     continue
+    
+    # result_mask = torch.clamp(result_mask / 255.0, min=0, max=1)
+    
+    # Convert to numpy for OpenCV operations
+    cv2_result_mask = (result_mask.numpy() * 255).astype(np.uint8)
+    
+    # Ensure the mask is 2D
+    if cv2_result_mask.ndim > 2:
+        cv2_result_mask = cv2_result_mask.squeeze()
+    
+    # Create a kernel for dilation/erosion
+    kernel_size = max(1, abs(dilation_erosion))  # Ensure kernel size is at least 1
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+    
+    if dilation_erosion > 0:
+        cv2_result_mask = cv2.dilate(cv2_result_mask, kernel, iterations=1)
+    elif dilation_erosion < 0:
+        cv2_result_mask = cv2.erode(cv2_result_mask, kernel, iterations=1)
+    
+    # Convert back to torch tensor
+    result_mask = torch.from_numpy(cv2_result_mask / 255.0).float()
+    
+    return result_mask
+
+class MaskAdd:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "mask_count": ("INT", {"default": 1, "min": 1, "max": 10, "step": 1}),
+                "dilation_erosion": ("INT", {"default": 0, "min": -50, "max": 50, "step": 1}),
+            },
+            "optional": {
+                **{f"mask_{i}": ("MASK",) for i in range(1, 11)},
+            }
+        }
+
+    CATEGORY = "My_node/mask"
+    RETURN_TYPES = ("MASK",)
+    FUNCTION = "add_multiple_masks"
+
+    def add_multiple_masks(self, mask_count, dilation_erosion, **kwargs):
+        masks = [kwargs.get(f"mask_{i}") for i in range(1, mask_count + 1) if kwargs.get(f"mask_{i}") is not None]
+        result_mask = add_masks(dilation_erosion, *masks)
+        return (result_mask,)
+    
+"""遮罩相减"""
+def process_masks(dilation_erosion_1, dilation_erosion_2, dilation_erosion_result, n, *masks):
+    if not masks or len(masks) < 1:
+        return None, None, None
+    
+    # Sum the first n masks with dilation/erosion
+    sum_first_n = masks[0].cpu()  
+    for mask in masks[1:n]:
+        if mask is not None:
+            mask = mask.cpu()
+            cv2_mask = np.array(mask) * 255
+            # 如果cv2_mask为纯黑，跳过
+            if cv2_mask.sum() == 0:
+                continue
+            # Check if sum_first_n and cv2_mask have the same shape
+            if sum_first_n.shape == cv2_mask.shape:
+                cv2_sum_first_n = cv2.add(np.array(sum_first_n, dtype=np.uint8) * 255, cv2_mask, dtype=cv2.CV_8U)
+                sum_first_n = torch.from_numpy(cv2_sum_first_n)
+                sum_first_n = torch.clamp(sum_first_n / 255.0, min=0, max=1)
+           
+    if dilation_erosion_1 != 0:
+            # 对 sum_first_n 应用 dilation/erosion
+            kernel_size_1 = max(1, abs(dilation_erosion_1))  # Ensure kernel size is at least 1
+            kernel_1 = np.ones((kernel_size_1, kernel_size_1), np.uint8)
+            # 对每个样本进行 dilation/erosion 操作
+            for i in range(sum_first_n.shape[0]):
+                if dilation_erosion_1 > 0:
+                    dilated = cv2.dilate(np.array(sum_first_n[i], dtype=np.uint8) * 255, kernel_1, iterations=1)
+                elif dilation_erosion_1 < 0:
+                    dilated = cv2.erode(np.array(sum_first_n[i], dtype=np.uint8) * 255, kernel_1, iterations=1)
+                else:
+                    dilated = np.array(sum_first_n[i])  # 如果 dilation_erosion_1 为 0，保持原样
+                sum_first_n[i] = torch.from_numpy(dilated / 255.0).float()  # 转换为张量并赋值
+    
+    # Sum the masks from n to 12 with dilation/erosion
+    sum_n_to_12 = torch.zeros_like(masks[0])
+    for mask in masks[n:12]:
+        if mask is not None:
+            mask = mask.cpu()
+            cv2_mask = np.array(mask) * 255
+            # 如果cv2_mask为纯黑，跳过
+            if cv2_mask.sum() == 0:
+                continue
+            # Check if sum_n_to_12 and cv2_mask have the same shape
+            if sum_n_to_12.shape == cv2_mask.shape:
+                cv2_sum_n_to_12 = cv2.add(np.array(sum_n_to_12, dtype=np.uint8) * 255, cv2_mask, dtype=cv2.CV_8U)
+                sum_n_to_12 = torch.from_numpy(cv2_sum_n_to_12)
+                sum_n_to_12 = torch.clamp(sum_n_to_12 / 255.0, min=0, max=1)
+    
+    if dilation_erosion_2 != 0:
+        # 对 sum_n_to_12 应用 dilation/erosion
+        kernel_size_2 = max(1, abs(dilation_erosion_2))  # Ensure kernel size is at least 1
+        kernel_2 = np.ones((kernel_size_2, kernel_size_2), np.uint8)
+        # 对每个样本进行 dilation/erosion 操作
+        for i in range(sum_n_to_12.shape[0]):
+            if dilation_erosion_2 > 0:
+                dilated = cv2.dilate(np.array(sum_n_to_12[i], dtype=np.uint8) * 255, kernel_2, iterations=1)
+            elif dilation_erosion_2 < 0:
+                dilated = cv2.erode(np.array(sum_n_to_12[i], dtype=np.uint8) * 255, kernel_2, iterations=1)
+            else:
+                dilated = np.array(sum_n_to_12[i])  # 如果 dilation_erosion_2 为 0，保持原样
+            sum_n_to_12[i] = torch.from_numpy(dilated / 255.0).float()  # 转换为张量并赋值
+    
+    # If no masks in n to 12, use a black mask
+    if sum_n_to_12.sum() == 0:
+        sum_n_to_12 = torch.zeros_like(sum_first_n)
+    
+    # Subtract the two sums using cv2.subtract
+    if sum_first_n.shape == sum_n_to_12.shape:
+        cv2_result_mask = cv2.subtract(np.array(sum_first_n, dtype=np.uint8) * 255, np.array(sum_n_to_12, dtype=np.uint8) * 255, dtype=cv2.CV_8U) 
+        cv2_result_mask = torch.from_numpy(cv2_result_mask)
+        cv2_result_mask = torch.clamp(cv2_result_mask / 255.0, min=0, max=1)
+    else:
+       cv2_result_mask = sum_first_n
+
+    if dilation_erosion_result != 0:
+        kernel_size_result = max(1, abs(dilation_erosion_result))  # Ensure kernel size is at least 1
+        kernel_result = np.ones((kernel_size_result, kernel_size_result), np.uint8)
+        # 对每个样本进行 dilation/erosion 操作
+        for i in range(cv2_result_mask.shape[0]):
+            if dilation_erosion_result > 0:
+                dilated = cv2.dilate(np.array(cv2_result_mask[i], dtype=np.uint8) * 255, kernel_result, iterations=1)
+            elif dilation_erosion_result < 0:
+                dilated = cv2.erode(np.array(cv2_result_mask[i], dtype=np.uint8) * 255, kernel_result, iterations=1)
+            else:
+                dilated = np.array(cv2_result_mask[i])  # 如果 dilation_erosion_result 为 0，保持原样
+            cv2_result_mask[i] = torch.from_numpy(dilated / 255.0).float()  # 转换为张量并赋值
+    
+    # Ensure the mask is 2D
+    if sum_first_n.ndim < 3:
+        sum_first_n = sum_first_n.squeeze(0)
+    if sum_n_to_12.ndim < 3:
+        sum_n_to_12 = sum_n_to_12.squeeze(0)
+    if cv2_result_mask.ndim < 3:
+        cv2_result_mask = cv2_result_mask.squeeze(0)
+    
+    return sum_first_n, sum_n_to_12, cv2_result_mask
+
+class MaskSubtract:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "n": ("INT", {"default": 2, "min": 2, "max": 12, "step": 1}),
+                "dilation_erosion_1": ("INT", {"default": 0, "min": -50, "max": 50, "step": 1}),
+                "dilation_erosion_2": ("INT", {"default": 0, "min": -50, "max": 50, "step": 1}),
+                "dilation_erosion_result": ("INT", {"default": 0, "min": -50, "max": 50, "step": 1}),
+            },
+            "optional": {
+                **{f"mask_{i}": ("MASK",) for i in range(1, 13)},
+            }
+        }
+
+    CATEGORY = "My_node/mask"
+    RETURN_TYPES = ("MASK", "MASK", "MASK")
+    RETURN_NAMES = ("sum_first_n", "sum_n_to_12", "result_mask")
+    FUNCTION = "subtract_multiple_masks"
+
+    def subtract_multiple_masks(self, n, dilation_erosion_1, dilation_erosion_2, dilation_erosion_result, **kwargs):
+        # Collect all masks, including None, to maintain order
+        masks = [kwargs.get(f"mask_{i}") for i in range(1, 13)]
+        result_masks = process_masks(dilation_erosion_1, dilation_erosion_2, dilation_erosion_result, n, *masks)
+        return result_masks
+
+"""遮罩重叠"""
+class MaskOverlap:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "mask_1": ("MASK",),
+                "mask_2": ("MASK",),
+                "threshold": ("INT", {"default": 10, "min": 0, "max": 255, "step": 1}),
+                "tolerance": ("FLOAT", {"default": 0.05, "min": 0, "max": 1.0, "step": 0.01}),
+            },
+        }
+
+    CATEGORY = "My_node/mask"
+    RETURN_TYPES = ("MASK",)
+    RETURN_NAMES = ("mask_2",)
+    FUNCTION = "calculate_overlap"
+
+    def calculate_overlap(self, mask_1, mask_2, threshold, tolerance):
+        # 将mask转换为NumPy数组
+        mask_1_np = mask_1.cpu().numpy()*255
+        mask_2_np = mask_2.cpu().numpy()*255
+
+        # 计算第一个遮罩中大于阈值的像素数量
+        count_1 = np.sum(mask_1_np > threshold)
+
+        # 计算重合点数量
+        overlap_count = np.sum((mask_1_np > threshold) & (mask_2_np > threshold))
+        print("重合个数",overlap_count)
+        print("总数",count_1)
+
+        # 计算重合率
+        overlap_ratio = overlap_count / count_1 if count_1 > 0 else 0
+
+        # 判断重合率是否大于容差
+        if overlap_ratio > tolerance:
+            # 返回一个与mask_2相同维度的纯黑mask
+            black_mask = torch.zeros_like(mask_2)
+            return (black_mask,)
+        else:
+            return (mask_2,)

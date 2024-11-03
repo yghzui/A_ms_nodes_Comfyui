@@ -1,0 +1,43 @@
+# -*- coding: utf-8 -*-
+# Created time : 2024/09/12 22:34 
+# Auther : ygh
+# File   : __init__.py
+# Description :
+from .nodes.image_nodes import *
+
+from .nodes.mask_nodes import *
+from .nodes.text_nodes import *
+
+NODE_CLASS_MAPPINGS = {
+    "LoadAndResizeImageMy": LoadAndResizeImageMy,
+    "CropFaceMy": CropFaceMy,
+    "CreateFaceBboxMask": CreateBboxMask,
+    "CreateTextMask": CreateTextMask,
+    "CoordinateTessPosNeg": CoordinateTessPosNeg,
+    "TextMaskMy": TextMaskMy,
+    "GroundingDinoGetBbox": GroundingDinoGetBbox,
+    "MaskAdd": MaskAdd,
+    "MaskSubtract": MaskSubtract,
+    "MaskOverlap": MaskOverlap,
+    "FilterClothingWords": FilterClothingWords,
+    "PasteFacesMy": PasteFacesMy,
+    "GenerateBlackTensor": GenerateWhiteTensor
+}
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "LoadAndResizeImageMy": "Load & Resize Image by My",
+    "CropFaceMy": "Crop Face by My",
+    "CreateFaceBboxMask": "Create Face Bbox Mask by My",
+    "CreateTextMask": "Text Mask path by My",
+    "example_class": "example_class by My",
+    "TextMaskMy": "TextMask by My",
+    "GroundingDinoGetBbox": "GroundingDinoGetBbox by My",
+    "CoordinateTessPosNeg": "CoordinateTessPosNeg by My",
+    "MaskAdd": "MaskAdd + by My",
+    "MaskSubtract": "MaskSubtract - by My",
+    "MaskOverlap": "MaskOverlap 重叠度 by My",
+    "FilterClothingWords": "FilterClothingWords 过滤服装关键词 by My",
+    "PasteFacesMy": "PasteFacesMy 粘贴面部 by My",
+    "GenerateBlackTensor": "GenerateBlackTensor 生成纯黑张量 by My"
+}
+
+__all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS']
