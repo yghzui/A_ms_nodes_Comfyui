@@ -28,7 +28,7 @@ from nodes import MAX_RESOLUTION
 import warnings
 from .segment_anything_func import *
 from .imagefunc import *
-
+from scipy import ndimage
 # from custom_nodes.A_my_nodes.nodes.get_result_text_p import run_script_with_subprocess, get_list_from_txt
 
 warnings.filterwarnings("ignore")
@@ -225,6 +225,32 @@ class GroundingDinoGetBbox:
         print(f"GroundingDinoGetBbox cost time: {time.time() - start_time} s")
         return (masked_image, str(str_bbox_list))
         # return (image,)
+def fill_region_mask(mask_tensor):
+    n, h, w = mask_tensor.shape
+    result = []
+
+    for i in range(n):
+        mask = mask_tensor[i]
+
+        # 1. 找到所有白色区域
+        white_region = mask == 1
+
+        # 2. 通过腐蚀找到边界
+        eroded = ndimage.binary_erosion(white_region).astype(int)
+
+        # 3. 填充白色区域内部的黑色区域
+        filled = ndimage.binary_fill_holes(eroded).astype(int)
+
+        # 4. 只要是被白色完全包围的黑色区域就变为白色
+        # result[i] = np.where(filled == 1, 1, mask)
+        # 将修改后的 mask 重新放回 tensor
+        # 4. 只要是被白色完全包围的黑色区域就变为白色
+        mask = np.where(filled == 1, 1, mask)
+        result.append(torch.tensor(mask, dtype=torch.float32))
+    result = torch.stack(result, dim=0)
+
+    return result
+
 
 """遮罩相加"""
 def add_masks(dilation_erosion, *masks):
@@ -294,7 +320,7 @@ class MaskAdd:
         return (result_mask,)
     
 """遮罩相减"""
-def process_masks(dilation_erosion_1, dilation_erosion_2, dilation_erosion_result, n, *masks):
+def process_masks(dilation_erosion_1, fill_region_mask_1, dilation_erosion_2, fill_region_mask_2, dilation_erosion_result, fill_region_mask_result, n, *masks):
     if not masks or len(masks) < 1:
         return None, None, None
     
@@ -313,6 +339,8 @@ def process_masks(dilation_erosion_1, dilation_erosion_2, dilation_erosion_resul
                 sum_first_n = torch.from_numpy(cv2_sum_first_n)
                 sum_first_n = torch.clamp(sum_first_n / 255.0, min=0, max=1)
            
+
+    
     if dilation_erosion_1 != 0:
             # 对 sum_first_n 应用 dilation/erosion
             kernel_size_1 = max(1, abs(dilation_erosion_1))  # Ensure kernel size is at least 1
@@ -326,7 +354,9 @@ def process_masks(dilation_erosion_1, dilation_erosion_2, dilation_erosion_resul
                 else:
                     dilated = np.array(sum_first_n[i])  # 如果 dilation_erosion_1 为 0，保持原样
                 sum_first_n[i] = torch.from_numpy(dilated / 255.0).float()  # 转换为张量并赋值
-    
+                
+    if fill_region_mask_1:
+        sum_first_n = fill_region_mask(sum_first_n)
     # Sum the masks from n to 12 with dilation/erosion
     sum_n_to_12 = torch.zeros_like(masks[0])
     for mask in masks[n:12]:
@@ -341,6 +371,8 @@ def process_masks(dilation_erosion_1, dilation_erosion_2, dilation_erosion_resul
                 cv2_sum_n_to_12 = cv2.add(np.array(sum_n_to_12, dtype=np.uint8) * 255, cv2_mask, dtype=cv2.CV_8U)
                 sum_n_to_12 = torch.from_numpy(cv2_sum_n_to_12)
                 sum_n_to_12 = torch.clamp(sum_n_to_12 / 255.0, min=0, max=1)
+    
+   
     
     if dilation_erosion_2 != 0:
         # 对 sum_n_to_12 应用 dilation/erosion
@@ -359,7 +391,8 @@ def process_masks(dilation_erosion_1, dilation_erosion_2, dilation_erosion_resul
     # If no masks in n to 12, use a black mask
     if sum_n_to_12.sum() == 0:
         sum_n_to_12 = torch.zeros_like(sum_first_n)
-    
+    if fill_region_mask_2:
+        sum_n_to_12 = fill_region_mask(sum_n_to_12)
     # Subtract the two sums using cv2.subtract
     if sum_first_n.shape == sum_n_to_12.shape:
         cv2_result_mask = cv2.subtract(np.array(sum_first_n, dtype=np.uint8) * 255, np.array(sum_n_to_12, dtype=np.uint8) * 255, dtype=cv2.CV_8U) 
@@ -368,6 +401,8 @@ def process_masks(dilation_erosion_1, dilation_erosion_2, dilation_erosion_resul
     else:
        cv2_result_mask = sum_first_n
 
+   
+    
     if dilation_erosion_result != 0:
         kernel_size_result = max(1, abs(dilation_erosion_result))  # Ensure kernel size is at least 1
         kernel_result = np.ones((kernel_size_result, kernel_size_result), np.uint8)
@@ -380,6 +415,8 @@ def process_masks(dilation_erosion_1, dilation_erosion_2, dilation_erosion_resul
             else:
                 dilated = np.array(cv2_result_mask[i])  # 如果 dilation_erosion_result 为 0，保持原样
             cv2_result_mask[i] = torch.from_numpy(dilated / 255.0).float()  # 转换为张量并赋值
+    if fill_region_mask_result:
+        cv2_result_mask = fill_region_mask(cv2_result_mask)
     
     # Ensure the mask is 2D
     if sum_first_n.ndim < 3:
@@ -398,8 +435,12 @@ class MaskSubtract:
             "required": {
                 "n": ("INT", {"default": 2, "min": 2, "max": 12, "step": 1}),
                 "dilation_erosion_1": ("INT", {"default": 0, "min": -50, "max": 50, "step": 1}),
+                "fill_region_mask_1": ("BOOLEAN", {"default": False,"tooltips": "是否填充第一个遮罩"}),
                 "dilation_erosion_2": ("INT", {"default": 0, "min": -50, "max": 50, "step": 1}),
+                "fill_region_mask_2": ("BOOLEAN", {"default": False,"tooltips": "是否填充第二个遮罩"}),
                 "dilation_erosion_result": ("INT", {"default": 0, "min": -50, "max": 50, "step": 1}),
+                "fill_region_mask_result": ("BOOLEAN", {"default": False,"tooltips": "是否填充结果遮罩"}),
+               
             },
             "optional": {
                 **{f"mask_{i}": ("MASK",) for i in range(1, 13)},
@@ -411,10 +452,10 @@ class MaskSubtract:
     RETURN_NAMES = ("sum_first_n", "sum_n_to_12", "result_mask")
     FUNCTION = "subtract_multiple_masks"
 
-    def subtract_multiple_masks(self, n, dilation_erosion_1, dilation_erosion_2, dilation_erosion_result, **kwargs):
+    def subtract_multiple_masks(self, n, dilation_erosion_1, fill_region_mask_1, dilation_erosion_2, fill_region_mask_2, dilation_erosion_result, fill_region_mask_result, **kwargs):
         # Collect all masks, including None, to maintain order
         masks = [kwargs.get(f"mask_{i}") for i in range(1, 13)]
-        result_masks = process_masks(dilation_erosion_1, dilation_erosion_2, dilation_erosion_result, n, *masks)
+        result_masks = process_masks(dilation_erosion_1,fill_region_mask_1, dilation_erosion_2, fill_region_mask_2, dilation_erosion_result, fill_region_mask_result, n, *masks)
         return result_masks
 
 """遮罩重叠"""
@@ -458,3 +499,46 @@ class MaskOverlap:
             return (black_mask,)
         else:
             return (mask_2,)
+            
+class PasteMasksMy:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "base_image": ("IMAGE",),  # 用于生成纯黑底图
+                "mask_images": ("MASK",),  # 输入的遮罩图像，形如(3, 720, 720)
+                "squares_info": ("STRING",),  # 输入的位置信息，形如str(squares_info)
+            }
+        }
+
+    RETURN_TYPES = ("MASK",)  # 返回合成后的遮罩
+    FUNCTION = "paste_masks"
+    CATEGORY = "My_node/mask"
+
+    def paste_masks(self, base_image, mask_images, squares_info):
+        # 将squares_info从字符串转换为列表
+        squares_info = eval(squares_info)  # 使用eval函数
+
+        # 创建一个与base_image相同大小的纯黑遮罩
+        result_mask = torch.zeros_like(base_image[0, :, :])
+
+        cur_index = 0
+
+        for i, mask_info in enumerate(squares_info):
+            for mask in mask_info:
+                x, y, size = mask  # 获取x, y坐标和大小
+                mask_image = mask_images[cur_index]  # 假设mask_images是一个包含多个遮罩的列表
+
+                # 将mask_image转换为numpy数组
+                mask_image_np = (mask_image.cpu().numpy() * 255).astype(np.uint8)  # 转换为uint8格式
+                mask_image_resized = cv2.resize(mask_image_np, (size, size))  # 调整遮罩图像大小
+
+                # 将调整大小的遮罩图像转换为PyTorch张量
+                mask_tensor = torch.from_numpy(mask_image_resized).float() / 255.0
+
+                # 将遮罩粘贴到结果遮罩中
+                result_mask[y:y + size, x:x + size] = mask_tensor
+
+                cur_index += 1
+
+        return (result_mask.unsqueeze(0),)  # 返回合成后的遮罩

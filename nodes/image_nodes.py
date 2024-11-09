@@ -395,14 +395,14 @@ class CropFaceMy:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {"image": ("IMAGE",),
-                            "det_thresh": ("FLOAT", {"default": 0.5, "min": 0, "max": 1.0, "step": 0.01}),
-                            "scale_factor": ("FLOAT", {"default": 1.0, "min": 0.5, "max": 5.0, "step": 0.01}),
-                            "device": ([-1, 0], {"default": -1, "tooltip": "-1:cpu, 0:gpu"}),
-                            "det_size": ("INT", {"default": 512, "min": 256, "max": 1024, "step": 2}),
-                            "output_size": ("INT", {"default": 512, "min": 256, "max": 1024, "step": 2}),
+                             "det_thresh": ("FLOAT", {"default": 0.5, "min": 0, "max": 1.0, "step": 0.01}),
+                             "scale_factor": ("FLOAT", {"default": 1.0, "min": 0.5, "max": 5.0, "step": 0.01}),
+                             "device": ([-1, 0], {"default": -1, "tooltip": "-1:cpu, 0:gpu"}),
+                             "det_size": ("INT", {"default": 512, "min": 256, "max": 1024, "step": 2}),
+                             "output_size": ("INT", {"default": 512, "min": 256, "max": 1024, "step": 2}),
                              }}
 
-    RETURN_TYPES = ("IMAGE","MASK","STRING")
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING")
 
     FUNCTION = "crop_face"
 
@@ -412,7 +412,7 @@ class CropFaceMy:
         self.face_helper = None
 
     def crop_face(self, image, det_thresh, scale_factor, device, det_size, output_size):
-        
+
         if device < 0:
             provider = "CPU"
         else:
@@ -420,13 +420,12 @@ class CropFaceMy:
         print("provider", provider)
         print("det_size", det_size)
         print("det_thresh", det_thresh)
-        device=model_management.get_torch_device()
-        model = insightface_loader(provider=provider, name='buffalo_l', det_thresh=det_thresh, size=det_size)   
+        device = model_management.get_torch_device()
+        model = insightface_loader(provider=provider, name='buffalo_l', det_thresh=det_thresh, size=det_size)
         image_np = 255. * image.cpu().numpy()
 
         total_images = image_np.shape[0]
         out_images = []
-    
 
         # 获取输入样本的宽高
         height, width = image.shape[1:3]  # 形状为 (2, 960, 720, 3)，获取宽高
@@ -434,13 +433,12 @@ class CropFaceMy:
         # 创建一个与样本数量相同的纯黑张量
         mask = torch.zeros((total_images, height, width), dtype=torch.float32)
         squares_info = []  # 用于记录正方形的位置信息
-        image_np_new=image_np.copy()
+        image_np_new = image_np.copy()
         for i in range(total_images):
             while len(squares_info) <= i:  # 确保列表长度足够
                 squares_info.append([])  # 添加空列表
 
-            
-            cur_image_np = image_np_new[i, :, :, ::-1] # 将RGB转换为BGR
+            cur_image_np = image_np_new[i, :, :, ::-1]  # 将RGB转换为BGR
 
             # 检查图像是否为空
             if cur_image_np is None or cur_image_np.size == 0:
@@ -452,13 +450,13 @@ class CropFaceMy:
             for j in range(faces_found):
                 bbox = faces[j].bbox
                 x1, y1, x2, y2 = bbox[:4]  # 获取面部框的坐标
-                
+
                 center_x = (x1 + x2) / 2
                 center_y = (y1 + y2) / 2
                 # 根据scale_factor调整面部框的大小,
                 # 如果x1,y1超出边界则取最小值0,0,
                 # 如果x2,y2超出边界则取最大值width,height
-                
+
                 x1 = max(0, int(center_x - (x2 - x1) * scale_factor / 2))
                 y1 = max(0, int(center_y - (y2 - y1) * scale_factor / 2))
                 x2 = min(width, int(center_x + (x2 - x1) * scale_factor / 2))
@@ -466,27 +464,28 @@ class CropFaceMy:
                 side_length = min(x2 - x1, y2 - y1)  # 计算正方形的边长
 
                 # 计算正方形的边长和中心点
-                square_size=int(side_length)
-                if int(center_x - square_size // 2)<=0:
-                    square_x=0
-                elif int(center_x - square_size // 2)>=width:
-                    square_x=width-1
+                square_size = int(side_length)
+                if int(center_x - square_size // 2) <= 0:
+                    square_x = 0
+                elif int(center_x - square_size // 2) >= width:
+                    square_x = width - 1
                 else:
-                    square_x=int(center_x - square_size // 2)
-                if int(center_y - square_size // 2)<=0:
-                    square_y=0
-                elif int(center_y - square_size // 2)>=height:
-                    square_y=height-1
+                    square_x = int(center_x - square_size // 2)
+                if int(center_y - square_size // 2) <= 0:
+                    square_y = 0
+                elif int(center_y - square_size // 2) >= height:
+                    square_y = height - 1
                 else:
-                    square_y=int(center_y - square_size // 2) 
-                # square_size = min(int(side_length))
+                    square_y = int(center_y - square_size // 2)
+                    # square_size = min(int(side_length))
                 # 将正方形区域填充为白色    
                 mask[i, square_y:int(square_y + square_size), square_x:int(square_x + square_size)] = 1.0
 
                 # 记录正方形的信息
                 squares_info[i].append([square_x, square_y, square_size])
                 # 裁剪正方形面部
-                cropped_face_1 = cur_image_np[square_y:int(square_y + square_size), square_x:int(square_x + square_size)]
+                cropped_face_1 = cur_image_np[square_y:int(square_y + square_size),
+                                 square_x:int(square_x + square_size)]
 
                 # 检查裁剪的面部图像是否为空
                 if cropped_face_1 is None or cropped_face_1.size == 0:
@@ -497,7 +496,7 @@ class CropFaceMy:
                 normalize(cropped_face_2, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True)
                 cropped_face_3 = cropped_face_2.unsqueeze(0).to(device)
                 cropped_face_4 = tensor2img(cropped_face_3, rgb2bgr=True, min_max=(-1, 1)).astype('uint8')
-                cropped_face_5 = cv2.cvtColor(cropped_face_4, cv2.COLOR_BGR2RGB) # 将BGR转换为RGB 例如(78,78,3)
+                cropped_face_5 = cv2.cvtColor(cropped_face_4, cv2.COLOR_BGR2RGB)  # 将BGR转换为RGB 例如(78,78,3)
                 out_images.append(cv2.resize(cropped_face_5, (output_size, output_size)))  # 调整输出图像大小
             # if out_images.shape[0] < next_idx + faces_found:
             #     print(out_images.shape)
@@ -511,6 +510,8 @@ class CropFaceMy:
             cropped_face_7 = cropped_face_7.unsqueeze(0)
 
         return (cropped_face_7, mask, str(squares_info))  # 返回张量、mask和正方形信息
+
+
 def insightface_loader(provider="CPU", name='buffalo_l', det_thresh=0.5, size=640):
     try:
         from insightface.app import FaceAnalysis
@@ -554,7 +555,7 @@ class CreateBboxMask:
                              }}
 
     RETURN_TYPES = ("IMAGE", "MASK")
-    RETURN_NAMES=("image","mask")
+    RETURN_NAMES = ("image", "mask")
     FUNCTION = "crop_face"
 
     CATEGORY = "My_node/mask"
@@ -662,37 +663,51 @@ class PasteFacesMy:
 
     def paste_faces(self, base_image, face_images, squares_info):
         # 将squares_info从字符串转换为列表
-        squares_info = eval(squares_info)  # 注意：eval可能存在安全隐患，确保输入是可信的
+        squares_info = eval(squares_info)  # 使用eval函数
 
-        # # 将base_image转换为可操作的numpy数组
-        # base_image_np = base_image.cpu().numpy()  # 假设base_image是一个张量
-        # base_image_np = (base_image_np * 255).astype(np.uint8)  # 转换为uint8格式
-        result_image=base_image.clone()
+        result_image = base_image.clone()
         cur_index = 0
+
         for i, face_info in enumerate(squares_info):
-            # 当前对应i的样本
-            # cur_base_image=result_image[i]
             for face in face_info:
                 x, y, size = face  # 获取x, y坐标和大小
-                # 从face_images中提取对应的人脸图像
                 face_image = face_images[cur_index]  # 假设face_images是一个包含多个图像的列表
-                # 变成可操作的numpy数组
-                face_image_np = face_image.cpu().numpy()  # 假设face_image是一个张量
-                face_image_np = (face_image_np * 255).astype(np.uint8)  # 转换为uint8格式
+
+                # 将face_image转换为numpy数组
+                face_image_np = (face_image.cpu().numpy() * 255).astype(np.uint8)  # 转换为uint8格式
                 face_image_resized = cv2.resize(face_image_np, (size, size))  # 调整人脸图像大小
-                 # 将调整大小的人脸图像转换为PyTorch张量
-                face_image_tensor = torch.from_numpy(face_image_resized).permute(2, 0, 1).float() / 255.0  # 转换为张量并归一化
 
-                # 调整 face_image_tensor 的维度顺序
-                face_image_tensor = face_image_tensor.permute(1, 2, 0)  # 变为 [H, W, C] 形式
+                if face_image_resized.shape[2] == 4:
+                    print("存在透明通道")
+                    # 分离RGB和Alpha通道
+                    face_rgb = face_image_resized[:, :, :3]
+                    face_alpha = face_image_resized[:, :, 3] / 255.0  # 归一化Alpha通道
 
-                # 将调整大小的人脸图像粘贴到base_image上
-                result_image[i,y:y + size, x:x + size] = face_image_tensor
+                    # 将调整大小的人脸图像转换为PyTorch张量
+                    face_rgb_tensor = torch.from_numpy(face_rgb).permute(2, 0, 1).float() / 255.0
+                    face_alpha_tensor = torch.from_numpy(face_alpha).unsqueeze(0).float()
+
+                    # 获取当前区域的基图像
+                    base_region = result_image[i, y:y + size, x:x + size].float().permute(2, 0, 1)
+
+                    # 混合图像
+                    blended_region = face_rgb_tensor * face_alpha_tensor + base_region * (1 - face_alpha_tensor)
+                    blended_region = blended_region.permute(1, 2, 0)
+                    print(blended_region.shape)
+                    # display_images(blended_region)
+                    # 将混合后的图像粘贴回基图像
+                    result_image[i, y:y + size, x:x + size] = blended_region
+                else:
+                    # 没有透明通道，直接粘贴
+                    face_rgb_tensor = torch.from_numpy(face_image_resized).permute(2, 0, 1).float() / 255.0
+                    face_rgb_tensor = face_rgb_tensor.permute(1, 2, 0)
+                    result_image[i, y:y + size, x:x + size] = face_rgb_tensor
+
                 cur_index += 1
-            
-        # 将合成后的图像转换回张量
-        # result_image = torch.from_numpy(base_image_np).float() / 255.0  # 归一化为[0, 1]范围
+
         return (result_image,)  # 返回合成后的图像
+
+
 class GenerateWhiteTensor:
     @classmethod
     def INPUT_TYPES(s):
@@ -718,3 +733,142 @@ class GenerateWhiteTensor:
         black_tensor = torch.ones((n, size, size), dtype=torch.float32)
 
         return (black_tensor,)
+    
+def tensor2pil(image):
+    return Image.fromarray(np.clip(255. * image.cpu().numpy().squeeze(), 0, 255).astype(np.uint8))
+
+def pil2tensor(image):
+    return torch.from_numpy(np.array(image).astype(np.float32) / 255.0).unsqueeze(0) 
+
+def tensor2rgba(t: torch.Tensor) -> torch.Tensor:
+    size = t.size()
+    if (len(size) < 4):
+        return t.unsqueeze(3).repeat(1, 1, 1, 4)
+    elif size[3] == 1:
+        return t.repeat(1, 1, 1, 4)
+    elif size[3] == 3:
+        alpha_tensor = torch.ones((size[0], size[1], size[2], 1))
+        return torch.cat((t, alpha_tensor), dim=3)
+    else:
+        return t
+
+class MyLoadImageListPlus:
+
+    @classmethod
+    def INPUT_TYPES(s):
+        scale_to_list = ['longest', 'None', 'shortest', 'width', 'height', 'total_pixel(kilo pixel)']
+        return {"required": {"input_folder": ("STRING",{"default": "",}),
+                             "start_index": ("INT", {"default": 0, "min": 0, "max": 99999}),
+                             "max_images": ("INT", {"default": 1, "min": 1, "max": 99999}),
+                             "scale_to_side": (scale_to_list,),  # 是否按长边缩放
+                             "scale_to_length": ("INT", {"default": 1024, "min": 4, "max": 999999, "step": 1}),
+               },
+            #    "optional": {"input_path": ("STRING", {"default": '', "multiline": False}),     
+            #    }
+        }
+
+    RETURN_TYPES = ("IMAGE", "MASK", "INT", "STRING","STRING", "INT", "INT", "INT" )
+    RETURN_NAMES = ("IMAGE", "MASK", "index", "filename", "filename_prefix", "width", "height", "list_length",)
+    OUTPUT_IS_LIST = (True, True, True, True, True, True, True, False)
+    FUNCTION = "make_list"
+    CATEGORY = "My_node/image"
+
+    def make_list(self, start_index, max_images, input_folder, scale_to_side, scale_to_length):
+        if not input_folder:
+            return None
+
+        in_path =input_folder
+        
+        file_list = [f for f in os.listdir(in_path) if f.lower().endswith(('.png', '.jpg', '.jpeg','.PNG', '.JPG', '.JPEG'))]
+        
+        image_list = []
+        mask_list = []
+        index_list = []        
+        filename_list = []
+        width_list = []
+        height_list = []
+        prefix_list = []
+        exif_list = []         
+        
+        # Ensure start_index is within the bounds of the list
+        start_index = max(0, min(start_index, len(file_list) - 1))
+
+        # Calculate the end index based on max_rows
+        end_index = min(start_index + max_images, len(file_list) - 1)
+                    
+        for num in range(start_index, end_index):
+            filename = file_list[num]
+            print("filename", filename)
+            # 文件名前缀
+            prefix = os.path.splitext(filename)[0]
+            img_path = os.path.join(in_path, filename)
+            print("img_path", img_path)
+            img = Image.open(img_path)
+            
+            width, height = img.size
+            ratio = width / height
+            if ratio > 1:
+                if scale_to_side == 'longest':
+                    target_width = scale_to_length
+                    target_height = int(target_width / ratio)
+                elif scale_to_side == 'shortest':
+                    target_height = scale_to_length
+                    target_width = int(target_height * ratio)
+                elif scale_to_side == 'width':
+                    target_width = scale_to_length
+                    target_height = int(target_width / ratio)
+                elif scale_to_side == 'height':
+                    target_height = scale_to_length
+                    target_width = int(target_height * ratio)
+                elif scale_to_side == 'total_pixel(kilo pixel)':
+                    target_width = math.sqrt(ratio * scale_to_length * 1000)
+                    target_height = target_width / ratio
+                    target_width = int(target_width)
+                    target_height = int(target_height)
+                else:
+                    target_width = width
+                    target_height = int(target_width / ratio)
+            else:
+                if scale_to_side == 'longest':
+                    target_height = scale_to_length
+                    target_width = int(target_height * ratio)
+                elif scale_to_side == 'shortest':
+                    target_width = scale_to_length
+                    target_height = int(target_width / ratio)
+                elif scale_to_side == 'width':
+                    target_width = scale_to_length
+                    target_height = int(target_width / ratio)
+                elif scale_to_side == 'height':
+                    target_height = scale_to_length
+                    target_width = int(target_height * ratio)
+                elif scale_to_side == 'total_pixel(kilo pixel)':
+                    target_width = math.sqrt(ratio * scale_to_length * 1000)
+                    target_height = target_width / ratio
+                    target_width = int(target_width)
+                    target_height = int(target_height)
+                else:
+                    target_height = height
+                    target_width = int(target_height * ratio)
+            img = img.resize((target_width, target_height), Image.LANCZOS)
+            width_list.append(target_width)
+            height_list.append(target_height)
+            prefix_list.append(prefix)
+
+            image_list.append(pil2tensor(img.convert("RGB")))
+            
+            tensor_img = pil2tensor(img)
+            mask_list.append(tensor2rgba(tensor_img)[:,:,:,0])
+           
+            # Populate the image index
+            index_list.append(num)
+
+            # Populate the filename_list
+            filename_list.append(filename)
+            
+        if not image_list:
+            # Handle the case where the list is empty
+            print(" No images found.")
+            return None
+        list_length = end_index - start_index
+        
+        return (image_list, mask_list, index_list, filename_list, prefix_list, width_list, height_list, list_length, )
