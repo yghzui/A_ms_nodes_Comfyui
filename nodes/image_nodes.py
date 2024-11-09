@@ -478,6 +478,8 @@ class CropFaceMy:
                 else:
                     square_y = int(center_y - square_size // 2)
                     # square_size = min(int(side_length))
+                square_size = min(square_size, width-square_x, height-square_y)
+                
                 # 将正方形区域填充为白色    
                 mask[i, square_y:int(square_y + square_size), square_x:int(square_x + square_size)] = 1.0
 
@@ -671,12 +673,21 @@ class PasteFacesMy:
         for i, face_info in enumerate(squares_info):
             for face in face_info:
                 x, y, size = face  # 获取x, y坐标和大小
+                
                 face_image = face_images[cur_index]  # 假设face_images是一个包含多个图像的列表
 
                 # 将face_image转换为numpy数组
                 face_image_np = (face_image.cpu().numpy() * 255).astype(np.uint8)  # 转换为uint8格式
                 face_image_resized = cv2.resize(face_image_np, (size, size))  # 调整人脸图像大小
-
+                 # 确保目标区域的大小与face_image_resized匹配
+                target_height = min(size, result_image.shape[1] - y)
+                target_width = min(size, result_image.shape[2] - x)
+                print("size", size)
+                print("result_image.shape[1]-y", result_image.shape[1]-y)
+                print("result_image.shape[2]-x", result_image.shape[2]-x)
+                print("target_height", target_height)
+                print("target_width", target_width)
+                face_image_resized = face_image_resized[:target_height, :target_width]
                 if face_image_resized.shape[2] == 4:
                     print("存在透明通道")
                     # 分离RGB和Alpha通道
@@ -688,7 +699,7 @@ class PasteFacesMy:
                     face_alpha_tensor = torch.from_numpy(face_alpha).unsqueeze(0).float()
 
                     # 获取当前区域的基图像
-                    base_region = result_image[i, y:y + size, x:x + size].float().permute(2, 0, 1)
+                    base_region = result_image[i, y:y + target_height, x:x + target_width].float().permute(2, 0, 1)
 
                     # 混合图像
                     blended_region = face_rgb_tensor * face_alpha_tensor + base_region * (1 - face_alpha_tensor)
@@ -696,12 +707,12 @@ class PasteFacesMy:
                     print(blended_region.shape)
                     # display_images(blended_region)
                     # 将混合后的图像粘贴回基图像
-                    result_image[i, y:y + size, x:x + size] = blended_region
+                    result_image[i, y:y + target_height, x:x + target_width] = blended_region
                 else:
                     # 没有透明通道，直接粘贴
                     face_rgb_tensor = torch.from_numpy(face_image_resized).permute(2, 0, 1).float() / 255.0
                     face_rgb_tensor = face_rgb_tensor.permute(1, 2, 0)
-                    result_image[i, y:y + size, x:x + size] = face_rgb_tensor
+                    result_image[i, y:y + target_height, x:x + target_width] = face_rgb_tensor
 
                 cur_index += 1
 

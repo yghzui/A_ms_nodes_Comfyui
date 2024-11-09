@@ -499,7 +499,7 @@ class MaskOverlap:
             return (black_mask,)
         else:
             return (mask_2,)
-            
+
 class PasteMasksMy:
     @classmethod
     def INPUT_TYPES(s):
@@ -519,8 +519,12 @@ class PasteMasksMy:
         # 将squares_info从字符串转换为列表
         squares_info = eval(squares_info)  # 使用eval函数
 
+        # 获取批次大小
+        batch_size = base_image.shape[0]
+
         # 创建一个与base_image相同大小的纯黑遮罩
-        result_mask = torch.zeros_like(base_image[0, :, :])
+        result_mask = torch.zeros((batch_size, base_image.shape[1], base_image.shape[2]), dtype=torch.float32)
+
 
         cur_index = 0
 
@@ -536,8 +540,15 @@ class PasteMasksMy:
                 # 将调整大小的遮罩图像转换为PyTorch张量
                 mask_tensor = torch.from_numpy(mask_image_resized).float() / 255.0
 
-                # 将遮罩粘贴到结果遮罩中
-                result_mask[y:y + size, x:x + size] = mask_tensor
+                # 确保目标区域的大小与mask_tensor匹配
+                target_height = min(size, result_mask.shape[1] - y)
+                target_width = min(size, result_mask.shape[2] - x)
+                mask_tensor = mask_tensor[:target_height, :target_width]
+
+                # 只粘贴非黑色区域
+                non_black_area = mask_tensor > 0
+                result_mask[i, y:y + target_height, x:x + target_width][non_black_area] = mask_tensor[non_black_area]
+
 
                 cur_index += 1
 
