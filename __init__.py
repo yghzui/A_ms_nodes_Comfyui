@@ -23,7 +23,8 @@ NODE_CLASS_MAPPINGS = {
     "PasteFacesMy": PasteFacesMy,
     "PasteMasksMy": PasteMasksMy,
     "GenerateBlackTensor": GenerateWhiteTensor,
-    "MyLoadImageListPlus": MyLoadImageListPlus
+    "MyLoadImageListPlus": MyLoadImageListPlus,
+    "RemoveGlassesFaceMask": RemoveGlassesFaceMask
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by My",
@@ -41,7 +42,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PasteFacesMy": "PasteFacesMy 粘贴面部 by My",
     "PasteMasksMy": "PasteMasksMy 粘贴面部遮罩 by My",
     "GenerateBlackTensor": "GenerateBlackTensor 生成纯黑张量 by My",
-    "MyLoadImageListPlus": "MyLoadImageListPlus 加载图片列表 by My"
+    "MyLoadImageListPlus": "MyLoadImageListPlus 加载图片列表 by My",
+    "RemoveGlassesFaceMask": "RemoveGlassesFaceMask 去除眼镜 by My"
 }
 
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS']
