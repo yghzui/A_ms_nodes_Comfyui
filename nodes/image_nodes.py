@@ -4,20 +4,20 @@
 # File   : image_nodes.py
 # Description :
 import numpy as np
-import time
+# import time
 import torch
 from comfy import model_management
-from custom_nodes.facerestore_cf.facelib.utils.face_restoration_helper import FaceRestoreHelper
-from custom_nodes.facerestore_cf.facelib.detection.retinaface import retinaface
+# from custom_nodes.facerestore_cf.facelib.utils.face_restoration_helper import FaceRestoreHelper
+# from custom_nodes.facerestore_cf.facelib.detection.retinaface import retinaface
 from torchvision.transforms.functional import normalize
 from torchvision.utils import make_grid
-from comfy_extras.chainner_models import model_loading
-import torch.nn.functional as F
-import random
+# from comfy_extras.chainner_models import model_loading
+# import torch.nn.functional as F
+# import random
 import math
 import os
-import re
-import json
+# import re
+# import json
 import hashlib
 import cv2
 
@@ -27,8 +27,8 @@ import cv2
 #     print("OpenCV not installed")
 #     pass
 from PIL import ImageGrab, ImageDraw, ImageFont, Image, ImageSequence, ImageOps
-from comfy.cli_args import args
-from comfy.utils import ProgressBar, common_upscale
+# from comfy.cli_args import args
+# from comfy.utils import ProgressBar, common_upscale
 import folder_paths
 from nodes import MAX_RESOLUTION
 import warnings
@@ -478,8 +478,8 @@ class CropFaceMy:
                 else:
                     square_y = int(center_y - square_size // 2)
                     # square_size = min(int(side_length))
-                square_size = min(square_size, width-square_x, height-square_y)
-                
+                square_size = min(square_size, width - square_x, height - square_y)
+
                 # 将正方形区域填充为白色    
                 mask[i, square_y:int(square_y + square_size), square_x:int(square_x + square_size)] = 1.0
 
@@ -673,18 +673,18 @@ class PasteFacesMy:
         for i, face_info in enumerate(squares_info):
             for face in face_info:
                 x, y, size = face  # 获取x, y坐标和大小
-                
+
                 face_image = face_images[cur_index]  # 假设face_images是一个包含多个图像的列表
 
                 # 将face_image转换为numpy数组
                 face_image_np = (face_image.cpu().numpy() * 255).astype(np.uint8)  # 转换为uint8格式
                 face_image_resized = cv2.resize(face_image_np, (size, size))  # 调整人脸图像大小
-                 # 确保目标区域的大小与face_image_resized匹配
+                # 确保目标区域的大小与face_image_resized匹配
                 target_height = min(size, result_image.shape[1] - y)
                 target_width = min(size, result_image.shape[2] - x)
                 print("size", size)
-                print("result_image.shape[1]-y", result_image.shape[1]-y)
-                print("result_image.shape[2]-x", result_image.shape[2]-x)
+                print("result_image.shape[1]-y", result_image.shape[1] - y)
+                print("result_image.shape[2]-x", result_image.shape[2] - x)
                 print("target_height", target_height)
                 print("target_width", target_width)
                 face_image_resized = face_image_resized[:target_height, :target_width]
@@ -744,12 +744,15 @@ class GenerateWhiteTensor:
         black_tensor = torch.ones((n, size, size), dtype=torch.float32)
 
         return (black_tensor,)
-    
+
+
 def tensor2pil(image):
     return Image.fromarray(np.clip(255. * image.cpu().numpy().squeeze(), 0, 255).astype(np.uint8))
 
+
 def pil2tensor(image):
-    return torch.from_numpy(np.array(image).astype(np.float32) / 255.0).unsqueeze(0) 
+    return torch.from_numpy(np.array(image).astype(np.float32) / 255.0).unsqueeze(0)
+
 
 def tensor2rgba(t: torch.Tensor) -> torch.Tensor:
     size = t.size()
@@ -763,22 +766,23 @@ def tensor2rgba(t: torch.Tensor) -> torch.Tensor:
     else:
         return t
 
+
 class MyLoadImageListPlus:
 
     @classmethod
     def INPUT_TYPES(s):
         scale_to_list = ['longest', 'None', 'shortest', 'width', 'height', 'total_pixel(kilo pixel)']
-        return {"required": {"input_folder": ("STRING",{"default": "",}),
+        return {"required": {"input_folder": ("STRING", {"default": "", }),
                              "start_index": ("INT", {"default": 0, "min": 0, "max": 99999}),
                              "max_images": ("INT", {"default": 1, "min": 1, "max": 99999}),
                              "scale_to_side": (scale_to_list,),  # 是否按长边缩放
                              "scale_to_length": ("INT", {"default": 1024, "min": 4, "max": 999999, "step": 1}),
-               },
-            #    "optional": {"input_path": ("STRING", {"default": '', "multiline": False}),     
-            #    }
-        }
+                             },
+                #    "optional": {"input_path": ("STRING", {"default": '', "multiline": False}),
+                #    }
+                }
 
-    RETURN_TYPES = ("IMAGE", "MASK", "INT", "STRING","STRING", "INT", "INT", "INT" )
+    RETURN_TYPES = ("IMAGE", "MASK", "INT", "STRING", "STRING", "INT", "INT", "INT")
     RETURN_NAMES = ("IMAGE", "MASK", "index", "filename", "filename_prefix", "width", "height", "list_length",)
     OUTPUT_IS_LIST = (True, True, True, True, True, True, True, False)
     FUNCTION = "make_list"
@@ -788,25 +792,26 @@ class MyLoadImageListPlus:
         if not input_folder:
             return None
 
-        in_path =input_folder
-        
-        file_list = [f for f in os.listdir(in_path) if f.lower().endswith(('.png', '.jpg', '.jpeg','.PNG', '.JPG', '.JPEG'))]
-        
+        in_path = input_folder
+
+        file_list = [f for f in os.listdir(in_path) if
+                     f.lower().endswith(('.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG'))]
+
         image_list = []
         mask_list = []
-        index_list = []        
+        index_list = []
         filename_list = []
         width_list = []
         height_list = []
         prefix_list = []
-        exif_list = []         
-        
+        exif_list = []
+
         # Ensure start_index is within the bounds of the list
         start_index = max(0, min(start_index, len(file_list) - 1))
 
         # Calculate the end index based on max_rows
         end_index = min(start_index + max_images, len(file_list) - 1)
-                    
+
         for num in range(start_index, end_index):
             filename = file_list[num]
             print("filename", filename)
@@ -815,7 +820,7 @@ class MyLoadImageListPlus:
             img_path = os.path.join(in_path, filename)
             print("img_path", img_path)
             img = Image.open(img_path)
-            
+
             width, height = img.size
             ratio = width / height
             if ratio > 1:
@@ -866,20 +871,20 @@ class MyLoadImageListPlus:
             prefix_list.append(prefix)
 
             image_list.append(pil2tensor(img.convert("RGB")))
-            
+
             tensor_img = pil2tensor(img)
-            mask_list.append(tensor2rgba(tensor_img)[:,:,:,0])
-           
+            mask_list.append(tensor2rgba(tensor_img)[:, :, :, 0])
+
             # Populate the image index
             index_list.append(num)
 
             # Populate the filename_list
             filename_list.append(filename)
-            
+
         if not image_list:
             # Handle the case where the list is empty
             print(" No images found.")
             return None
         list_length = end_index - start_index
-        
-        return (image_list, mask_list, index_list, filename_list, prefix_list, width_list, height_list, list_length, )
+
+        return (image_list, mask_list, index_list, filename_list, prefix_list, width_list, height_list, list_length,)

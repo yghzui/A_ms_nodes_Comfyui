@@ -353,10 +353,55 @@ def process_mask(mask_tensor):
     return result
 
 
+def resize_tensor_torch(tensor, target_shape=(256, 256)):
+    """
+    将形状为 (N, H, W, C) 的张量调整为 (N, 256, 256, C)
+
+    :param tensor: 输入张量，形状为 (N, H, W, C)
+    :param target_shape: 目标形状 (height, width)，默认为 (256, 256)
+    :return: 调整后的张量，形状为 (N, 256, 256, C)
+    """
+    N, H, W, C = tensor.shape
+    target_height, target_width = target_shape
+    tensor = tensor.permute(0, 3, 1, 2)  # 调整为 (N, C, H, W)
+    resized_tensor = F.interpolate(tensor, size=(target_height, target_width), mode='bilinear', align_corners=False)
+    resized_tensor = resized_tensor.permute(0, 2, 3, 1)  # 调整回 (N, H, W, C)
+    return resized_tensor
+
+
+def resize_mask_tensor_torch(tensor, target_shape=(256, 256)):
+    """
+    将形状为 (N, 256, 256) 的张量调整为 (N, H, W)
+
+    :param tensor: 输入张量，形状为 (N, 256, 256)
+    :param target_shape: 目标形状 (height, width)，默认为 (256, 256)
+    :return: 调整后的张量，形状为 (N, H, W)
+    """
+    N, H, W = tensor.shape
+    target_height, target_width = target_shape
+    resized_tensor = F.interpolate(tensor.unsqueeze(1), size=(target_height, target_width), mode='bilinear',
+                                   align_corners=False)
+    resized_tensor = resized_tensor.squeeze(1)  # 移除增加的维度
+    return resized_tensor
+
+
+def adjust_values(masks, value):
+    # 确保值在0到1之间
+    value = max(0.0, min(1.0, value))
+
+    # 创建一个新的遮罩张量
+    adjusted_masks = masks.clone()
+
+    # 将遮罩中为1的值设置为指定的值
+    adjusted_masks[masks != 0] = value
+
+    return adjusted_masks
+
+
 if __name__ == "__main__":
     # folder_rgb = r"D:\AI\SD\input\图片\rgb_3_1"
-    folder_rgba = r"D:\AI\SD\input\图片\rgb_3_2"
-    # folder_alpha = r"D:\AI\SD\input\图片\rgba_4"
+    # folder_rgba = r"D:\AI\SD\input\图片\rgb_3_2"
+    folder_alpha = r"D:\AI\SD\input\图片\rgba_4"
     image_load_cap = 0
     start_index = 0
     # # 如果load_images输出四个参数
@@ -369,14 +414,14 @@ if __name__ == "__main__":
     #     image1, mask1, len_images = load_images(folder_rgb, image_load_cap, start_index)
     #     image_path_list = None
     # print("单张图片模式")
-    try:
-        image1_1, mask1_1, len_images_1, image_path_list_1 = load_images(folder_rgba, image_load_cap, start_index)
-        # print("多张图片模式")
-    except ValueError:
-        image1_1, mask1_1, len_images_1 = load_images(folder_rgba, image_load_cap, start_index)
+    # try:
+    #     image1_1, mask1_1, len_images_1, image_path_list_1 = load_images(folder_rgba, image_load_cap, start_index)
+    #     # print("多张图片模式")
+    # except ValueError:
+    #     image1_1, mask1_1, len_images_1 = load_images(folder_rgba, image_load_cap, start_index)
     #
     # print("输入rgb图片:", image1.shape)
-    # image2, mask2 = load_images_with_alpha(folder_alpha, image_load_cap, start_index)
+    image2, mask2 = load_images_with_alpha(folder_alpha, image_load_cap, start_index)
     # print("输入rgba图片:", image2.shape)
     # # image_3 = paste_faces(image1, image1_1, "[[[388, 0, 304], [0, 47, 383], [287, 311, 356], [589, 179, 351]]]")
     # # display_images(image_3)
@@ -401,57 +446,26 @@ if __name__ == "__main__":
     # display_images(image1_1)
     from face_without_glasses import infer_and_get_mask
 
-
-    def resize_tensor_torch(tensor, target_shape=(256, 256)):
-        """
-        将形状为 (N, H, W, C) 的张量调整为 (N, 256, 256, C)
-
-        :param tensor: 输入张量，形状为 (N, H, W, C)
-        :param target_shape: 目标形状 (height, width)，默认为 (256, 256)
-        :return: 调整后的张量，形状为 (N, 256, 256, C)
-        """
-        N, H, W, C = tensor.shape
-        target_height, target_width = target_shape
-        tensor = tensor.permute(0, 3, 1, 2)  # 调整为 (N, C, H, W)
-        resized_tensor = F.interpolate(tensor, size=(target_height, target_width), mode='bilinear', align_corners=False)
-        resized_tensor = resized_tensor.permute(0, 2, 3, 1)  # 调整回 (N, H, W, C)
-        return resized_tensor
-
-
-    def resize_mask_tensor_torch(tensor, target_shape=(256, 256)):
-        """
-        将形状为 (N, 256, 256) 的张量调整为 (N, H, W)
-
-        :param tensor: 输入张量，形状为 (N, 256, 256)
-        :param target_shape: 目标形状 (height, width)，默认为 (256, 256)
-        :return: 调整后的张量，形状为 (N, H, W)
-        """
-        N, H, W = tensor.shape
-        target_height, target_width = target_shape
-        resized_tensor = F.interpolate(tensor.unsqueeze(1), size=(target_height, target_width), mode='bilinear',
-                                       align_corners=False)
-        resized_tensor = resized_tensor.squeeze(1)  # 移除增加的维度
-        return resized_tensor
-
-
-    model_path = r"D:\AI\comfyui\ComfyUI-aki-v1.3\custom_nodes\A_my_nodes\models\face_remove_glasses\dfl_xseg.onnx"
-    h, w = image1_1.shape[1], image1_1.shape[2]
-    image1_1 = resize_tensor_torch(image1_1)
+    # model_path = r"D:\AI\comfyui\ComfyUI-aki-v1.3\custom_nodes\A_my_nodes\models\face_remove_glasses\dfl_xseg.onnx"
+    # h, w = image1_1.shape[1], image1_1.shape[2]
+    # image1_1 = resize_tensor_torch(image1_1)
     # 转化为np
-    image1_1 = image1_1.cpu().numpy()
-    mask_image = infer_and_get_mask(model_path, image1_1)
-    mask_image_1 = mask_image[0]
-    mask_image_2 = np.squeeze(mask_image_1, axis=-1)
+    # image1_1 = image1_1.cpu().numpy()
+    # mask_image = infer_and_get_mask(model_path, image1_1)
+    # mask_image_1 = mask_image[0]
+    # mask_image_2 = np.squeeze(mask_image_1, axis=-1)
     # print(mask_image[0].shape)
     # print(mask_image[0][0].shape)
-    mask_image_3 = torch.from_numpy(mask_image_2 * 255)
-    mask_image_4 = resize_mask_tensor_torch(mask_image_3, (h, w))
+    # mask_image_3 = torch.from_numpy(mask_image_2 * 255)
+    # mask_image_4 = resize_mask_tensor_torch(mask_image_3, (h, w))
     # mask_image = torch.from_numpy(mask_image)
-    last_mask = []
-    for i in range(image1_1.shape[0]):
-        occlusion_mask = mask_image[0][i].transpose(0, 1, 2).clip(0, 1).astype(np.float32)
-        occlusion_mask = cv2.resize(occlusion_mask, (h, w))
-        occlusion_mask = (cv2.GaussianBlur(occlusion_mask.clip(0, 1), (0, 0), 5).clip(0.5, 1) - 0.5) * 2
-        last_mask.append(torch.tensor(occlusion_mask, dtype=torch.float32))
-    last_mask_tensor = torch.stack(last_mask, dim=0)
-    display_images(last_mask_tensor)
+    # last_mask = []
+    # for i in range(image1_1.shape[0]):
+    #     occlusion_mask = mask_image[0][i].transpose(0, 1, 2).clip(0, 1).astype(np.float32)
+    #     occlusion_mask = cv2.resize(occlusion_mask, (h, w))
+    #     occlusion_mask = (cv2.GaussianBlur(occlusion_mask.clip(0, 1), (0, 0), 5).clip(0.5, 1) - 0.5) * 2
+    #     last_mask.append(torch.tensor(occlusion_mask, dtype=torch.float32))
+    # last_mask_tensor = torch.stack(last_mask, dim=0)
+    # display_images(mask2)
+    mask3 = adjust_values(mask2, 0.2)
+    display_images(mask3)

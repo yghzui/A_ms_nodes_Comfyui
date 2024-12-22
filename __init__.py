@@ -7,6 +7,8 @@ from .nodes.image_nodes import *
 
 from .nodes.mask_nodes import *
 from .nodes.text_nodes import *
+from .nodes.a_person_face_landmark_mask_generator_comfyui_add_nose import APersonFaceLandmarkMaskGeneratorAddNose
+from .nodes.a_person_face_landmark_mask_generator_comfyui_by_my import APersonFaceLandmarkMaskGenerator
 
 NODE_CLASS_MAPPINGS = {
     "LoadAndResizeImageMy": LoadAndResizeImageMy,
@@ -24,7 +26,11 @@ NODE_CLASS_MAPPINGS = {
     "PasteMasksMy": PasteMasksMy,
     "GenerateBlackTensor": GenerateWhiteTensor,
     "MyLoadImageListPlus": MyLoadImageListPlus,
-    "RemoveGlassesFaceMask": RemoveGlassesFaceMask
+    "RemoveGlassesFaceMask": RemoveGlassesFaceMask,
+    "AdjustMaskValues": AdjustMaskValues,
+    "APersonFaceLandmarkMaskGeneratorAddNose": APersonFaceLandmarkMaskGeneratorAddNose,
+    "APersonFaceLandmarkMaskGeneratorByMy": APersonFaceLandmarkMaskGenerator,
+
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by My",
@@ -43,7 +49,10 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PasteMasksMy": "PasteMasksMy 粘贴面部遮罩 by My",
     "GenerateBlackTensor": "GenerateBlackTensor 生成纯黑张量 by My",
     "MyLoadImageListPlus": "MyLoadImageListPlus 加载图片列表 by My",
-    "RemoveGlassesFaceMask": "RemoveGlassesFaceMask 去除眼镜 by My"
+    "RemoveGlassesFaceMask": "RemoveGlassesFaceMask 去除眼镜 by My",
+    "AdjustMaskValues": "AdjustMaskValues 调整遮罩值 by My",
+    "APersonFaceLandmarkMaskGeneratorAddNose": "APersonFaceLandmarkMaskGeneratorAddNose 生成面部遮罩 by My",
+    "APersonFaceLandmarkMaskGeneratorByMy": "APersonFaceLandmarkMaskGeneratorByMy 生成面部遮罩 by My",
 }
 
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS']

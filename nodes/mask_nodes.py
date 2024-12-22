@@ -3,28 +3,26 @@
 # Auther : ygh
 # File   : mask_nodes.py
 # Description :
-import numpy as np
-import time
-import torch
-from comfy import model_management
-from custom_nodes.facerestore_cf.facelib.utils.face_restoration_helper import FaceRestoreHelper
-from custom_nodes.facerestore_cf.facelib.detection.retinaface import retinaface
-from torchvision.transforms.functional import normalize
-from torchvision.utils import make_grid
-from comfy_extras.chainner_models import model_loading
-import torch.nn.functional as F
-import random
-import math
-import os
-import re
-import json
-import hashlib
-import cv2
-from PIL import ImageGrab, ImageDraw, ImageFont, Image, ImageSequence, ImageOps
-from comfy.cli_args import args
-from comfy.utils import ProgressBar, common_upscale
-import folder_paths
-from nodes import MAX_RESOLUTION
+# import numpy as np
+# import time
+# import torch
+# from comfy import model_management
+# from custom_nodes.facerestore_cf.facelib.utils.face_restoration_helper import FaceRestoreHelper
+# from custom_nodes.facerestore_cf.facelib.detection.retinaface import retinaface
+# from torchvision.transforms.functional import normalize
+# from torchvision.utils import make_grid
+# from comfy_extras.chainner_models import model_loading
+# import torch.nn.functional as F
+# import os
+# import re
+# import json
+# import hashlib
+# import cv2
+# from PIL import ImageGrab, ImageDraw, ImageFont, Image, ImageSequence, ImageOps
+# from comfy.cli_args import args
+# from comfy.utils import ProgressBar, common_upscale
+# import folder_paths
+# from nodes import MAX_RESOLUTION
 import warnings
 from .segment_anything_func import *
 from .imagefunc import *
@@ -32,7 +30,6 @@ from scipy import ndimage
 # from custom_nodes.A_my_nodes.nodes.get_result_text_p import run_script_with_subprocess, get_list_from_txt
 import cv2
 import numpy as np
-import onnxruntime as ort
 import torch
 from custom_nodes.A_my_nodes.nodes.face_without_glasses import infer_and_get_mask
 
@@ -563,8 +560,11 @@ class PasteMasksMy:
                 result_mask[i, y:y + target_height, x:x + target_width][non_black_area] = mask_tensor[non_black_area]
 
                 cur_index += 1
+        # 检查result_mask是不是n,h,w的维度
+        if len(result_mask.shape) != 3:
+            result_mask = result_mask.unsqueeze(0)
 
-        return (result_mask.unsqueeze(0),)  # 返回合成后的遮罩
+        return (result_mask,)  # 返回合成后的遮罩
 
 
 def resize_tensor_torch(tensor, target_shape=(256, 256)):
@@ -636,3 +636,34 @@ class RemoveGlassesFaceMask:
         last_mask_tensor = torch.stack(last_mask, dim=0)
 
         return (last_mask_tensor,)
+
+
+class AdjustMaskValues:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "masks": ("MASK",),  # 输入的遮罩，形状为 (n, h, w)
+                "value": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),  # 要设置的值
+            }
+        }
+
+    CATEGORY = "My_node/mask"
+    RETURN_TYPES = ("MASK",)
+    FUNCTION = "adjust_values"
+
+    def adjust_values(self, masks, value):
+        # 确保值在0到1之间
+        value = max(0.0, min(1.0, value))
+
+        # 创建一个新的遮罩张量
+        adjusted_masks = masks.clone()
+        print(f"---------------------------------masks shape: {adjusted_masks.shape}")
+        for i in range(masks.shape[0]):
+            adjusted_masks[i][masks[i] != 0] = value
+
+        # 将遮罩中为1的值设置为指定的值
+        # adjusted_masks[masks != 0] = value
+        print(f"---------------------------------masks new shape: {adjusted_masks.shape}")
+
+        return (adjusted_masks,)
