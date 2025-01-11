@@ -257,6 +257,7 @@ class LoadAndResizeImageMy:
             if c in i.getbands():
                 if resize:
                     i = i.resize((width, height), Image.Resampling.BILINEAR)
+                i=i.resize((target_width, target_height), Image.Resampling.BILINEAR)
                 mask = np.array(i.getchannel(c)).astype(np.float32) / 255.0
                 mask = torch.from_numpy(mask)
                 if c == 'A':
