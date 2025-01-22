@@ -11,12 +11,17 @@ import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 import folder_paths
+
 print("Mediapipe version:", mp.__version__)
+
+
 def format_landmarks(landmarks):
     formatted_landmarks = []
     for landmark in landmarks:
         formatted_landmarks.append(landmark)
     return formatted_landmarks
+
+
 def get_a_person_mask_generator_model_path() -> str:
     model_folder_name = "mediapipe"
     model_name = "face_landmarker.task"
@@ -26,14 +31,13 @@ def get_a_person_mask_generator_model_path() -> str:
 
     if not os.path.exists(model_file_path):
         import wget
-        #https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task
+        # https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task
         model_url = f"https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/{model_name}"
         print(f"Downloading '{model_name}' model")
         os.makedirs(model_folder_path, exist_ok=True)
         wget.download(model_url, model_file_path)
 
     return model_file_path
-
 
 
 class APersonFaceLandmarkMaskGenerator:
@@ -163,7 +167,7 @@ class APersonFaceLandmarkMaskGenerator:
         183,
         78,
     ]
-    FACEMESH_NOSE=[
+    FACEMESH_NOSE = [
         168,
         417,
         465,
@@ -188,7 +192,6 @@ class APersonFaceLandmarkMaskGenerator:
         188,
         245,
         193,
-
 
     ]
 
@@ -238,19 +241,19 @@ class APersonFaceLandmarkMaskGenerator:
     FUNCTION = "generate_mask"
 
     def generate_mask(
-        self,
-        images,
-        face: bool,
-        left_eyebrow: bool,
-        right_eyebrow: bool,
-        left_eye: bool,
-        right_eye: bool,
-        left_pupil: bool,
-        right_pupil: bool,
-        lips: bool,
-        nose: bool,
-        number_of_faces: int,
-        confidence: float,
+            self,
+            images,
+            face: bool,
+            left_eyebrow: bool,
+            right_eyebrow: bool,
+            left_eye: bool,
+            right_eye: bool,
+            left_pupil: bool,
+            right_pupil: bool,
+            lips: bool,
+            nose: bool,
+            number_of_faces: int,
+            confidence: float,
     ):
         """Create a segmentation mask from an image
 
@@ -273,9 +276,9 @@ class APersonFaceLandmarkMaskGenerator:
         model_path = get_a_person_mask_generator_model_path()
         base_options = python.BaseOptions(model_asset_path=model_path)
         options = vision.FaceLandmarkerOptions(base_options=base_options,
-                                       output_face_blendshapes=True,
-                                       output_facial_transformation_matrixes=True,
-                                       num_faces=number_of_faces)
+                                               output_face_blendshapes=True,
+                                               output_facial_transformation_matrixes=True,
+                                               num_faces=number_of_faces)
         # detector = vision.FaceLandmarker.create_from_options(options)
         # with mp.solutions.face_mesh.FaceMesh(
         #     static_image_mode=True,
@@ -288,6 +291,8 @@ class APersonFaceLandmarkMaskGenerator:
             for image in images:
                 # Convert the Tensor to a PIL image
                 i = 255.0 * image.cpu().numpy()  # [H, W, 3]
+                i = i.transpose((1, 2, 0))
+                # print(i.shape)
                 image_pil = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
                 # # Convert PIL image to mediapipe Image
                 # mp_image = np.asarray(image_pil)

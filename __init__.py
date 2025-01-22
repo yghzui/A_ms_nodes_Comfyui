@@ -51,8 +51,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "MyLoadImageListPlus": "MyLoadImageListPlus 加载图片列表 by My",
     "RemoveGlassesFaceMask": "RemoveGlassesFaceMask 去除眼镜 by My",
     "AdjustMaskValues": "AdjustMaskValues 调整遮罩值 by My",
-    "APersonFaceLandmarkMaskGeneratorAddNose": "APersonFaceLandmarkMaskGeneratorAddNose 生成面部遮罩 by My",
-    "APersonFaceLandmarkMaskGeneratorByMy": "APersonFaceLandmarkMaskGeneratorByMy 生成面部遮罩 by My",
+    "APersonFaceLandmarkMaskGeneratorAddNose": "APersonFaceLandmarkMaskGeneratorAddNoseOld 生成面部遮罩 by My",
+    "APersonFaceLandmarkMaskGeneratorByMy": "APersonFaceLandmarkMaskGeneratorByMyNew 生成面部遮罩 by My",
 }
 
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS']
