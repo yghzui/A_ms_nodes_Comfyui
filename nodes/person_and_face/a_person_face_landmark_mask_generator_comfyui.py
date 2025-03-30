@@ -446,37 +446,55 @@ class APersonFaceLandmarkMaskGenerator:
                                 # 创建新的mask
                                 expanded_mask = temp_mask.copy()
                                 
-                                # 对每个点进行扩展
+                                # 先进行左右扩展
+                                horizontal_expanded_points = set()  # 用于存储左右扩展后的所有点
+                                
                                 for point in points:
-                                    # 在左右方向上扩展
+                                    # 添加原始点
+                                    horizontal_expanded_points.add((point[0], point[1]))
+                                    
+                                    # 左扩展
                                     if lips_expand_left > 0:
                                         for i in range(1, lips_expand_left + 1):
                                             new_point = point - direction * i
                                             new_point = new_point.astype(np.int32)
                                             if 0 <= new_point[0] < img_width and 0 <= new_point[1] < img_height:
+                                                horizontal_expanded_points.add((new_point[0], new_point[1]))
                                                 expanded_mask[new_point[1], new_point[0]] = 255
                                     
+                                    # 右扩展
                                     if lips_expand_right > 0:
                                         for i in range(1, lips_expand_right + 1):
                                             new_point = point + direction * i
                                             new_point = new_point.astype(np.int32)
                                             if 0 <= new_point[0] < img_width and 0 <= new_point[1] < img_height:
+                                                horizontal_expanded_points.add((new_point[0], new_point[1]))
                                                 expanded_mask[new_point[1], new_point[0]] = 255
+                                
+                                # 在左右扩展的基础上进行上下扩展
+                                if lips_expand_up > 0 or lips_expand_down > 0:
+                                    vertical_expanded_mask = expanded_mask.copy()
                                     
-                                    # 在上下方向上扩展
-                                    if lips_expand_up > 0:
-                                        for i in range(1, lips_expand_up + 1):
-                                            new_point = point + perpendicular * i
-                                            new_point = new_point.astype(np.int32)
-                                            if 0 <= new_point[0] < img_width and 0 <= new_point[1] < img_height:
-                                                expanded_mask[new_point[1], new_point[0]] = 255
+                                    for point_x, point_y in horizontal_expanded_points:
+                                        point = np.array([point_x, point_y])
+                                        
+                                        # 上扩展
+                                        if lips_expand_up > 0:
+                                            for i in range(1, lips_expand_up + 1):
+                                                new_point = point + perpendicular * i
+                                                new_point = new_point.astype(np.int32)
+                                                if 0 <= new_point[0] < img_width and 0 <= new_point[1] < img_height:
+                                                    vertical_expanded_mask[new_point[1], new_point[0]] = 255
+                                        
+                                        # 下扩展
+                                        if lips_expand_down > 0:
+                                            for i in range(1, lips_expand_down + 1):
+                                                new_point = point - perpendicular * i
+                                                new_point = new_point.astype(np.int32)
+                                                if 0 <= new_point[0] < img_width and 0 <= new_point[1] < img_height:
+                                                    vertical_expanded_mask[new_point[1], new_point[0]] = 255
                                     
-                                    if lips_expand_down > 0:
-                                        for i in range(1, lips_expand_down + 1):
-                                            new_point = point - perpendicular * i
-                                            new_point = new_point.astype(np.int32)
-                                            if 0 <= new_point[0] < img_width and 0 <= new_point[1] < img_height:
-                                                expanded_mask[new_point[1], new_point[0]] = 255
+                                    expanded_mask = vertical_expanded_mask
                                 
                                 temp_mask = expanded_mask
                             
