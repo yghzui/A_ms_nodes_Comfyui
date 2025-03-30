@@ -295,7 +295,112 @@ class LoadAndResizeImageMy:
 
         return True
 
+class ResizeImagesAndMasks:
+    @classmethod
+    def INPUT_TYPES(s):
+        scale_to_list = ['longest', 'None', 'shortest', 'width', 'height', 'total_pixel(kilo pixel)']
+        return {
+            "required": {
+                "images": ("IMAGE",),  # 输入图像张量
+                "masks": ("MASK",),    # 输入遮罩张量
+                "resize": ("BOOLEAN", {"default": False}),
+                "width": ("INT", {"default": 512, "min": 0, "max": MAX_RESOLUTION, "step": 8}),
+                "height": ("INT", {"default": 512, "min": 0, "max": MAX_RESOLUTION, "step": 8}),
+                "scale_to_side": (scale_to_list,),
+                "scale_to_length": ("INT", {"default": 1024, "min": 4, "max": 999999, "step": 1}),
+                "keep_proportion": ("BOOLEAN", {"default": False, "tooltip": "保持比例"}),
+                "divisible_by": ("INT", {
+                    "default": 2,
+                    "min": 0,
+                    "max": 512,
+                    "step": 1,
+                    "tooltip": "调整图像尺寸，使其可以被此数整除。"
+                }),
+            }
+        }
 
+    RETURN_TYPES = ("IMAGE", "MASK")
+    FUNCTION = "resize_images_and_masks"
+
+    def resize_images_and_masks(self, images, masks, resize, width, height, scale_to_side, scale_to_length, keep_proportion, divisible_by):
+        output_images = []
+        output_masks = []
+
+        for img, mask in zip(images, masks):
+            img_np = img.cpu().numpy()
+            mask_np = mask.cpu().numpy()
+            import logging
+
+            logging.info(f"img_np.shape: {img_np.shape}")
+            h, w = img_np.shape[0:2]
+            if resize:
+                if keep_proportion:
+                    ratio = min(width / w, height / h)
+                    width = round(w * ratio)
+                    height = round(h * ratio)
+                else:
+                    if width == 0:
+                        width = w
+                    if height == 0:
+                        height = h
+
+                if divisible_by > 1:
+                    width = width - (width % divisible_by)
+                    height = height - (height % divisible_by)
+            else:
+                width, height = w, h
+
+            ratio = width / height
+            if ratio > 1:
+                if scale_to_side == 'longest':
+                    target_width = scale_to_length
+                    target_height = int(target_width / ratio)
+                elif scale_to_side == 'shortest':
+                    target_height = scale_to_length
+                    target_width = int(target_height * ratio)
+                elif scale_to_side == 'width':
+                    target_width = scale_to_length
+                    target_height = int(target_width / ratio)
+                elif scale_to_side == 'height':
+                    target_height = scale_to_length
+                    target_width = int(target_height * ratio)
+                elif scale_to_side == 'total_pixel(kilo pixel)':
+                    target_width = math.sqrt(ratio * scale_to_length * 1000)
+                    target_height = target_width / ratio
+                    target_width = int(target_width)
+                    target_height = int(target_height)
+                else:
+                    target_width = width
+                    target_height = int(target_width / ratio)
+            else:
+                if scale_to_side == 'longest':
+                    target_height = scale_to_length
+                    target_width = int(target_height * ratio)
+                elif scale_to_side == 'shortest':
+                    target_width = scale_to_length
+                    target_height = int(target_width / ratio)
+                elif scale_to_side == 'width':
+                    target_width = scale_to_length
+                    target_height = int(target_width / ratio)
+                elif scale_to_side == 'height':
+                    target_height = scale_to_length
+                    target_width = int(target_height * ratio)
+                elif scale_to_side == 'total_pixel(kilo pixel)':
+                    target_width = math.sqrt(ratio * scale_to_length * 1000)
+                    target_height = target_width / ratio
+                    target_width = int(target_width)
+                    target_height = int(target_height)
+                else:
+                    target_height = height
+                    target_width = int(target_height * ratio)
+
+            img_resized = cv2.resize(img_np, (target_width, target_height), interpolation=cv2.INTER_LINEAR)
+            mask_resized = cv2.resize(mask_np, (target_width, target_height), interpolation=cv2.INTER_NEAREST)
+
+            output_images.append(torch.from_numpy(img_resized).float())
+            output_masks.append(torch.from_numpy(mask_resized).float())
+
+        return torch.stack(output_images), torch.stack(output_masks)
 # class CropFaceMy:
 #     @classmethod
 #     def INPUT_TYPES(s):

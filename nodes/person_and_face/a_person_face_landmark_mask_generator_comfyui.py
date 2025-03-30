@@ -8,36 +8,7 @@ import torch
 import numpy as np
 from PIL import Image
 import mediapipe as mp
-from mediapipe.tasks import python
-from mediapipe.tasks.python import vision
-import folder_paths
-
-print("Mediapipe version:", mp.__version__)
-
-
-def format_landmarks(landmarks):
-    formatted_landmarks = []
-    for landmark in landmarks:
-        formatted_landmarks.append(landmark)
-    return formatted_landmarks
-
-
-def get_a_person_mask_generator_model_path() -> str:
-    model_folder_name = "mediapipe"
-    model_name = "face_landmarker.task"
-
-    model_folder_path = os.path.join(folder_paths.models_dir, model_folder_name)
-    model_file_path = os.path.join(model_folder_path, model_name)
-
-    if not os.path.exists(model_file_path):
-        import wget
-        # https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task
-        model_url = f"https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/{model_name}"
-        print(f"Downloading '{model_name}' model")
-        os.makedirs(model_folder_path, exist_ok=True)
-        wget.download(model_url, model_file_path)
-
-    return model_file_path
+from .a_person_mask_generator_comfyui import APersonMaskGenerator
 
 
 class APersonFaceLandmarkMaskGenerator:
@@ -194,7 +165,6 @@ class APersonFaceLandmarkMaskGenerator:
         193,
 
     ]
-
     def __init__(self):
         pass
 
@@ -231,29 +201,31 @@ class APersonFaceLandmarkMaskGenerator:
                     "FLOAT",
                     {"default": 0.40, "min": 0.01, "max": 1.0, "step": 0.01},
                 ),
+                "refine_mask": true_widget,
             },
         }
 
-    CATEGORY = "A Person Mask Generator - David Bielejeski"
+    CATEGORY = "My_node/face_mask"
     RETURN_TYPES = ("MASK",)
     RETURN_NAMES = ("masks",)
 
     FUNCTION = "generate_mask"
 
     def generate_mask(
-            self,
-            images,
-            face: bool,
-            left_eyebrow: bool,
-            right_eyebrow: bool,
-            left_eye: bool,
-            right_eye: bool,
-            left_pupil: bool,
-            right_pupil: bool,
-            lips: bool,
-            nose: bool,
-            number_of_faces: int,
-            confidence: float,
+        self,
+        images,
+        face: bool,
+        left_eyebrow: bool,
+        right_eyebrow: bool,
+        left_eye: bool,
+        right_eye: bool,
+        left_pupil: bool,
+        right_pupil: bool,
+        lips: bool,
+        nose: bool,
+        number_of_faces: int,
+        confidence: float,
+        refine_mask: bool,
     ):
         """Create a segmentation mask from an image
 
@@ -267,44 +239,59 @@ class APersonFaceLandmarkMaskGenerator:
             left_pupil (bool): create a mask for the left eye pupil.
             right_pupil (bool): create a mask for the right eye pupil.
             lips (bool): create a mask for the lips.
+            nose (bool): create a mask for the nose
 
         Returns:
             torch.Tensor: The segmentation masks.
         """
 
+        # use our APersonMaskGenerator with the face specified to get the image we should focus on
+
+        a_person_mask_generator = None
+        face_masks = None
+        if refine_mask:
+            a_person_mask_generator = APersonMaskGenerator()
+            face_masks = a_person_mask_generator.get_mask_images(
+                images=images,
+                face_mask=True,
+                background_mask=False,
+                hair_mask=False,
+                body_mask=False,
+                clothes_mask=False,
+                confidence=0.4,
+                refine_mask=True,
+            )
+
         res_masks = []
-        model_path = get_a_person_mask_generator_model_path()
-        base_options = python.BaseOptions(model_asset_path=model_path)
-        options = vision.FaceLandmarkerOptions(base_options=base_options,
-                                               output_face_blendshapes=True,
-                                               output_facial_transformation_matrixes=True,
-                                               num_faces=number_of_faces)
-        # detector = vision.FaceLandmarker.create_from_options(options)
-        # with mp.solutions.face_mesh.FaceMesh(
-        #     static_image_mode=True,
-        #     refine_landmarks=True,
-        #     max_num_faces=number_of_faces,
-        #     min_detection_confidence=confidence,
-        # ) as face_mesh:
-        with vision.FaceLandmarker.create_from_options(options) as face_mesh:
+        with mp.solutions.face_mesh.FaceMesh(
+            static_image_mode=True,
+            refine_landmarks=True,
+            max_num_faces=number_of_faces,
+            min_detection_confidence=confidence,
+        ) as face_mesh:
 
-            for image in images:
+            for index, image in enumerate(images):
                 # Convert the Tensor to a PIL image
-                i = 255.0 * image.cpu().numpy()  # [H, W, 3]
-                # i = i.transpose((1, 2, 0))
-                # print(i.shape)
+                i = 255.0 * image.cpu().numpy()
                 image_pil = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
-                # # Convert PIL image to mediapipe Image
-                # mp_image = np.asarray(image_pil)
-                # 将数组中的值限制在 0 到 255 之间，并转换为 uint8 类型
-                clipped_i = np.clip(i, 0, 255).astype(np.uint8)
 
-                # 创建 mediapipe.Image 对象
-                # 假设图像格式为 SRGB，你可以根据实际情况调整
-                image_mp = mp.Image(image_format=mp.ImageFormat.SRGB, data=clipped_i)
+                do_uncrop = False
+                cropped_image_pil = image_pil
+
+                # use the face mask to refine the image we are processing
+                if refine_mask:
+                    face_mask = face_masks[index]
+
+                    # create the bounding box around the mask
+                    bbox = a_person_mask_generator.get_bbox_for_mask(mask_image=face_mask)
+
+                    if bbox != None:
+                        cropped_image_pil = image_pil.crop(bbox)
+                        do_uncrop = True
+
                 # Process the image
                 results = (
-                    face_mesh.detect(image_mp)
+                    face_mesh.process(np.asarray(cropped_image_pil))
                     if any(
                         [
                             face,
@@ -315,18 +302,19 @@ class APersonFaceLandmarkMaskGenerator:
                             left_pupil,
                             right_pupil,
                             lips,
+                            nose,
                         ]
                     )
                     else None
                 )
 
-                img_width, img_height = image_pil.size
+                img_width, img_height = cropped_image_pil.size
                 mask = np.zeros((img_height, img_width), dtype=np.uint8)
 
-                if results and results.face_landmarks:
+                if results and results.multi_face_landmarks:
                     mesh_coords = [
                         (int(point.x * img_width), int(point.y * img_height))
-                        for point in format_landmarks(results.face_landmarks[0])
+                        for point in results.multi_face_landmarks[0].landmark
                     ]
 
                     if face:
@@ -400,6 +388,11 @@ class APersonFaceLandmarkMaskGenerator:
 
                 # Create the image
                 mask_image = Image.fromarray(mask)
+
+                if do_uncrop:
+                    uncropped_mask_image = Image.new('RGBA', image_pil.size, (0, 0, 0))
+                    uncropped_mask_image.paste(mask_image, bbox)
+                    mask_image = uncropped_mask_image
 
                 # convert PIL image to tensor image
                 tensor_mask = mask_image.convert("RGB")

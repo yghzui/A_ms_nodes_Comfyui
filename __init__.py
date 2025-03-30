@@ -7,11 +7,12 @@ from .nodes.image_nodes import *
 
 from .nodes.mask_nodes import *
 from .nodes.text_nodes import *
-from .nodes.a_person_face_landmark_mask_generator_comfyui_add_nose import APersonFaceLandmarkMaskGeneratorAddNose
-from .nodes.a_person_face_landmark_mask_generator_comfyui_by_my import APersonFaceLandmarkMaskGenerator
-
+# from .nodes.a_person_face_landmark_mask_generator_comfyui_add_nose import APersonFaceLandmarkMaskGeneratorAddNose
+# from .nodes.a_person_face_landmark_mask_generator_comfyui_by_my import APersonFaceLandmarkMaskGenerator
+from .nodes.person_and_face.a_person_face_landmark_mask_generator_comfyui import  APersonFaceLandmarkMaskGenerator
 NODE_CLASS_MAPPINGS = {
     "LoadAndResizeImageMy": LoadAndResizeImageMy,
+    "ResizeImagesAndMasks": ResizeImagesAndMasks,
     "CropFaceMy": CropFaceMy,
     "CreateFaceBboxMask": CreateBboxMask,
     "CreateTextMask": CreateTextMask,
@@ -28,12 +29,13 @@ NODE_CLASS_MAPPINGS = {
     "MyLoadImageListPlus": MyLoadImageListPlus,
     "RemoveGlassesFaceMask": RemoveGlassesFaceMask,
     "AdjustMaskValues": AdjustMaskValues,
-    "APersonFaceLandmarkMaskGeneratorAddNose": APersonFaceLandmarkMaskGeneratorAddNose,
-    "APersonFaceLandmarkMaskGeneratorByMy": APersonFaceLandmarkMaskGenerator,
+    "APersonFaceLandmarkMaskGeneratorByMy":APersonFaceLandmarkMaskGenerator
+
 
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by My",
+    "ResizeImagesAndMasks": "Resize Images and Masks by My",
     "CropFaceMy": "Crop Face by My",
     "CreateFaceBboxMask": "Create Face Bbox Mask by My",
     "CreateTextMask": "Text Mask path by My",
@@ -51,8 +53,14 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "MyLoadImageListPlus": "MyLoadImageListPlus 加载图片列表 by My",
     "RemoveGlassesFaceMask": "RemoveGlassesFaceMask 去除眼镜 by My",
     "AdjustMaskValues": "AdjustMaskValues 调整遮罩值 by My",
-    "APersonFaceLandmarkMaskGeneratorAddNose": "APersonFaceLandmarkMaskGeneratorAddNoseOld 生成面部遮罩 by My",
-    "APersonFaceLandmarkMaskGeneratorByMy": "APersonFaceLandmarkMaskGeneratorByMyNew 生成面部遮罩 by My",
+    "APersonFaceLandmarkMaskGeneratorByMy":"APersonFaceLandmarkMaskGeneratorByMy 生成面部遮罩 by My"
+
 }
 
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS']
+"""
+ "APersonFaceLandmarkMaskGeneratorAddNose": APersonFaceLandmarkMaskGeneratorAddNose,
+    "APersonFaceLandmarkMaskGeneratorByMy": APersonFaceLandmarkMaskGenerator,
+ "APersonFaceLandmarkMaskGeneratorAddNose": "APersonFaceLandmarkMaskGeneratorAddNoseOld 生成面部遮罩 by My",
+    "APersonFaceLandmarkMaskGeneratorByMy": "APersonFaceLandmarkMaskGeneratorByMyNew 生成面部遮罩 by My",
+"""
