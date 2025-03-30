@@ -192,6 +192,26 @@ class APersonFaceLandmarkMaskGenerator:
                 "left_pupil": false_widget,
                 "right_pupil": false_widget,
                 "lips": true_widget,
+                "fill_lips": (
+                    "BOOLEAN",
+                    {"default": True, "label_on": "fill", "label_off": "outline"},
+                ),
+                "lips_expand_up": (
+                    "INT",
+                    {"default": 0, "min": 0, "max": 1000, "step": 1},
+                ),
+                "lips_expand_down": (
+                    "INT",
+                    {"default": 0, "min": 0, "max": 1000, "step": 1},
+                ),
+                "lips_expand_left": (
+                    "INT",
+                    {"default": 0, "min": 0, "max": 1000, "step": 1},
+                ),
+                "lips_expand_right": (
+                    "INT",
+                    {"default": 0, "min": 0, "max": 1000, "step": 1},
+                ),
                 "nose": true_widget,
                 "number_of_faces": (
                     "INT",
@@ -222,6 +242,11 @@ class APersonFaceLandmarkMaskGenerator:
         left_pupil: bool,
         right_pupil: bool,
         lips: bool,
+        fill_lips: bool,
+        lips_expand_up: int,
+        lips_expand_down: int,
+        lips_expand_left: int,
+        lips_expand_right: int,
         nose: bool,
         number_of_faces: int,
         confidence: float,
@@ -239,6 +264,11 @@ class APersonFaceLandmarkMaskGenerator:
             left_pupil (bool): create a mask for the left eye pupil.
             right_pupil (bool): create a mask for the right eye pupil.
             lips (bool): create a mask for the lips.
+            fill_lips (bool): fill the lips mask.
+            lips_expand_up (int): expand the lips mask up.
+            lips_expand_down (int): expand the lips mask down.
+            lips_expand_left (int): expand the lips mask left.
+            lips_expand_right (int): expand the lips mask right.
             nose (bool): create a mask for the nose
 
         Returns:
@@ -376,10 +406,57 @@ class APersonFaceLandmarkMaskGenerator:
                             )
 
                         if lips:
-                            lips_coords = [mesh_coords[p] for p in self.FACEMESH_LIPS]
-                            cv.fillPoly(
-                                mask, [np.array(lips_coords, dtype=np.int32)], 255
-                            )
+                            # 将嘴唇轮廓点分为上下唇
+                            # 上唇关键点
+                            upper_lip_indices = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 308, 415, 310, 311, 312, 13, 82, 81, 42, 183, 78]
+                            # 下唇关键点
+                            lower_lip_indices = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78]
+                            
+                            # 获取上下唇的坐标点
+                            upper_lip_coords = [mesh_coords[i] for i in upper_lip_indices]
+                            lower_lip_coords = [mesh_coords[i] for i in lower_lip_indices]
+                            
+                            # 使用固定的61和308点作为左右方向
+                            left_point = mesh_coords[61]  # 左边点
+                            right_point = mesh_coords[308]  # 右边点
+                            
+                            # 创建临时mask用于绘制原始嘴唇形状
+                            temp_mask = np.zeros((img_height, img_width), dtype=np.uint8)
+                            
+                            if fill_lips:
+                                # 填充完整的嘴唇区域（包括上下唇之间的区域）
+                                full_lip_coords = np.array(upper_lip_coords + lower_lip_coords[::-1], dtype=np.int32)
+                                cv.fillPoly(temp_mask, [full_lip_coords], 255)
+                            else:
+                                # 只绘制轮廓
+                                cv.polylines(temp_mask, [np.array(upper_lip_coords + lower_lip_coords[::-1], dtype=np.int32)], True, 255, thickness=2)
+                            
+                            # 如果需要扩展
+                            if any([lips_expand_up, lips_expand_down, lips_expand_left, lips_expand_right]):
+                                # 创建结构元素用于扩展
+                                if lips_expand_left > 0:
+                                    kernel = np.zeros((3, lips_expand_left * 2 + 1), dtype=np.uint8)
+                                    kernel[1, :lips_expand_left] = 1
+                                    temp_mask = cv.dilate(temp_mask, kernel, iterations=1)
+                                
+                                if lips_expand_right > 0:
+                                    kernel = np.zeros((3, lips_expand_right * 2 + 1), dtype=np.uint8)
+                                    kernel[1, lips_expand_right:] = 1
+                                    temp_mask = cv.dilate(temp_mask, kernel, iterations=1)
+                                
+                                if lips_expand_up > 0:
+                                    kernel = np.zeros((lips_expand_up * 2 + 1, 3), dtype=np.uint8)
+                                    kernel[:lips_expand_up, 1] = 1
+                                    temp_mask = cv.dilate(temp_mask, kernel, iterations=1)
+                                
+                                if lips_expand_down > 0:
+                                    kernel = np.zeros((lips_expand_down * 2 + 1, 3), dtype=np.uint8)
+                                    kernel[lips_expand_down:, 1] = 1
+                                    temp_mask = cv.dilate(temp_mask, kernel, iterations=1)
+                            
+                            # 将临时mask复制到最终mask
+                            mask[temp_mask > 0] = 255
+                            
                         if nose:
                             nose_coords = [mesh_coords[p] for p in self.FACEMESH_NOSE]
                             cv.fillPoly(
