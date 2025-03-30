@@ -417,8 +417,14 @@ class APersonFaceLandmarkMaskGenerator:
                             lower_lip_coords = [mesh_coords[i] for i in lower_lip_indices]
                             
                             # 使用固定的61和308点作为左右方向
-                            left_point = mesh_coords[61]  # 左边点
-                            right_point = mesh_coords[308]  # 右边点
+                            left_point = np.array(mesh_coords[61])  # 左边点
+                            right_point = np.array(mesh_coords[308])  # 右边点
+                            
+                            # 计算方向向量
+                            direction = right_point - left_point
+                            direction = direction / np.linalg.norm(direction)
+                            # 垂直方向（顺时针旋转90度，这样向上为负，向下为正）
+                            perpendicular = np.array([direction[1], -direction[0]])
                             
                             # 创建临时mask用于绘制原始嘴唇形状
                             temp_mask = np.zeros((img_height, img_width), dtype=np.uint8)
@@ -433,26 +439,46 @@ class APersonFaceLandmarkMaskGenerator:
                             
                             # 如果需要扩展
                             if any([lips_expand_up, lips_expand_down, lips_expand_left, lips_expand_right]):
-                                # 创建结构元素用于扩展
-                                if lips_expand_left > 0:
-                                    kernel = np.zeros((3, lips_expand_left * 2 + 1), dtype=np.uint8)
-                                    kernel[1, :lips_expand_left] = 1
-                                    temp_mask = cv.dilate(temp_mask, kernel, iterations=1)
+                                # 获取原始mask的非零点坐标
+                                y_coords, x_coords = np.nonzero(temp_mask)
+                                points = np.column_stack((x_coords, y_coords))
                                 
-                                if lips_expand_right > 0:
-                                    kernel = np.zeros((3, lips_expand_right * 2 + 1), dtype=np.uint8)
-                                    kernel[1, lips_expand_right:] = 1
-                                    temp_mask = cv.dilate(temp_mask, kernel, iterations=1)
+                                # 创建新的mask
+                                expanded_mask = temp_mask.copy()
                                 
-                                if lips_expand_up > 0:
-                                    kernel = np.zeros((lips_expand_up * 2 + 1, 3), dtype=np.uint8)
-                                    kernel[:lips_expand_up, 1] = 1
-                                    temp_mask = cv.dilate(temp_mask, kernel, iterations=1)
+                                # 对每个点进行扩展
+                                for point in points:
+                                    # 在左右方向上扩展
+                                    if lips_expand_left > 0:
+                                        for i in range(1, lips_expand_left + 1):
+                                            new_point = point - direction * i
+                                            new_point = new_point.astype(np.int32)
+                                            if 0 <= new_point[0] < img_width and 0 <= new_point[1] < img_height:
+                                                expanded_mask[new_point[1], new_point[0]] = 255
+                                    
+                                    if lips_expand_right > 0:
+                                        for i in range(1, lips_expand_right + 1):
+                                            new_point = point + direction * i
+                                            new_point = new_point.astype(np.int32)
+                                            if 0 <= new_point[0] < img_width and 0 <= new_point[1] < img_height:
+                                                expanded_mask[new_point[1], new_point[0]] = 255
+                                    
+                                    # 在上下方向上扩展
+                                    if lips_expand_up > 0:
+                                        for i in range(1, lips_expand_up + 1):
+                                            new_point = point + perpendicular * i
+                                            new_point = new_point.astype(np.int32)
+                                            if 0 <= new_point[0] < img_width and 0 <= new_point[1] < img_height:
+                                                expanded_mask[new_point[1], new_point[0]] = 255
+                                    
+                                    if lips_expand_down > 0:
+                                        for i in range(1, lips_expand_down + 1):
+                                            new_point = point - perpendicular * i
+                                            new_point = new_point.astype(np.int32)
+                                            if 0 <= new_point[0] < img_width and 0 <= new_point[1] < img_height:
+                                                expanded_mask[new_point[1], new_point[0]] = 255
                                 
-                                if lips_expand_down > 0:
-                                    kernel = np.zeros((lips_expand_down * 2 + 1, 3), dtype=np.uint8)
-                                    kernel[lips_expand_down:, 1] = 1
-                                    temp_mask = cv.dilate(temp_mask, kernel, iterations=1)
+                                temp_mask = expanded_mask
                             
                             # 将临时mask复制到最终mask
                             mask[temp_mask > 0] = 255
