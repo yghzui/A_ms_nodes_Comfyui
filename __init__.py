@@ -7,6 +7,7 @@ from .nodes.image_nodes import *
 
 from .nodes.mask_nodes import *
 from .nodes.text_nodes import *
+from .nodes.notice import NoticeSound
 # from .nodes.a_person_face_landmark_mask_generator_comfyui_add_nose import APersonFaceLandmarkMaskGeneratorAddNose
 # from .nodes.a_person_face_landmark_mask_generator_comfyui_by_my import APersonFaceLandmarkMaskGenerator
 from .nodes.person_and_face.a_person_face_landmark_mask_generator_comfyui import  APersonFaceLandmarkMaskGenerator
@@ -29,7 +30,8 @@ NODE_CLASS_MAPPINGS = {
     "MyLoadImageListPlus": MyLoadImageListPlus,
     "RemoveGlassesFaceMask": RemoveGlassesFaceMask,
     "AdjustMaskValues": AdjustMaskValues,
-    "APersonFaceLandmarkMaskGeneratorByMy":APersonFaceLandmarkMaskGenerator
+    "APersonFaceLandmarkMaskGeneratorByMy":APersonFaceLandmarkMaskGenerator,
+    "NoticeSound": NoticeSound
 
 
 }
@@ -53,7 +55,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "MyLoadImageListPlus": "MyLoadImageListPlus 加载图片列表 by My",
     "RemoveGlassesFaceMask": "RemoveGlassesFaceMask 去除眼镜 by My",
     "AdjustMaskValues": "AdjustMaskValues 调整遮罩值 by My",
-    "APersonFaceLandmarkMaskGeneratorByMy":"APersonFaceLandmarkMaskGeneratorByMy 生成面部遮罩 by My"
+    "APersonFaceLandmarkMaskGeneratorByMy":"APersonFaceLandmarkMaskGeneratorByMy 生成面部遮罩 by My",
+    "NoticeSound": "铃声提醒节点 by My"
 
 }
 
