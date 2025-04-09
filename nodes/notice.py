@@ -18,12 +18,13 @@ class NoticeSound:
             "optional": {
                 "image": ("IMAGE",),
                 'mask': ('MASK',),
+                "Filenames": ("VHS_FILENAMES",),
               
             }
         }
 
-    RETURN_TYPES = tuple(["IMAGE", "MASK"])
-    RETURN_NAMES = tuple(["image", "mask"])
+    RETURN_TYPES = tuple(["IMAGE", "MASK", "VHS_FILENAMES"])
+    RETURN_NAMES = tuple(["image", "mask", "Filenames"])
     FUNCTION = "play_notice_sound"
     CATEGORY = "My_node/通知"
 
