@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image
 import mediapipe as mp
 from .a_person_mask_generator_comfyui import APersonMaskGenerator
-
+import logging
 
 class APersonFaceLandmarkMaskGenerator:
     # https://github.com/google-ai-edge/mediapipe/blob/master/mediapipe/python/solutions/face_mesh_connections.py
@@ -462,11 +462,12 @@ class APersonFaceLandmarkMaskGenerator:
                                                 horizontal_expanded_points.add((new_point[0], new_point[1]))
                                                 expanded_mask[new_point[1], new_point[0]] = 255
                                     
-                                    # 右扩展
+                                    # 右扩展s
                                     if lips_expand_right > 0:
                                         for i in range(1, lips_expand_right + 1):
                                             new_point = point + direction * i
                                             new_point = new_point.astype(np.int32)
+                                            logging.info(f"右扩展_new_point: {new_point}")
                                             if 0 <= new_point[0] < img_width and 0 <= new_point[1] < img_height:
                                                 horizontal_expanded_points.add((new_point[0], new_point[1]))
                                                 expanded_mask[new_point[1], new_point[0]] = 255

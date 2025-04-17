@@ -8,6 +8,7 @@ from .nodes.image_nodes import *
 from .nodes.mask_nodes import *
 from .nodes.text_nodes import *
 from .nodes.notice import NoticeSound
+
 # from .nodes.a_person_face_landmark_mask_generator_comfyui_add_nose import APersonFaceLandmarkMaskGeneratorAddNose
 # from .nodes.a_person_face_landmark_mask_generator_comfyui_by_my import APersonFaceLandmarkMaskGenerator
 from .nodes.person_and_face.a_person_face_landmark_mask_generator_comfyui import  APersonFaceLandmarkMaskGenerator
@@ -15,6 +16,7 @@ NODE_CLASS_MAPPINGS = {
     "LoadAndResizeImageMy": LoadAndResizeImageMy,
     "ResizeImagesAndMasks": ResizeImagesAndMasks,
     "CropFaceMy": CropFaceMy,
+    "CropFaceMyDetailed": CropFaceMyDetailed,
     "CreateFaceBboxMask": CreateBboxMask,
     "CreateTextMask": CreateTextMask,
     "CoordinateTessPosNeg": CoordinateTessPosNeg,
@@ -39,6 +41,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by My",
     "ResizeImagesAndMasks": "Resize Images and Masks by My",
     "CropFaceMy": "Crop Face by My",
+    "CropFaceMyDetailed": "Crop Face Detailed by My",
     "CreateFaceBboxMask": "Create Face Bbox Mask by My",
     "CreateTextMask": "Text Mask path by My",
     "example_class": "example_class by My",
