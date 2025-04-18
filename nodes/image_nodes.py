@@ -1318,17 +1318,17 @@ class PasteFacesAdvanced:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "background_image": ("IMAGE",),  # 包含人脸的背景图像
-                "face_image": ("IMAGE",),  # 可能包含透明通道的人脸图像
-                "original_eye_points": ("STRING",),  # 背景图像中人脸的眼睛关键点
-                "cropped_eye_points": ("STRING",),  # 人脸图像中的眼睛关键点
-                "background_face_indices": ("STRING", {"default": "-1"}),  # 要替换的背景人脸索引，-1表示所有人脸
-                "paste_face_indices": ("STRING", {"default": "0"}),  # 用于粘贴的人脸索引
-                "enable_rotation": ("BOOLEAN", {"default": True}),  # 是否根据眼睛坐标旋转人脸
-                "blend_alpha": ("FLOAT", {"default": 0.8, "min": 0.0, "max": 1.0, "step": 0.01}),  # 混合透明度
-                "scale_adjustment": ("FLOAT", {"default": 1.0, "min": 0.5, "max": 2.0, "step": 0.01}),  # 缩放调整系数
-                "debug_mode": ("BOOLEAN", {"default": True}),  # 是否打印详细调试信息
-                "preserve_face": ("BOOLEAN", {"default": True}),  # 是否保持人脸原始比例
+                "background_image": ("IMAGE", {"tooltip": "背景图像，包含需要替换的人脸"}),
+                "face_image": ("IMAGE", {"tooltip": "替换用的人脸图像，可能包含透明通道"}),
+                "original_eye_points": ("STRING", {"tooltip": "背景图像中人脸的眼睛关键点坐标"}),
+                "cropped_eye_points": ("STRING", {"tooltip": "人脸图像中的眼睛关键点坐标"}),
+                "background_face_indices": ("STRING", {"default": "-1", "tooltip": "要替换的背景人脸索引，-1表示所有人脸，多个索引用逗号分隔，如'0,2'"}),
+                "paste_face_indices": ("STRING", {"default": "-1", "tooltip": "用于粘贴的人脸索引，-1表示使用所有人脸，多个索引用逗号分隔，如'0,1'"}),
+                "enable_rotation": ("BOOLEAN", {"default": True, "tooltip": "是否根据眼睛坐标旋转人脸"}),
+                "blend_alpha": ("FLOAT", {"default": 0.8, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "混合透明度，控制替换人脸的融合程度"}),
+                "scale_adjustment": ("FLOAT", {"default": 1.0, "min": 0.5, "max": 2.0, "step": 0.01, "tooltip": "缩放调整系数，控制替换人脸的大小"}),
+                "debug_mode": ("BOOLEAN", {"default": True, "tooltip": "是否打印详细调试信息"}),
+                "preserve_face": ("BOOLEAN", {"default": True, "tooltip": "是否保持人脸原始比例，避免变形"}),
             }
         }
 
@@ -1349,7 +1349,7 @@ class PasteFacesAdvanced:
             original_eye_points: 背景图像中人脸的眼睛坐标 (字符串格式)
             cropped_eye_points: 人脸图像中的眼睛坐标 (字符串格式)
             background_face_indices: 要替换的背景人脸索引，-1表示所有人脸
-            paste_face_indices: 用于粘贴的人脸索引
+            paste_face_indices: 用于粘贴的人脸索引，-1表示使用所有人脸
             enable_rotation: 是否根据眼睛坐标旋转人脸
             blend_alpha: 混合透明度
             scale_adjustment: 缩放调整系数
@@ -1399,9 +1399,14 @@ class PasteFacesAdvanced:
                     bg_indices.append((0, int(idx)))  # 假设图像索引为0，只使用人脸索引
         
         # 解析粘贴人脸索引
-        if paste_face_indices == "0":
-            # 默认使用第一个人脸
-            paste_indices = [0] * len(bg_indices)
+        if paste_face_indices == "-1":
+            # 使用所有可用的人脸图像
+            debug_print(f"使用所有可用的人脸图像进行粘贴, 共 {len(face_np)} 个")
+            # 如果背景人脸数量超过替换人脸数量，则循环使用替换人脸
+            paste_indices = []
+            total_faces = len(face_np)
+            for i in range(len(bg_indices)):
+                paste_indices.append(i % total_faces)
         else:
             paste_indices_list = paste_face_indices.split(',')
             paste_indices = []
