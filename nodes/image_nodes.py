@@ -623,7 +623,7 @@ class CropFaceMy:
                     # square_size = min(int(side_length))
                 square_size = min(square_size, width - square_x, height - square_y)
 
-                # 将正方形区域填充为白色
+                # 将正方形区域填充为白色    
                 mask[i, square_y:int(square_y + square_size), square_x:int(square_x + square_size)] = 1.0
                 
                 # 创建单独的人脸遮罩
@@ -698,7 +698,7 @@ class CropFaceMy:
         cropped_face_7 = torch.from_numpy(cropped_face_6)
         if cropped_face_7.ndim == 3:
             cropped_face_7 = cropped_face_7.unsqueeze(0)
-        
+
         # 处理带有关键点的原始图像
         original_images_tensor = torch.from_numpy(np.array(original_images_with_points).astype(np.float32) / 255.0)
         
@@ -1294,7 +1294,7 @@ class CropFaceMyDetailed:
         cropped_face_7 = torch.from_numpy(cropped_face_6)
         if cropped_face_7.ndim == 3:
             cropped_face_7 = cropped_face_7.unsqueeze(0)
-        
+
         # 处理带有关键点的原始图像
         original_images_tensor = torch.from_numpy(np.array(original_images_with_points).astype(np.float32) / 255.0)
         
@@ -1453,6 +1453,9 @@ class PasteFacesAdvanced:
                 bg_eye_center = (bg_left_eye + bg_right_eye) / 2
                 paste_eye_center = (paste_left_eye + paste_right_eye) / 2
                 
+                debug_print(f"背景眼睛中心点: {bg_eye_center}")
+                debug_print(f"粘贴眼睛中心点: {paste_eye_center}")
+                
                 # 计算眼睛间距
                 bg_eye_distance = np.linalg.norm(bg_right_eye - bg_left_eye)
                 paste_eye_distance = np.linalg.norm(paste_right_eye - paste_left_eye)
@@ -1484,23 +1487,29 @@ class PasteFacesAdvanced:
                 bg_h, bg_w = background_np[bg_img_idx].shape[0:2]
                 debug_print(f"背景图像尺寸: {bg_w} x {bg_h}")
                 
-                # 创建变换矩阵
-                center = (w / 2, h / 2)
-                M_rotate = cv2.getRotationMatrix2D(center, angle, scale)
+                # 使用更直接的方法计算变换矩阵，确保眼睛位置完全对齐
+                # 用于直接计算眼睛对齐的三点仿射变换
+                src_points = np.array([
+                    paste_left_eye,  # 左眼
+                    paste_right_eye,  # 右眼
+                    paste_eye_center + np.array([0, 30])  # 中点下方的点，提供垂直方向的参考
+                ], dtype=np.float32)
                 
-                # 调整变换矩阵，使得眼睛中心对齐
-                tx = bg_eye_center[0] - paste_eye_center[0] * scale
-                ty = bg_eye_center[1] - paste_eye_center[1] * scale
-                M_rotate[0, 2] += tx
-                M_rotate[1, 2] += ty
+                dst_points = np.array([
+                    bg_left_eye,  # 目标左眼
+                    bg_right_eye,  # 目标右眼
+                    bg_eye_center + np.array([0, 30 * scale])  # 中点下方的点，考虑缩放
+                ], dtype=np.float32)
                 
-                debug_print(f"变换矩阵: \n{M_rotate}")
+                # 计算仿射变换矩阵
+                M_affine = cv2.getAffineTransform(src_points, dst_points)
+                debug_print(f"仿射变换矩阵: \n{M_affine}")
                 
                 # 确保图像数据类型正确(uint8)以便OpenCV处理
                 paste_face_uint8 = (paste_face * 255).astype(np.uint8) if paste_face.dtype == np.float32 or paste_face.dtype == np.float64 else paste_face
                 
-                # 应用变换（旋转 + 缩放 + 平移）
-                warped_face = cv2.warpAffine(paste_face_uint8, M_rotate, (bg_w, bg_h), 
+                # 应用仿射变换
+                warped_face = cv2.warpAffine(paste_face_uint8, M_affine, (bg_w, bg_h), 
                                             borderMode=cv2.BORDER_CONSTANT, 
                                             borderValue=(0, 0, 0, 0))
                 
@@ -1513,7 +1522,7 @@ class PasteFacesAdvanced:
                 if paste_face.shape[2] == 4:
                     debug_print(f"使用透明通道作为遮罩")
                     alpha_channel = paste_face_uint8[:, :, 3]
-                    alpha_warped = cv2.warpAffine(alpha_channel, M_rotate, (bg_w, bg_h))
+                    alpha_warped = cv2.warpAffine(alpha_channel, M_affine, (bg_w, bg_h))
                     mask = alpha_warped.astype(np.float32) / 255.0 * blend_alpha
                 else:
                     debug_print(f"创建基于颜色的简单遮罩")
@@ -1526,14 +1535,24 @@ class PasteFacesAdvanced:
                 
                 # 应用遮罩进行混合
                 if len(warped_face.shape) == 3 and warped_face.shape[2] >= 3:
+                    # 验证变换后的眼睛位置
+                    if debug_mode:
+                        # 创建一个测试图像用于验证
+                        test_img = result_np[bg_img_idx].copy() * 255
+                        # 在背景图像上标记目标眼睛位置
+                        cv2.circle(test_img, (int(bg_left_eye[0]), int(bg_left_eye[1])), 5, (255, 0, 0), -1)
+                        cv2.circle(test_img, (int(bg_right_eye[0]), int(bg_right_eye[1])), 5, (0, 255, 0), -1)
+                        cv2.circle(test_img, (int(bg_eye_center[0]), int(bg_eye_center[1])), 5, (0, 0, 255), -1)
+                        debug_print(f"标记了背景眼睛位置的测试图像已创建")
+                    
                     for c in range(3):  # 仅处理RGB通道
                         if c < result_np[bg_img_idx].shape[2]:  # 确保结果图像有足够的通道
-                            # 将mask扩展为2D以便广播
-                            mask_2d = mask[:, :, np.newaxis] if len(mask.shape) == 2 else mask
+                            # 将mask扩展为3D以便广播
+                            mask_3d = mask[:, :, np.newaxis] if len(mask.shape) == 2 else mask
                             # 应用混合公式: result = background * (1 - mask) + foreground * mask
                             result_np[bg_img_idx, :, :, c] = (
-                                result_np[bg_img_idx, :, :, c] * (1 - mask_2d[:, :, 0]) + 
-                                warped_face[:, :, c].astype(np.float32) / 255.0 * mask_2d[:, :, 0]
+                                result_np[bg_img_idx, :, :, c] * (1 - mask_3d[:, :, 0]) + 
+                                warped_face[:, :, c].astype(np.float32) / 255.0 * mask_3d[:, :, 0]
                             )
                 else:
                     debug_print(f"警告: 变换后的人脸形状不正确: {warped_face.shape}")
