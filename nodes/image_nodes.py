@@ -1311,3 +1311,170 @@ class CropFaceMyDetailed:
         return (cropped_face_7, mask, str(squares_info), stacked_masks, 
                 str(original_eye_points_list), str(cropped_eye_points_list),
                 original_images_tensor, cropped_images_tensor)  # 返回张量、总mask、正方形信息、各个人脸遮罩和眼睛关键点信息
+
+
+class PasteFacesAdvanced:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "background_image": ("IMAGE",),  # 包含人脸的背景图像
+                "face_image": ("IMAGE",),  # 可能包含透明通道的人脸图像
+                "original_eye_points": ("STRING",),  # 背景图像中人脸的眼睛关键点
+                "cropped_eye_points": ("STRING",),  # 人脸图像中的眼睛关键点
+                "background_face_indices": ("STRING", {"default": "-1"}),  # 要替换的背景人脸索引，-1表示所有人脸
+                "paste_face_indices": ("STRING", {"default": "0"}),  # 用于粘贴的人脸索引
+                "enable_rotation": ("BOOLEAN", {"default": True}),  # 是否根据眼睛坐标旋转人脸
+                "blend_alpha": ("FLOAT", {"default": 0.8, "min": 0.0, "max": 1.0, "step": 0.01}),  # 混合透明度
+                "scale_adjustment": ("FLOAT", {"default": 1.0, "min": 0.5, "max": 2.0, "step": 0.01}),  # 缩放调整系数
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("result_image",)
+    FUNCTION = "paste_faces"
+    CATEGORY = "My_node/image"
+
+    def paste_faces(self, background_image, face_image, original_eye_points, cropped_eye_points, 
+                   background_face_indices, paste_face_indices, enable_rotation, blend_alpha, scale_adjustment):
+        """
+        高级人脸粘贴函数，根据眼睛关键点对齐和融合人脸
+        
+        Args:
+            background_image: 背景图像，可能包含多个人脸
+            face_image: 替换用的人脸图像，可能包含透明通道
+            original_eye_points: 背景图像中人脸的眼睛坐标 (字符串格式)
+            cropped_eye_points: 人脸图像中的眼睛坐标 (字符串格式)
+            background_face_indices: 要替换的背景人脸索引，-1表示所有人脸
+            paste_face_indices: 用于粘贴的人脸索引
+            enable_rotation: 是否根据眼睛坐标旋转人脸
+            blend_alpha: 混合透明度
+            scale_adjustment: 缩放调整系数
+        """
+    
+        
+        # 转换背景和人脸图像为numpy数组
+        background_np = background_image.cpu().numpy().copy()
+        face_np = face_image.cpu().numpy().copy()
+        
+        # 转换眼睛坐标字符串为Python对象
+        original_eyes = eval(original_eye_points)
+        cropped_eyes = eval(cropped_eye_points)
+        
+        # 解析索引
+        if background_face_indices == "-1":
+            # 处理所有背景人脸
+            bg_indices = []
+            for i in range(len(original_eyes)):
+                for j in range(len(original_eyes[i])):
+                    bg_indices.append((i, j))
+        else:
+            # 处理指定的背景人脸索引
+            bg_indices_list = background_face_indices.split(',')
+            bg_indices = []
+            for idx in bg_indices_list:
+                idx = idx.strip()
+                if idx and idx.isdigit():
+                    bg_indices.append((0, int(idx)))  # 假设图像索引为0，只使用人脸索引
+        
+        # 解析粘贴人脸索引
+        if paste_face_indices == "0":
+            # 默认使用第一个人脸
+            paste_indices = [0] * len(bg_indices)
+        else:
+            paste_indices_list = paste_face_indices.split(',')
+            paste_indices = []
+            for idx in paste_indices_list:
+                idx = idx.strip()
+                if idx and idx.isdigit():
+                    paste_indices.append(int(idx))
+            
+            # 如果粘贴人脸索引少于背景人脸索引，则重复使用最后一个索引
+            if len(paste_indices) < len(bg_indices):
+                last_idx = paste_indices[-1] if paste_indices else 0
+                paste_indices.extend([last_idx] * (len(bg_indices) - len(paste_indices)))
+        
+        # 创建结果图像的副本
+        result_np = background_np.copy()
+        
+        # 为每个背景人脸应用替换
+        for i, ((bg_img_idx, bg_face_idx), paste_idx) in enumerate(zip(bg_indices, paste_indices)):
+            # 检查索引是否有效
+            if (bg_img_idx >= len(original_eyes) or 
+                bg_face_idx >= len(original_eyes[bg_img_idx]) or 
+                paste_idx >= len(cropped_eyes[0])):
+                print(f"索引无效: 背景图像索引 {bg_img_idx}, 背景人脸索引 {bg_face_idx}, 粘贴人脸索引 {paste_idx}")
+                continue
+            
+            # 获取背景图像中的眼睛坐标
+            bg_left_eye = np.array(original_eyes[bg_img_idx][bg_face_idx]["left_eye"])
+            bg_right_eye = np.array(original_eyes[bg_img_idx][bg_face_idx]["right_eye"])
+            
+            # 获取粘贴图像中的眼睛坐标
+            paste_left_eye = np.array(cropped_eyes[0][paste_idx]["left_eye"])
+            paste_right_eye = np.array(cropped_eyes[0][paste_idx]["right_eye"])
+            
+            # 计算眼睛中心点
+            bg_eye_center = (bg_left_eye + bg_right_eye) / 2
+            paste_eye_center = (paste_left_eye + paste_right_eye) / 2
+            
+            # 计算眼睛间距
+            bg_eye_distance = np.linalg.norm(bg_right_eye - bg_left_eye)
+            paste_eye_distance = np.linalg.norm(paste_right_eye - paste_left_eye)
+            
+            # 计算缩放比例
+            scale = (bg_eye_distance / paste_eye_distance) * scale_adjustment
+            
+            # 计算旋转角度（如果启用）
+            angle = 0
+            if enable_rotation:
+                bg_eye_angle = math.atan2(bg_right_eye[1] - bg_left_eye[1], 
+                                         bg_right_eye[0] - bg_left_eye[0])
+                paste_eye_angle = math.atan2(paste_right_eye[1] - paste_left_eye[1], 
+                                            paste_right_eye[0] - paste_left_eye[0])
+                angle = (bg_eye_angle - paste_eye_angle) * 180 / math.pi
+            
+            # 获取粘贴的人脸图像
+            paste_face = face_np[paste_idx]
+            h, w = paste_face.shape[0:2]
+            
+            # 创建变换矩阵
+            center = (w / 2, h / 2)
+            M_rotate = cv2.getRotationMatrix2D(center, angle, scale)
+            
+            # 调整变换矩阵，使得眼睛中心对齐
+            tx = bg_eye_center[0] - paste_eye_center[0] * scale
+            ty = bg_eye_center[1] - paste_eye_center[1] * scale
+            M_rotate[0, 2] += tx
+            M_rotate[1, 2] += ty
+            
+            # 应用变换（旋转 + 缩放 + 平移）
+            bg_h, bg_w = background_np[bg_img_idx].shape[0:2]
+            warped_face = cv2.warpAffine(paste_face, M_rotate, (bg_w, bg_h), 
+                                          borderMode=cv2.BORDER_CONSTANT, 
+                                          borderValue=(0, 0, 0, 0))
+            
+            # 创建一个遮罩用于混合
+            mask = np.zeros((bg_h, bg_w), dtype=np.float32)
+            
+            # 如果人脸图像有透明通道，使用它作为遮罩
+            if paste_face.shape[2] == 4:
+                alpha_channel = cv2.warpAffine(paste_face[:,:,3], M_rotate, (bg_w, bg_h)) / 255.0
+                mask = alpha_channel * blend_alpha
+            else:
+                # 如果没有透明通道，创建一个基于颜色的简单遮罩
+                gray_face = cv2.cvtColor(warped_face[:,:,:3].astype(np.uint8), cv2.COLOR_RGB2GRAY)
+                _, mask = cv2.threshold(gray_face, 1, 255, cv2.THRESH_BINARY)
+                mask = mask.astype(np.float32) / 255.0 * blend_alpha
+            
+            # 应用遮罩进行混合
+            for c in range(3):  # 仅处理RGB通道
+                result_np[bg_img_idx, :, :, c] = (
+                    result_np[bg_img_idx, :, :, c] * (1 - mask) + 
+                    warped_face[:, :, c] * mask
+                )
+        
+        # 转换回PyTorch张量
+        result_tensor = torch.from_numpy(result_np)
+        
+        return (result_tensor,)
