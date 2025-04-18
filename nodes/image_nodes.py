@@ -20,7 +20,7 @@ import os
 # import json
 import hashlib
 import cv2
-
+import logging
 # try:
 #     import cv2
 # except:
@@ -1396,14 +1396,16 @@ class PasteFacesAdvanced:
         
         # 创建结果图像的副本
         result_np = background_np.copy()
-        
+        logging.info(f"背景替换人脸图像索引: {bg_indices}")
+        logging.info(f"粘贴替换人脸图像索引: {paste_indices}")
         # 为每个背景人脸应用替换
         for i, ((bg_img_idx, bg_face_idx), paste_idx) in enumerate(zip(bg_indices, paste_indices)):
             # 检查索引是否有效
             if (bg_img_idx >= len(original_eyes) or 
                 bg_face_idx >= len(original_eyes[bg_img_idx]) or 
                 paste_idx >= len(cropped_eyes[0])):
-                print(f"索引无效: 背景图像索引 {bg_img_idx}, 背景人脸索引 {bg_face_idx}, 粘贴人脸索引 {paste_idx}")
+                # print(f"索引无效: 背景图像索引 {bg_img_idx}, 背景人脸索引 {bg_face_idx}, 粘贴人脸索引 {paste_idx}")
+                logging.info(f"索引无效: 背景图像索引 {bg_img_idx}, 背景人脸索引 {bg_face_idx}, 粘贴人脸索引 {paste_idx}")
                 continue
             
             # 获取背景图像中的眼睛坐标
@@ -1461,12 +1463,14 @@ class PasteFacesAdvanced:
             if paste_face.shape[2] == 4:
                 alpha_channel = cv2.warpAffine(paste_face[:,:,3], M_rotate, (bg_w, bg_h)) / 255.0
                 mask = alpha_channel * blend_alpha
+                logging.info(f"粘贴人脸图像有透明通道，使用它作为遮罩")
             else:
                 # 如果没有透明通道，创建一个基于颜色的简单遮罩
                 gray_face = cv2.cvtColor(warped_face[:,:,:3].astype(np.uint8), cv2.COLOR_RGB2GRAY)
                 _, mask = cv2.threshold(gray_face, 1, 255, cv2.THRESH_BINARY)
                 mask = mask.astype(np.float32) / 255.0 * blend_alpha
-            
+                logging.info(f"粘贴人脸图像没有透明通道，创建一个基于颜色的简单遮罩")
+
             # 应用遮罩进行混合
             for c in range(3):  # 仅处理RGB通道
                 result_np[bg_img_idx, :, :, c] = (
