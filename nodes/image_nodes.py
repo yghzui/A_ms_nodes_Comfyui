@@ -149,6 +149,7 @@ class LoadAndResizeImageMy:
             },
         }
 
+
     CATEGORY = "My_node/image"
     RETURN_TYPES = ("IMAGE", "MASK", "INT", "INT", "STRING", "STRING", "STRING")
     RETURN_NAMES = ("image", "mask", "width", "height", "image_dir", "image_name", "image_ext")
@@ -618,127 +619,6 @@ class CropFaceMy:
             cropped_face_7 = cropped_face_7.unsqueeze(0)
 
         return (cropped_face_7, mask, str(squares_info))  # 返回张量、mask和正方形信息
-class CropFaceMyDetailed:
-    @classmethod
-    def INPUT_TYPES(s):
-        return {"required": {"image": ("IMAGE",),
-                             "det_thresh": ("FLOAT", {"default": 0.5, "min": 0, "max": 1.0, "step": 0.01}),
-                             "scale_factor": ("FLOAT", {"default": 1.0, "min": 0.5, "max": 5.0, "step": 0.01}),
-                             "device": ([-1, 0], {"default": -1, "tooltip": "-1:cpu, 0:gpu"}),
-                             "det_size": ("INT", {"default": 512, "min": 256, "max": 1024, "step": 2}),
-                             "output_size": ("INT", {"default": 512, "min": 256, "max": 1024, "step": 2}),
-                             }}
-
-    RETURN_TYPES = ("IMAGE", "MASK", "STRING")
-
-    FUNCTION = "crop_face"
-
-    CATEGORY = "My_node/image"
-
-    def __init__(self):
-        self.face_helper = None
-
-    def crop_face(self, image, det_thresh, scale_factor, device, det_size, output_size):
-
-        if device < 0:
-            provider = "CPU"
-        else:
-            provider = "CUDA"
-        print("provider", provider)
-        print("det_size", det_size)
-        print("det_thresh", det_thresh)
-        device = model_management.get_torch_device()
-        model = insightface_loader(provider=provider, name='buffalo_l', det_thresh=det_thresh, size=det_size)
-        image_np = 255. * image.cpu().numpy()
-
-        total_images = image_np.shape[0]
-        out_images = []
-
-        # 获取输入样本的宽高
-        height, width = image.shape[1:3]  # 形状为 (2, 960, 720, 3)，获取宽高
-
-        # 创建一个与样本数量相同的纯黑张量
-        mask = torch.zeros((total_images, height, width), dtype=torch.float32)
-        squares_info = []  # 用于记录正方形的位置信息
-        image_np_new = image_np.copy()
-        for i in range(total_images):
-            while len(squares_info) <= i:  # 确保列表长度足够
-                squares_info.append([])  # 添加空列表
-
-            cur_image_np = image_np_new[i, :, :, ::-1]  # 将RGB转换为BGR
-
-            # 检查图像是否为空
-            if cur_image_np is None or cur_image_np.size == 0:
-                print(f"Image at index {i} is empty or not loaded correctly.")
-                continue
-
-            faces = model.get(cur_image_np)
-            faces_found = len(faces)
-            for j in range(faces_found):
-                bbox = faces[j].bbox
-                x1, y1, x2, y2 = bbox[:4]  # 获取面部框的坐标
-
-                center_x = (x1 + x2) / 2
-                center_y = (y1 + y2) / 2
-                # 根据scale_factor调整面部框的大小,
-                # 如果x1,y1超出边界则取最小值0,0,
-                # 如果x2,y2超出边界则取最大值width,height
-
-                x1 = max(0, int(center_x - (x2 - x1) * scale_factor / 2))
-                y1 = max(0, int(center_y - (y2 - y1) * scale_factor / 2))
-                x2 = min(width, int(center_x + (x2 - x1) * scale_factor / 2))
-                y2 = min(height, int(center_y + (y2 - y1) * scale_factor / 2))
-                side_length = min(x2 - x1, y2 - y1)  # 计算正方形的边长
-
-                # 计算正方形的边长和中心点
-                square_size = int(side_length)
-                if int(center_x - square_size // 2) <= 0:
-                    square_x = 0
-                elif int(center_x - square_size // 2) >= width:
-                    square_x = width - 1
-                else:
-                    square_x = int(center_x - square_size // 2)
-                if int(center_y - square_size // 2) <= 0:
-                    square_y = 0
-                elif int(center_y - square_size // 2) >= height:
-                    square_y = height - 1
-                else:
-                    square_y = int(center_y - square_size // 2)
-                    # square_size = min(int(side_length))
-                square_size = min(square_size, width - square_x, height - square_y)
-
-                # 将正方形区域填充为白色
-                mask[i, square_y:int(square_y + square_size), square_x:int(square_x + square_size)] = 1.0
-
-                # 记录正方形的信息
-                squares_info[i].append([square_x, square_y, square_size])
-                # 裁剪正方形面部
-                cropped_face_1 = cur_image_np[square_y:int(square_y + square_size),
-                                 square_x:int(square_x + square_size)]
-
-                # 检查裁剪的面部图像是否为空
-                if cropped_face_1 is None or cropped_face_1.size == 0:
-                    print(f"Cropped face at index {i}, face {j} is empty.")
-                    continue
-
-                cropped_face_2 = img2tensor(cropped_face_1 / 255., bgr2rgb=True, float32=True)
-                normalize(cropped_face_2, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True)
-                cropped_face_3 = cropped_face_2.unsqueeze(0).to(device)
-                cropped_face_4 = tensor2img(cropped_face_3, rgb2bgr=True, min_max=(-1, 1)).astype('uint8')
-                cropped_face_5 = cv2.cvtColor(cropped_face_4, cv2.COLOR_BGR2RGB)  # 将BGR转换为RGB 例如(78,78,3)
-                out_images.append(cv2.resize(cropped_face_5, (output_size, output_size)))  # 调整输出图像大小
-            # if out_images.shape[0] < next_idx + faces_found:
-            #     print(out_images.shape)
-            #     print((next_idx + faces_found, output_size, output_size, 3))
-            #     print('aaaaa')
-            #     out_images = np.resize(out_images, (next_idx + faces_found, output_size, output_size, 3))
-            #     print(out_images.shape)
-        cropped_face_6 = np.array(out_images).astype(np.float32) / 255.0
-        cropped_face_7 = torch.from_numpy(cropped_face_6)
-        if cropped_face_7.ndim == 3:
-            cropped_face_7 = cropped_face_7.unsqueeze(0)
-
-        return (cropped_face_7, mask, str(squares_info))  # 返回张量、mask和正方形信息
 
 
 def insightface_loader(provider="CPU", name='buffalo_l', det_thresh=0.5, size=640):
@@ -1115,3 +995,138 @@ class MyLoadImageListPlus:
         list_length = end_index - start_index
 
         return (image_list, mask_list, index_list, filename_list, prefix_list, width_list, height_list, list_length,)
+
+
+class CropFaceMyDetailed:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {"image": ("IMAGE",),
+                             "det_thresh": ("FLOAT", {"default": 0.5, "min": 0, "max": 1.0, "step": 0.01}),
+                             "scale_factor": ("FLOAT", {"default": 1.0, "min": 0.5, "max": 5.0, "step": 0.01}),
+                             "device": ([-1, 0], {"default": -1, "tooltip": "-1:cpu, 0:gpu"}),
+                             "det_size": ("INT", {"default": 512, "min": 256, "max": 1024, "step": 2}),
+                             "output_size": ("INT", {"default": 512, "min": 256, "max": 1024, "step": 2}),
+                             }}
+
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "MASK")
+    RETURN_NAMES = ("image", "mask", "squares_info", "individual_masks")
+
+    FUNCTION = "crop_face"
+
+    CATEGORY = "My_node/image"
+
+    def __init__(self):
+        self.face_helper = None
+
+    def crop_face(self, image, det_thresh, scale_factor, device, det_size, output_size):
+
+        if device < 0:
+            provider = "CPU"
+        else:
+            provider = "CUDA"
+        print("provider", provider)
+        print("det_size", det_size)
+        print("det_thresh", det_thresh)
+        device = model_management.get_torch_device()
+        model = insightface_loader(provider=provider, name='buffalo_l', det_thresh=det_thresh, size=det_size)
+        image_np = 255. * image.cpu().numpy()
+
+        total_images = image_np.shape[0]
+        out_images = []
+
+        # 获取输入样本的宽高
+        height, width = image.shape[1:3]  # 形状为 (2, 960, 720, 3)，获取宽高
+
+        # 创建一个与样本数量相同的纯黑张量
+        mask = torch.zeros((total_images, height, width), dtype=torch.float32)
+        squares_info = []  # 用于记录正方形的位置信息
+        
+        # 创建存储单个人脸遮罩的列表
+        individual_masks = []
+        
+        image_np_new = image_np.copy()
+        for i in range(total_images):
+            while len(squares_info) <= i:  # 确保列表长度足够
+                squares_info.append([])  # 添加空列表
+
+            cur_image_np = image_np_new[i, :, :, ::-1]  # 将RGB转换为BGR
+
+            # 检查图像是否为空
+            if cur_image_np is None or cur_image_np.size == 0:
+                print(f"Image at index {i} is empty or not loaded correctly.")
+                continue
+
+            faces = model.get(cur_image_np)
+            faces_found = len(faces)
+            for j in range(faces_found):
+                bbox = faces[j].bbox
+                x1, y1, x2, y2 = bbox[:4]  # 获取面部框的坐标
+
+                center_x = (x1 + x2) / 2
+                center_y = (y1 + y2) / 2
+                # 根据scale_factor调整面部框的大小,
+                # 如果x1,y1超出边界则取最小值0,0,
+                # 如果x2,y2超出边界则取最大值width,height
+
+                x1 = max(0, int(center_x - (x2 - x1) * scale_factor / 2))
+                y1 = max(0, int(center_y - (y2 - y1) * scale_factor / 2))
+                x2 = min(width, int(center_x + (x2 - x1) * scale_factor / 2))
+                y2 = min(height, int(center_y + (y2 - y1) * scale_factor / 2))
+                side_length = min(x2 - x1, y2 - y1)  # 计算正方形的边长
+
+                # 计算正方形的边长和中心点
+                square_size = int(side_length)
+                if int(center_x - square_size // 2) <= 0:
+                    square_x = 0
+                elif int(center_x - square_size // 2) >= width:
+                    square_x = width - 1
+                else:
+                    square_x = int(center_x - square_size // 2)
+                if int(center_y - square_size // 2) <= 0:
+                    square_y = 0
+                elif int(center_y - square_size // 2) >= height:
+                    square_y = height - 1
+                else:
+                    square_y = int(center_y - square_size // 2)
+                    # square_size = min(int(side_length))
+                square_size = min(square_size, width - square_x, height - square_y)
+
+                # 将正方形区域填充为白色
+                mask[i, square_y:int(square_y + square_size), square_x:int(square_x + square_size)] = 1.0
+                
+                # 创建单独的人脸遮罩
+                individual_mask = torch.zeros((total_images, height, width), dtype=torch.float32)
+                individual_mask[i, square_y:int(square_y + square_size), square_x:int(square_x + square_size)] = 1.0
+                individual_masks.append(individual_mask)
+
+                # 记录正方形的信息
+                squares_info[i].append([square_x, square_y, square_size])
+                # 裁剪正方形面部
+                cropped_face_1 = cur_image_np[square_y:int(square_y + square_size),
+                                 square_x:int(square_x + square_size)]
+
+                # 检查裁剪的面部图像是否为空
+                if cropped_face_1 is None or cropped_face_1.size == 0:
+                    print(f"Cropped face at index {i}, face {j} is empty.")
+                    continue
+
+                cropped_face_2 = img2tensor(cropped_face_1 / 255., bgr2rgb=True, float32=True)
+                normalize(cropped_face_2, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True)
+                cropped_face_3 = cropped_face_2.unsqueeze(0).to(device)
+                cropped_face_4 = tensor2img(cropped_face_3, rgb2bgr=True, min_max=(-1, 1)).astype('uint8')
+                cropped_face_5 = cv2.cvtColor(cropped_face_4, cv2.COLOR_BGR2RGB)  # 将BGR转换为RGB 例如(78,78,3)
+                out_images.append(cv2.resize(cropped_face_5, (output_size, output_size)))  # 调整输出图像大小
+
+        # 合并所有单独的人脸遮罩
+        if individual_masks:
+            stacked_masks = torch.cat(individual_masks, dim=0)
+        else:
+            # 如果没有找到人脸，创建一个空张量
+            stacked_masks = torch.zeros((1, height, width), dtype=torch.float32)
+        
+        cropped_face_6 = np.array(out_images).astype(np.float32) / 255.0
+        cropped_face_7 = torch.from_numpy(cropped_face_6)
+        if cropped_face_7.ndim == 3:
+            cropped_face_7 = cropped_face_7.unsqueeze(0)
+
+        return (cropped_face_7, mask, str(squares_info), stacked_masks)  # 返回张量、总mask、正方形信息和各个人脸遮罩
