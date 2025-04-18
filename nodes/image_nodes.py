@@ -540,8 +540,27 @@ class CropFaceMy:
         # 创建一个与样本数量相同的纯黑张量
         mask = torch.zeros((total_images, height, width), dtype=torch.float32)
         squares_info = []  # 用于记录正方形的位置信息
+        
+        # 创建存储单个人脸遮罩的列表
+        individual_masks = []
+        
+        # 创建用于存储眼睛关键点坐标的列表
+        original_eye_points_list = []  # 原始图像上的眼睛关键点
+        cropped_eye_points_list = []   # 裁剪图像上的眼睛关键点
+        
+        # 创建用于绘制关键点的图像副本
+        original_images_with_points = []
+        cropped_images_with_points = []
+        
         image_np_new = image_np.copy()
         for i in range(total_images):
+            # 为每个图像创建一个空的眼睛关键点列表
+            original_eye_points_per_image = []
+            cropped_eye_points_per_image = []
+            
+            # 为当前图像创建副本用于绘制关键点
+            original_image_with_points = image_np_new[i].copy()
+            
             while len(squares_info) <= i:  # 确保列表长度足够
                 squares_info.append([])  # 添加空列表
 
@@ -557,6 +576,23 @@ class CropFaceMy:
             for j in range(faces_found):
                 bbox = faces[j].bbox
                 x1, y1, x2, y2 = bbox[:4]  # 获取面部框的坐标
+                
+                # 获取关键点信息
+                kps = faces[j].kps  # 获取关键点坐标
+                # insightface的关键点格式为[左眼，右眼，鼻尖，左嘴角，右嘴角]
+                left_eye = kps[0]  # 左眼中心坐标
+                right_eye = kps[1]  # 右眼中心坐标
+                
+                # 存储原始图像中的眼睛关键点
+                original_eye_point = {
+                    "left_eye": left_eye.tolist(),
+                    "right_eye": right_eye.tolist()
+                }
+                original_eye_points_per_image.append(original_eye_point)
+                
+                # 在原始图像上绘制这些点
+                cv2.circle(original_image_with_points, (int(left_eye[0]), int(left_eye[1])), 5, (0, 0, 255), -1)  # 左眼用红色
+                cv2.circle(original_image_with_points, (int(right_eye[0]), int(right_eye[1])), 5, (0, 255, 0), -1)  # 右眼用绿色
 
                 center_x = (x1 + x2) / 2
                 center_y = (y1 + y2) / 2
@@ -587,8 +623,13 @@ class CropFaceMy:
                     # square_size = min(int(side_length))
                 square_size = min(square_size, width - square_x, height - square_y)
 
-                # 将正方形区域填充为白色    
+                # 将正方形区域填充为白色
                 mask[i, square_y:int(square_y + square_size), square_x:int(square_x + square_size)] = 1.0
+                
+                # 创建单独的人脸遮罩
+                individual_mask = torch.zeros((total_images, height, width), dtype=torch.float32)
+                individual_mask[i, square_y:int(square_y + square_size), square_x:int(square_x + square_size)] = 1.0
+                individual_masks.append(individual_mask)
 
                 # 记录正方形的信息
                 squares_info[i].append([square_x, square_y, square_size])
@@ -600,25 +641,80 @@ class CropFaceMy:
                 if cropped_face_1 is None or cropped_face_1.size == 0:
                     print(f"Cropped face at index {i}, face {j} is empty.")
                     continue
+                
+                # 计算裁剪图像中眼睛关键点的新坐标
+                # 从原始图像坐标转换为裁剪图像坐标
+                def transform_point(point, square_x, square_y, output_size, square_size):
+                    # 首先减去裁剪起点坐标，获得在裁剪图像中的相对坐标
+                    relative_x = point[0] - square_x
+                    relative_y = point[1] - square_y
+                    # 然后根据输出尺寸进行缩放
+                    scaled_x = relative_x * (output_size / square_size)
+                    scaled_y = relative_y * (output_size / square_size)
+                    return [scaled_x, scaled_y]
+                
+                # 转换眼睛中心点到裁剪图像坐标系
+                cropped_left_eye = transform_point(left_eye, square_x, square_y, output_size, square_size)
+                cropped_right_eye = transform_point(right_eye, square_x, square_y, output_size, square_size)
+                
+                # 存储裁剪图像中的眼睛关键点
+                cropped_eye_point = {
+                    "left_eye": cropped_left_eye,
+                    "right_eye": cropped_right_eye
+                }
+                cropped_eye_points_per_image.append(cropped_eye_point)
 
                 cropped_face_2 = img2tensor(cropped_face_1 / 255., bgr2rgb=True, float32=True)
                 normalize(cropped_face_2, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True)
                 cropped_face_3 = cropped_face_2.unsqueeze(0).to(device)
                 cropped_face_4 = tensor2img(cropped_face_3, rgb2bgr=True, min_max=(-1, 1)).astype('uint8')
                 cropped_face_5 = cv2.cvtColor(cropped_face_4, cv2.COLOR_BGR2RGB)  # 将BGR转换为RGB 例如(78,78,3)
-                out_images.append(cv2.resize(cropped_face_5, (output_size, output_size)))  # 调整输出图像大小
-            # if out_images.shape[0] < next_idx + faces_found:
-            #     print(out_images.shape)
-            #     print((next_idx + faces_found, output_size, output_size, 3))
-            #     print('aaaaa')
-            #     out_images = np.resize(out_images, (next_idx + faces_found, output_size, output_size, 3))
-            #     print(out_images.shape)
+                resized_face = cv2.resize(cropped_face_5, (output_size, output_size))  # 调整输出图像大小
+                out_images.append(resized_face)
+                
+                # 为裁剪后的图像创建副本用于绘制关键点
+                cropped_image_with_points = resized_face.copy()
+                # 在裁剪图像上绘制关键点
+                cv2.circle(cropped_image_with_points, (int(cropped_left_eye[0]), int(cropped_left_eye[1])), 5, (0, 0, 255), -1)  # 左眼用红色
+                cv2.circle(cropped_image_with_points, (int(cropped_right_eye[0]), int(cropped_right_eye[1])), 5, (0, 255, 0), -1)  # 右眼用绿色
+                cropped_images_with_points.append(cropped_image_with_points)
+            
+            # 将当前图像的眼睛关键点添加到列表中
+            original_eye_points_list.append(original_eye_points_per_image)
+            cropped_eye_points_list.append(cropped_eye_points_per_image)
+            
+            # 将标记了关键点的原始图像添加到列表中
+            original_images_with_points.append(original_image_with_points)
+
+        # 合并所有单独的人脸遮罩
+        if individual_masks:
+            stacked_masks = torch.cat(individual_masks, dim=0)
+        else:
+            # 如果没有找到人脸，创建一个空张量
+            stacked_masks = torch.zeros((1, height, width), dtype=torch.float32)
+        
+        # 处理裁剪面部图像
         cropped_face_6 = np.array(out_images).astype(np.float32) / 255.0
         cropped_face_7 = torch.from_numpy(cropped_face_6)
         if cropped_face_7.ndim == 3:
             cropped_face_7 = cropped_face_7.unsqueeze(0)
+        
+        # 处理带有关键点的原始图像
+        original_images_tensor = torch.from_numpy(np.array(original_images_with_points).astype(np.float32) / 255.0)
+        
+        # 处理带有关键点的裁剪图像
+        if cropped_images_with_points:
+            cropped_images_tensor = torch.from_numpy(np.array(cropped_images_with_points).astype(np.float32) / 255.0)
+            if cropped_images_tensor.ndim == 3:
+                cropped_images_tensor = cropped_images_tensor.unsqueeze(0)
+        else:
+            # 如果没有找到人脸，创建一个空张量
+            cropped_images_tensor = torch.zeros((1, output_size, output_size, 3), dtype=torch.float32)
 
-        return (cropped_face_7, mask, str(squares_info))  # 返回张量、mask和正方形信息
+        # 返回所有需要的数据
+        return (cropped_face_7, mask, str(squares_info), stacked_masks, 
+                str(original_eye_points_list), str(cropped_eye_points_list),
+                original_images_tensor, cropped_images_tensor)  # 返回张量、总mask、正方形信息、各个人脸遮罩和眼睛关键点信息
 
 
 def insightface_loader(provider="CPU", name='buffalo_l', det_thresh=0.5, size=640):
@@ -1008,8 +1104,8 @@ class CropFaceMyDetailed:
                              "output_size": ("INT", {"default": 512, "min": 256, "max": 1024, "step": 2}),
                              }}
 
-    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "MASK")
-    RETURN_NAMES = ("image", "mask", "squares_info", "individual_masks")
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "MASK", "STRING", "STRING", "IMAGE", "IMAGE")
+    RETURN_NAMES = ("image", "mask", "squares_info", "individual_masks", "original_eye_points", "cropped_eye_points", "original_image_with_points", "cropped_image_with_points")
 
     FUNCTION = "crop_face"
 
@@ -1044,8 +1140,23 @@ class CropFaceMyDetailed:
         # 创建存储单个人脸遮罩的列表
         individual_masks = []
         
+        # 创建用于存储眼睛关键点坐标的列表
+        original_eye_points_list = []  # 原始图像上的眼睛关键点
+        cropped_eye_points_list = []   # 裁剪图像上的眼睛关键点
+        
+        # 创建用于绘制关键点的图像副本
+        original_images_with_points = []
+        cropped_images_with_points = []
+        
         image_np_new = image_np.copy()
         for i in range(total_images):
+            # 为每个图像创建一个空的眼睛关键点列表
+            original_eye_points_per_image = []
+            cropped_eye_points_per_image = []
+            
+            # 为当前图像创建副本用于绘制关键点
+            original_image_with_points = image_np_new[i].copy()
+            
             while len(squares_info) <= i:  # 确保列表长度足够
                 squares_info.append([])  # 添加空列表
 
@@ -1061,6 +1172,23 @@ class CropFaceMyDetailed:
             for j in range(faces_found):
                 bbox = faces[j].bbox
                 x1, y1, x2, y2 = bbox[:4]  # 获取面部框的坐标
+                
+                # 获取关键点信息
+                kps = faces[j].kps  # 获取关键点坐标
+                # insightface的关键点格式为[左眼，右眼，鼻尖，左嘴角，右嘴角]
+                left_eye = kps[0]  # 左眼中心坐标
+                right_eye = kps[1]  # 右眼中心坐标
+                
+                # 存储原始图像中的眼睛关键点
+                original_eye_point = {
+                    "left_eye": left_eye.tolist(),
+                    "right_eye": right_eye.tolist()
+                }
+                original_eye_points_per_image.append(original_eye_point)
+                
+                # 在原始图像上绘制这些点
+                cv2.circle(original_image_with_points, (int(left_eye[0]), int(left_eye[1])), 5, (0, 0, 255), -1)  # 左眼用红色
+                cv2.circle(original_image_with_points, (int(right_eye[0]), int(right_eye[1])), 5, (0, 255, 0), -1)  # 右眼用绿色
 
                 center_x = (x1 + x2) / 2
                 center_y = (y1 + y2) / 2
@@ -1109,13 +1237,50 @@ class CropFaceMyDetailed:
                 if cropped_face_1 is None or cropped_face_1.size == 0:
                     print(f"Cropped face at index {i}, face {j} is empty.")
                     continue
+                
+                # 计算裁剪图像中眼睛关键点的新坐标
+                # 从原始图像坐标转换为裁剪图像坐标
+                def transform_point(point, square_x, square_y, output_size, square_size):
+                    # 首先减去裁剪起点坐标，获得在裁剪图像中的相对坐标
+                    relative_x = point[0] - square_x
+                    relative_y = point[1] - square_y
+                    # 然后根据输出尺寸进行缩放
+                    scaled_x = relative_x * (output_size / square_size)
+                    scaled_y = relative_y * (output_size / square_size)
+                    return [scaled_x, scaled_y]
+                
+                # 转换眼睛中心点到裁剪图像坐标系
+                cropped_left_eye = transform_point(left_eye, square_x, square_y, output_size, square_size)
+                cropped_right_eye = transform_point(right_eye, square_x, square_y, output_size, square_size)
+                
+                # 存储裁剪图像中的眼睛关键点
+                cropped_eye_point = {
+                    "left_eye": cropped_left_eye,
+                    "right_eye": cropped_right_eye
+                }
+                cropped_eye_points_per_image.append(cropped_eye_point)
 
                 cropped_face_2 = img2tensor(cropped_face_1 / 255., bgr2rgb=True, float32=True)
                 normalize(cropped_face_2, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True)
                 cropped_face_3 = cropped_face_2.unsqueeze(0).to(device)
                 cropped_face_4 = tensor2img(cropped_face_3, rgb2bgr=True, min_max=(-1, 1)).astype('uint8')
                 cropped_face_5 = cv2.cvtColor(cropped_face_4, cv2.COLOR_BGR2RGB)  # 将BGR转换为RGB 例如(78,78,3)
-                out_images.append(cv2.resize(cropped_face_5, (output_size, output_size)))  # 调整输出图像大小
+                resized_face = cv2.resize(cropped_face_5, (output_size, output_size))  # 调整输出图像大小
+                out_images.append(resized_face)
+                
+                # 为裁剪后的图像创建副本用于绘制关键点
+                cropped_image_with_points = resized_face.copy()
+                # 在裁剪图像上绘制关键点
+                cv2.circle(cropped_image_with_points, (int(cropped_left_eye[0]), int(cropped_left_eye[1])), 5, (0, 0, 255), -1)  # 左眼用红色
+                cv2.circle(cropped_image_with_points, (int(cropped_right_eye[0]), int(cropped_right_eye[1])), 5, (0, 255, 0), -1)  # 右眼用绿色
+                cropped_images_with_points.append(cropped_image_with_points)
+            
+            # 将当前图像的眼睛关键点添加到列表中
+            original_eye_points_list.append(original_eye_points_per_image)
+            cropped_eye_points_list.append(cropped_eye_points_per_image)
+            
+            # 将标记了关键点的原始图像添加到列表中
+            original_images_with_points.append(original_image_with_points)
 
         # 合并所有单独的人脸遮罩
         if individual_masks:
@@ -1124,9 +1289,25 @@ class CropFaceMyDetailed:
             # 如果没有找到人脸，创建一个空张量
             stacked_masks = torch.zeros((1, height, width), dtype=torch.float32)
         
+        # 处理裁剪面部图像
         cropped_face_6 = np.array(out_images).astype(np.float32) / 255.0
         cropped_face_7 = torch.from_numpy(cropped_face_6)
         if cropped_face_7.ndim == 3:
             cropped_face_7 = cropped_face_7.unsqueeze(0)
+        
+        # 处理带有关键点的原始图像
+        original_images_tensor = torch.from_numpy(np.array(original_images_with_points).astype(np.float32) / 255.0)
+        
+        # 处理带有关键点的裁剪图像
+        if cropped_images_with_points:
+            cropped_images_tensor = torch.from_numpy(np.array(cropped_images_with_points).astype(np.float32) / 255.0)
+            if cropped_images_tensor.ndim == 3:
+                cropped_images_tensor = cropped_images_tensor.unsqueeze(0)
+        else:
+            # 如果没有找到人脸，创建一个空张量
+            cropped_images_tensor = torch.zeros((1, output_size, output_size, 3), dtype=torch.float32)
 
-        return (cropped_face_7, mask, str(squares_info), stacked_masks)  # 返回张量、总mask、正方形信息和各个人脸遮罩
+        # 返回所有需要的数据
+        return (cropped_face_7, mask, str(squares_info), stacked_masks, 
+                str(original_eye_points_list), str(cropped_eye_points_list),
+                original_images_tensor, cropped_images_tensor)  # 返回张量、总mask、正方形信息、各个人脸遮罩和眼睛关键点信息
