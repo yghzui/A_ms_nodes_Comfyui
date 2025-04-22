@@ -1332,8 +1332,8 @@ class PasteFacesAdvanced:
             }
         }
 
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("result_image",)
+    RETURN_TYPES = ("IMAGE", "MASK")
+    RETURN_NAMES = ("result_image", "paste_mask")
     FUNCTION = "paste_faces"
     CATEGORY = "My_node/image"
 
@@ -1381,6 +1381,9 @@ class PasteFacesAdvanced:
         # 转换背景和人脸图像为numpy数组 (复制以避免修改原始数据)
         background_np = background_image.cpu().numpy().copy()
         face_np = face_image.cpu().numpy().copy()
+        
+        # 创建一个与背景图像相同大小的全局遮罩，用于记录所有粘贴区域
+        combined_mask = np.zeros_like(background_np[:, :, :, 0], dtype=np.float32)
         
         # 解析背景人脸索引
         if background_face_indices == "-1":
@@ -1609,7 +1612,10 @@ class PasteFacesAdvanced:
                     else:
                         # 在仿射变换模式下，需要变换alpha通道
                         alpha_channel = paste_face_uint8[:, :, 3]
-                        alpha_warped = cv2.warpAffine(alpha_channel, M_affine, (bg_w, bg_h))
+                        if preserve_face:
+                            alpha_warped = cv2.warpAffine(alpha_channel, M_transform, (bg_w, bg_h))
+                        else:
+                            alpha_warped = cv2.warpAffine(alpha_channel, M_affine, (bg_w, bg_h))
                         mask = alpha_warped.astype(np.float32) / 255.0 * blend_alpha
                 else:
                     debug_print(f"创建基于颜色的简单遮罩")
@@ -1619,6 +1625,9 @@ class PasteFacesAdvanced:
                         gray_face = cv2.cvtColor(warped_face[:, :, :3], cv2.COLOR_RGB2GRAY)
                         _, mask_binary = cv2.threshold(gray_face, 1, 255, cv2.THRESH_BINARY)
                         mask = mask_binary.astype(np.float32) / 255.0 * blend_alpha
+                
+                # 更新全局遮罩，记录所有粘贴区域
+                combined_mask[bg_img_idx] = np.maximum(combined_mask[bg_img_idx], mask)
                 
                 # 应用遮罩进行混合
                 if len(warped_face.shape) == 3 and warped_face.shape[2] >= 3:
@@ -1652,7 +1661,11 @@ class PasteFacesAdvanced:
         # 转换回PyTorch张量前确保数据类型和值范围正确
         # 将值范围限制在[0, 1]
         result_np = np.clip(result_np, 0.0, 1.0).astype(np.float32)
-        # 转换回PyTorch张量
+        
+        # 将遮罩转换为PyTorch张量
+        combined_mask_tensor = torch.from_numpy(combined_mask)
+        
+        # 转换结果图像为PyTorch张量
         result_tensor = torch.from_numpy(result_np)
         
-        return (result_tensor,)
+        return (result_tensor, combined_mask_tensor)
