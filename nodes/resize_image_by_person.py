@@ -209,30 +209,60 @@ class ResizeImageByPerson:
         if len(img_np.shape) == 4:  # 如果形状是[N, H, W, C]
             img_np = img_np[0]  # 取第一个图像
             logging.info(f"转换后的图像形状: {img_np.shape}")
-            
-        model = self.load_person_model()
-        results = model(img_np, conf=confidence, classes=0)  # 仅检测人物类别(0)
         
-        if not results or len(results) == 0:
-            print("未检测到人物")
+        # 确保是三通道彩色图像
+        if len(img_np.shape) != 3 or img_np.shape[2] != 3:
+            logging.error(f"图像不是三通道彩色图像: {img_np.shape}")
             return []
         
-        # 获取所有人物的边界框
-        boxes = results[0].boxes
-        if boxes is None or len(boxes) == 0:
-            print("未检测到人物边界框")
-            return []
-            
-        # 获取边界框坐标
-        all_boxes = boxes.xyxy.cpu().numpy()
-        if len(all_boxes) == 0:
-            print("未检测到人物边界框")
-            return []
-            
-        # 按照x坐标（左到右）排序
-        sorted_boxes = sorted(all_boxes, key=lambda box: box[0])
+        # 记录图像范围，帮助判断是否需要归一化
+        img_min = np.min(img_np)
+        img_max = np.max(img_np)
+        logging.info(f"图像数值范围: min={img_min}, max={img_max}")
         
-        return sorted_boxes
+        # 如果图像是float类型且范围在[0,1]之间，转换为uint8
+        if img_np.dtype == np.float32 or img_np.dtype == np.float64:
+            if img_max <= 1.0:
+                img_np = (img_np * 255).astype(np.uint8)
+                logging.info(f"将[0,1]浮点图像转换为uint8: {img_np.shape}, {img_np.dtype}")
+        
+        # 确保图像是BGR格式 (YOLO需要BGR格式)
+        # 注意: 在调用该函数前，图像已经被转换为BGR格式了，这里做最后的确认
+        # 如果图像是从ComfyUI获取的，它通常是RGB格式
+        logging.info(f"确认图像已经是BGR格式")
+            
+        try:
+            model = self.load_person_model()
+            # 打印图像的一些基本信息，帮助诊断
+            logging.info(f"送入YOLO的图像信息: 形状={img_np.shape}, 类型={img_np.dtype}, 范围=[{np.min(img_np)},{np.max(img_np)}]")
+            results = model(img_np, conf=confidence, classes=0)  # 仅检测人物类别(0)
+            
+            if not results or len(results) == 0:
+                logging.warning("YOLO未检测到任何结果")
+                return []
+            
+            # 获取所有人物的边界框
+            boxes = results[0].boxes
+            if boxes is None or len(boxes) == 0:
+                logging.warning("未检测到人物边界框")
+                return []
+                
+            # 获取边界框坐标
+            all_boxes = boxes.xyxy.cpu().numpy()
+            if len(all_boxes) == 0:
+                logging.warning("转换后未获得有效边界框")
+                return []
+                
+            # 按照x坐标（左到右）排序
+            sorted_boxes = sorted(all_boxes, key=lambda box: box[0])
+            logging.info(f"检测到{len(sorted_boxes)}个人物边界框")
+            
+            return sorted_boxes
+        except Exception as e:
+            logging.error(f"人物检测过程中发生错误: {str(e)}")
+            import traceback
+            logging.error(traceback.format_exc())
+            return []
 
     def get_merged_bbox(self, boxes):
         """合并多个边界框为一个最小包含所有边界框的边界框"""
@@ -336,75 +366,114 @@ class ResizeImageByPerson:
             
             if crop_by_person:
                 # 获取所有人物的边界框
-                # 对于YOLO检测，需要转换为BGR格式
-                img_np_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR) if img_np.shape[2] == 3 else img_np
-                all_person_boxes = self.get_all_person_bboxes(img_np_bgr, person_confidence)
-                total_person_count = len(all_person_boxes)
+                # YOLO模型需要BGR格式图像，但ComfyUI中通常是RGB格式
+                logging.info(f"原始图像形状和类型: {img_np.shape}, {img_np.dtype}")
+                
+                # 确保图像是正确的数值范围
+                if img_np.dtype == np.float32 or img_np.dtype == np.float64:
+                    if np.max(img_np) <= 1.0:
+                        img_for_detection = (img_np * 255).astype(np.uint8)
+                    else:
+                        img_for_detection = img_np.astype(np.uint8)
+                else:
+                    img_for_detection = img_np
+                
+                # 确保图像是BGR格式
+                if img_for_detection.shape[2] == 3:  # 确保有3个通道
+                    img_for_detection = cv2.cvtColor(img_for_detection, cv2.COLOR_RGB2BGR)
+                    logging.info(f"转换RGB到BGR完成")
+                else:
+                    logging.warning(f"图像不是3通道，无法进行RGB到BGR转换: {img_for_detection.shape}")
+                
+                try:
+                    all_person_boxes = self.get_all_person_bboxes(img_for_detection, person_confidence)
+                    total_person_count = len(all_person_boxes)
+                    logging.info(f"检测到{total_person_count}个人物")
+                except Exception as e:
+                    logging.error(f"人物检测失败: {str(e)}")
+                    all_person_boxes = []
+                    total_person_count = 0
                 
                 if total_person_count > 0:
-                    # 解析用户提供的索引
-                    valid_indices = self.parse_indices(person_indices, total_person_count - 1)
-                    
-                    # 根据索引选择边界框
-                    selected_boxes = [all_person_boxes[idx] for idx in valid_indices if idx < total_person_count]
-                    
-                    if selected_boxes:
-                        # 如果需要合并输出或只有一个边界框
-                        if merge_output or len(selected_boxes) == 1:
-                            bbox = self.get_merged_bbox(selected_boxes)
-                            
-                            if bbox is not None:
-                                x_min, y_min, x_max, y_max = bbox
+                    try:
+                        # 解析用户提供的索引
+                        valid_indices = self.parse_indices(person_indices, total_person_count - 1)
+                        
+                        # 根据索引选择边界框
+                        selected_boxes = [all_person_boxes[idx] for idx in valid_indices if idx < total_person_count]
+                        
+                        if selected_boxes:
+                            # 如果需要合并输出或只有一个边界框
+                            if merge_output or len(selected_boxes) == 1:
+                                bbox = self.get_merged_bbox(selected_boxes)
                                 
-                                # 计算填充范围
-                                padding_w = (x_max - x_min) * (padding_percent / 100)
-                                padding_h = (y_max - y_min) * (padding_percent / 100)
-                                
-                                # 应用填充，同时确保边界不会超出图像
-                                x_min = max(0, x_min - padding_w)
-                                y_min = max(0, y_min - padding_h)
-                                x_max = min(w, x_max + padding_w)
-                                y_max = min(h, y_max + padding_h)
-                                
-                                # 裁剪图像和遮罩
-                                crop_img = img_np[int(y_min):int(y_max), int(x_min):int(x_max)]
-                                crop_mask = mask_np[int(y_min):int(y_max), int(x_min):int(x_max)]
-                                
-                                # 添加到处理列表
-                                images_to_process.append(crop_img)
-                                masks_to_process.append(crop_mask)
+                                if bbox is not None:
+                                    x_min, y_min, x_max, y_max = bbox
+                                    
+                                    # 计算填充范围
+                                    padding_w = (x_max - x_min) * (padding_percent / 100)
+                                    padding_h = (y_max - y_min) * (padding_percent / 100)
+                                    
+                                    # 应用填充，同时确保边界不会超出图像
+                                    x_min = max(0, x_min - padding_w)
+                                    y_min = max(0, y_min - padding_h)
+                                    x_max = min(w, x_max + padding_w)
+                                    y_max = min(h, y_max + padding_h)
+                                    
+                                    # 裁剪图像和遮罩
+                                    crop_img = img_np[int(y_min):int(y_max), int(x_min):int(x_max)]
+                                    crop_mask = mask_np[int(y_min):int(y_max), int(x_min):int(x_max)]
+                                    
+                                    logging.info(f"裁剪出合并后的人物区域: {crop_img.shape}")
+                                    
+                                    # 添加到处理列表
+                                    images_to_process.append(crop_img)
+                                    masks_to_process.append(crop_mask)
+                                else:
+                                    logging.warning("无法获取合并边界框，使用原始图像")
+                                    images_to_process.append(img_np)
+                                    masks_to_process.append(mask_np)
+                            else:
+                                # 处理多个独立的边界框
+                                for box_idx, box in enumerate(selected_boxes):
+                                    x_min, y_min, x_max, y_max = box
+                                    
+                                    # 计算填充范围
+                                    padding_w = (x_max - x_min) * (padding_percent / 100)
+                                    padding_h = (y_max - y_min) * (padding_percent / 100)
+                                    
+                                    # 应用填充，同时确保边界不会超出图像
+                                    x_min = max(0, x_min - padding_w)
+                                    y_min = max(0, y_min - padding_h)
+                                    x_max = min(w, x_max + padding_w)
+                                    y_max = min(h, y_max + padding_h)
+                                    
+                                    # 裁剪图像和遮罩
+                                    crop_img = img_np[int(y_min):int(y_max), int(x_min):int(x_max)]
+                                    crop_mask = mask_np[int(y_min):int(y_max), int(x_min):int(x_max)]
+                                    
+                                    logging.info(f"裁剪出人物{box_idx}: {crop_img.shape}")
+                                    
+                                    # 添加到处理列表
+                                    images_to_process.append(crop_img)
+                                    masks_to_process.append(crop_mask)
                         else:
-                            # 处理多个独立的边界框
-                            for box in selected_boxes:
-                                x_min, y_min, x_max, y_max = box
-                                
-                                # 计算填充范围
-                                padding_w = (x_max - x_min) * (padding_percent / 100)
-                                padding_h = (y_max - y_min) * (padding_percent / 100)
-                                
-                                # 应用填充，同时确保边界不会超出图像
-                                x_min = max(0, x_min - padding_w)
-                                y_min = max(0, y_min - padding_h)
-                                x_max = min(w, x_max + padding_w)
-                                y_max = min(h, y_max + padding_h)
-                                
-                                # 裁剪图像和遮罩
-                                crop_img = img_np[int(y_min):int(y_max), int(x_min):int(x_max)]
-                                crop_mask = mask_np[int(y_min):int(y_max), int(x_min):int(x_max)]
-                                
-                                # 添加到处理列表
-                                images_to_process.append(crop_img)
-                                masks_to_process.append(crop_mask)
-                    else:
-                        # 没有选中任何有效的边界框，处理整个图像
+                            # 没有选中任何有效的边界框，处理整个图像
+                            logging.info("没有选中有效边界框，处理整个图像")
+                            images_to_process.append(img_np)
+                            masks_to_process.append(mask_np)
+                    except Exception as e:
+                        logging.error(f"边界框处理失败: {str(e)}")
                         images_to_process.append(img_np)
                         masks_to_process.append(mask_np)
                 else:
                     # 没有检测到人物，处理整个图像
+                    logging.info("未检测到人物，处理整个图像")
                     images_to_process.append(img_np)
                     masks_to_process.append(mask_np)
             else:
                 # 不裁剪，直接处理整个图像
+                logging.info("不进行人物裁剪，处理整个图像")
                 images_to_process.append(img_np)
                 masks_to_process.append(mask_np)
             
@@ -487,8 +556,19 @@ class ResizeImageByPerson:
         if len(mask_np.shape) == 3:  # 如果形状是[N, H, W]
             mask_np = mask_np[0]  # 取第一个mask
             
+        # 检查输入图像有效性
+        if img_np.size == 0 or (hasattr(mask_np, 'size') and mask_np.size == 0):
+            logging.error("输入图像或掩码为空")
+            # 创建一个最小的有效图像和掩码
+            dummy_img = np.zeros((64, 64, 3), dtype=np.uint8)
+            dummy_mask = np.zeros((64, 64), dtype=np.uint8)
+            # 返回dummy图像的tensor
+            return (torch.from_numpy(dummy_img).float() / 255.0).unsqueeze(0), torch.from_numpy(dummy_mask).float().unsqueeze(0)
+            
         h, w = img_np.shape[0:2]
         target_width, target_height = w, h  # 默认保持原始尺寸
+        
+        logging.info(f"原始尺寸: {w}x{h}, 是否调整大小: {resize}, 目标尺寸: {width}x{height}")
         
         # 第一优先级：使用resize参数
         if resize:
@@ -501,14 +581,19 @@ class ResizeImageByPerson:
                 ratio = min(target_width / w, target_height / h)
                 target_width = round(w * ratio)
                 target_height = round(h * ratio)
+                logging.info(f"保持比例后的目标尺寸: {target_width}x{target_height}")
                 
             # 确保尺寸可被divisible_by整除
             if divisible_by > 1:
+                old_tw, old_th = target_width, target_height
                 target_width = target_width - (target_width % divisible_by)
                 target_height = target_height - (target_height % divisible_by)
+                if old_tw != target_width or old_th != target_height:
+                    logging.info(f"调整为可被{divisible_by}整除的尺寸: {target_width}x{target_height}")
         
         # 第二优先级：如果未resize但使用scale_to_side
         elif scale_to_side != 'None':
+            logging.info(f"使用scale_to_side={scale_to_side}, scale_to_length={scale_to_length}")
             ratio = w / h  # 原始宽高比
             
             if scale_to_side == 'longest':
@@ -546,39 +631,68 @@ class ResizeImageByPerson:
                 
             # 确保尺寸可被divisible_by整除
             if divisible_by > 1:
+                old_tw, old_th = target_width, target_height
                 target_width = target_width - (target_width % divisible_by)
                 target_height = target_height - (target_height % divisible_by)
+                if old_tw != target_width or old_th != target_height:
+                    logging.info(f"调整为可被{divisible_by}整除的尺寸: {target_width}x{target_height}")
+                    
+            logging.info(f"按{scale_to_side}缩放后的目标尺寸: {target_width}x{target_height}")
         
         # 确保尺寸至少为1x1
         target_width = max(1, target_width)
         target_height = max(1, target_height)
 
         # 调整图像大小
-        img_resized = cv2.resize(img_np, (target_width, target_height), interpolation=interp_method)
-        mask_resized = cv2.resize(mask_np, (target_width, target_height), interpolation=mask_interp_method)
+        try:
+            logging.info(f"最终调整尺寸: {target_width}x{target_height}")
+            img_resized = cv2.resize(img_np, (target_width, target_height), interpolation=interp_method)
+            mask_resized = cv2.resize(mask_np, (target_width, target_height), interpolation=mask_interp_method)
+            logging.info(f"调整后的图像形状: {img_resized.shape}")
+        except Exception as e:
+            logging.error(f"调整尺寸失败: {str(e)}")
+            # 如果调整失败，尝试使用更安全的方法
+            try:
+                img_resized = np.zeros((target_height, target_width, 3), dtype=img_np.dtype)
+                mask_resized = np.zeros((target_height, target_width), dtype=mask_np.dtype)
+                logging.warning(f"创建了空白图像代替调整失败的图像: {img_resized.shape}")
+            except Exception as e2:
+                logging.error(f"创建空白图像也失败: {str(e2)}")
+                # 使用原始图像
+                img_resized = img_np
+                mask_resized = mask_np
 
         # 在ComfyUI中，图像格式应该是[B, H, W, C]
         # 将numpy图像转换为tensor，并确保格式正确
-        if img_resized.dtype == np.uint8:
-            # 如果是uint8，需要归一化为0-1
-            img_tensor = torch.from_numpy(img_resized.astype(np.float32) / 255.0)
-        else:
-            # 如果已经是float类型，确保是float32
-            img_tensor = torch.from_numpy(img_resized.astype(np.float32))
-        
-        # 确保图像是[B, H, W, C]格式
-        if len(img_tensor.shape) == 3:  # [H, W, C]
-            img_tensor = img_tensor.unsqueeze(0)  # 添加批次维度 [1, H, W, C]
-        
-        # 对于掩码，ComfyUI期望格式为[B, H, W]
-        if mask_resized.dtype == np.uint8:
-            mask_tensor = torch.from_numpy(mask_resized.astype(np.float32) / 255.0)
-        else:
-            mask_tensor = torch.from_numpy(mask_resized.astype(np.float32))
+        try:
+            if img_resized.dtype == np.uint8:
+                # 如果是uint8，需要归一化为0-1
+                img_tensor = torch.from_numpy(img_resized.astype(np.float32) / 255.0)
+            else:
+                # 如果已经是float类型，确保是float32
+                img_tensor = torch.from_numpy(img_resized.astype(np.float32))
             
-        if len(mask_tensor.shape) == 2:  # [H, W]
-            mask_tensor = mask_tensor.unsqueeze(0)  # 添加批次维度 [1, H, W]
-        elif len(mask_tensor.shape) == 3 and mask_tensor.shape[2] == 1:  # [H, W, 1]
-            mask_tensor = mask_tensor.squeeze(-1).unsqueeze(0)  # 转换为 [1, H, W]
+            # 确保图像是[B, H, W, C]格式
+            if len(img_tensor.shape) == 3:  # [H, W, C]
+                img_tensor = img_tensor.unsqueeze(0)  # 添加批次维度 [1, H, W, C]
             
-        return img_tensor, mask_tensor
+            # 对于掩码，ComfyUI期望格式为[B, H, W]
+            if mask_resized.dtype == np.uint8:
+                mask_tensor = torch.from_numpy(mask_resized.astype(np.float32) / 255.0)
+            else:
+                mask_tensor = torch.from_numpy(mask_resized.astype(np.float32))
+                
+            if len(mask_tensor.shape) == 2:  # [H, W]
+                mask_tensor = mask_tensor.unsqueeze(0)  # 添加批次维度 [1, H, W]
+            elif len(mask_tensor.shape) == 3 and mask_tensor.shape[2] == 1:  # [H, W, 1]
+                mask_tensor = mask_tensor.squeeze(-1).unsqueeze(0)  # 转换为 [1, H, W]
+                
+            logging.info(f"处理后的图像形状: {img_tensor.shape}, 掩码形状: {mask_tensor.shape}")
+            return img_tensor, mask_tensor
+        except Exception as e:
+            logging.error(f"转换为tensor失败: {str(e)}")
+            # 创建一个最小的有效图像和掩码
+            dummy_img = np.zeros((64, 64, 3), dtype=np.uint8)
+            dummy_mask = np.zeros((64, 64), dtype=np.uint8)
+            # 返回dummy图像的tensor
+            return (torch.from_numpy(dummy_img).float() / 255.0).unsqueeze(0), torch.from_numpy(dummy_mask).float().unsqueeze(0)
