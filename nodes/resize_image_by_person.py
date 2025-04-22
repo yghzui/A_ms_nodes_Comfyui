@@ -403,28 +403,31 @@ class ResizeImageByPerson:
                         selected_boxes = [all_person_boxes[idx] for idx in valid_indices if idx < total_person_count]
                         
                         if selected_boxes:
+                            # 根据resize或scale_to_side计算目标尺寸
+                            target_width, target_height = self.calculate_target_size(
+                                w, h, resize, width, height, scale_to_side, 
+                                scale_to_length, keep_proportion, divisible_by
+                            )
+                            logging.info(f"计算得到的目标尺寸: {target_width}x{target_height}")
+                            
+                            # 目标宽高比
+                            target_ratio = target_width / target_height
+                            
                             # 如果需要合并输出或只有一个边界框
                             if merge_output or len(selected_boxes) == 1:
                                 bbox = self.get_merged_bbox(selected_boxes)
                                 
                                 if bbox is not None:
-                                    x_min, y_min, x_max, y_max = bbox
-                                    
-                                    # 计算填充范围
-                                    padding_w = (x_max - x_min) * (padding_percent / 100)
-                                    padding_h = (y_max - y_min) * (padding_percent / 100)
-                                    
-                                    # 应用填充，同时确保边界不会超出图像
-                                    x_min = max(0, x_min - padding_w)
-                                    y_min = max(0, y_min - padding_h)
-                                    x_max = min(w, x_max + padding_w)
-                                    y_max = min(h, y_max + padding_h)
+                                    # 使用智能扩展边界框函数
+                                    x_min, y_min, x_max, y_max = self.extend_bbox_to_target_ratio(
+                                        bbox, target_ratio, w, h, padding_percent
+                                    )
                                     
                                     # 裁剪图像和遮罩
                                     crop_img = img_np[int(y_min):int(y_max), int(x_min):int(x_max)]
                                     crop_mask = mask_np[int(y_min):int(y_max), int(x_min):int(x_max)]
                                     
-                                    logging.info(f"裁剪出合并后的人物区域: {crop_img.shape}")
+                                    logging.info(f"智能扩展后的人物区域: {crop_img.shape}, 实际比例: {crop_img.shape[1]/crop_img.shape[0]}, 目标比例: {target_ratio}")
                                     
                                     # 添加到处理列表
                                     images_to_process.append(crop_img)
@@ -436,23 +439,16 @@ class ResizeImageByPerson:
                             else:
                                 # 处理多个独立的边界框
                                 for box_idx, box in enumerate(selected_boxes):
-                                    x_min, y_min, x_max, y_max = box
-                                    
-                                    # 计算填充范围
-                                    padding_w = (x_max - x_min) * (padding_percent / 100)
-                                    padding_h = (y_max - y_min) * (padding_percent / 100)
-                                    
-                                    # 应用填充，同时确保边界不会超出图像
-                                    x_min = max(0, x_min - padding_w)
-                                    y_min = max(0, y_min - padding_h)
-                                    x_max = min(w, x_max + padding_w)
-                                    y_max = min(h, y_max + padding_h)
+                                    # 使用智能扩展边界框函数
+                                    x_min, y_min, x_max, y_max = self.extend_bbox_to_target_ratio(
+                                        box, target_ratio, w, h, padding_percent
+                                    )
                                     
                                     # 裁剪图像和遮罩
                                     crop_img = img_np[int(y_min):int(y_max), int(x_min):int(x_max)]
                                     crop_mask = mask_np[int(y_min):int(y_max), int(x_min):int(x_max)]
                                     
-                                    logging.info(f"裁剪出人物{box_idx}: {crop_img.shape}")
+                                    logging.info(f"智能扩展后的人物{box_idx}: {crop_img.shape}, 实际比例: {crop_img.shape[1]/crop_img.shape[0]}, 目标比例: {target_ratio}")
                                     
                                     # 添加到处理列表
                                     images_to_process.append(crop_img)
@@ -530,10 +526,7 @@ class ResizeImageByPerson:
     def process_single_image(self, img_np, mask_np, resize, width, height, scale_to_side, 
                             scale_to_length, keep_proportion, divisible_by, 
                             interp_method, mask_interp_method):
-        """处理单个图像的缩放逻辑，按照明确的优先级：
-        1. 如果resize=True, 则使用width和height参数(keep_proportion可能会影响)
-        2. 如果resize=False但scale_to_side不是"None", 则使用scale_to_side和scale_to_length
-        3. 如果都不使用，保持原始尺寸
+        """处理单个图像的缩放逻辑
         
         输入:
             img_np: numpy格式的图像，格式为[H, W, C]
@@ -566,9 +559,98 @@ class ResizeImageByPerson:
             return (torch.from_numpy(dummy_img).float() / 255.0).unsqueeze(0), torch.from_numpy(dummy_mask).float().unsqueeze(0)
             
         h, w = img_np.shape[0:2]
-        target_width, target_height = w, h  # 默认保持原始尺寸
+        logging.info(f"原始尺寸: {w}x{h}, 是否调整大小: {resize}")
         
-        logging.info(f"原始尺寸: {w}x{h}, 是否调整大小: {resize}, 目标尺寸: {width}x{height}")
+        # 计算目标尺寸
+        target_width, target_height = self.calculate_target_size(
+            w, h, resize, width, height, scale_to_side, 
+            scale_to_length, keep_proportion, divisible_by
+        )
+        
+        # 如果预处理已经将图像调整到接近目标比例，现在只需进行较小的缩放
+        current_ratio = w / h
+        target_ratio = target_width / target_height
+        
+        logging.info(f"当前比例: {current_ratio:.4f}, 目标比例: {target_ratio:.4f}, 比例差异: {abs(current_ratio - target_ratio):.4f}")
+        
+        # 如果当前比例已经非常接近目标比例（误差小于5%），可以直接缩放
+        # 否则，可能需要轻微的裁剪或填充来达到精确的目标比例
+        if abs(current_ratio - target_ratio) > 0.05:
+            logging.info("当前比例与目标比例差异较大，调整比例...")
+            # 创建一个正确比例的画布
+            if current_ratio > target_ratio:
+                # 宽度过大，计算新的宽度
+                new_width = int(h * target_ratio)
+                crop_x_offset = (w - new_width) // 2
+                img_np = img_np[:, crop_x_offset:crop_x_offset+new_width]
+                mask_np = mask_np[:, crop_x_offset:crop_x_offset+new_width]
+                logging.info(f"裁剪宽度到新尺寸: {img_np.shape}")
+            else:
+                # 高度过大，计算新的高度
+                new_height = int(w / target_ratio)
+                crop_y_offset = (h - new_height) // 2
+                img_np = img_np[crop_y_offset:crop_y_offset+new_height, :]
+                mask_np = mask_np[crop_y_offset:crop_y_offset+new_height, :]
+                logging.info(f"裁剪高度到新尺寸: {img_np.shape}")
+
+        # 调整图像大小
+        try:
+            logging.info(f"最终调整尺寸: {target_width}x{target_height}")
+            img_resized = cv2.resize(img_np, (target_width, target_height), interpolation=interp_method)
+            mask_resized = cv2.resize(mask_np, (target_width, target_height), interpolation=mask_interp_method)
+            logging.info(f"调整后的图像形状: {img_resized.shape}")
+        except Exception as e:
+            logging.error(f"调整尺寸失败: {str(e)}")
+            # 如果调整失败，尝试使用更安全的方法
+            try:
+                img_resized = np.zeros((target_height, target_width, 3), dtype=img_np.dtype)
+                mask_resized = np.zeros((target_height, target_width), dtype=mask_np.dtype)
+                logging.warning(f"创建了空白图像代替调整失败的图像: {img_resized.shape}")
+            except Exception as e2:
+                logging.error(f"创建空白图像也失败: {str(e2)}")
+                # 使用原始图像
+                img_resized = img_np
+                mask_resized = mask_np
+
+        # 在ComfyUI中，图像格式应该是[B, H, W, C]
+        # 将numpy图像转换为tensor，并确保格式正确
+        try:
+            if img_resized.dtype == np.uint8:
+                # 如果是uint8，需要归一化为0-1
+                img_tensor = torch.from_numpy(img_resized.astype(np.float32) / 255.0)
+            else:
+                # 如果已经是float类型，确保是float32
+                img_tensor = torch.from_numpy(img_resized.astype(np.float32))
+            
+            # 确保图像是[B, H, W, C]格式
+            if len(img_tensor.shape) == 3:  # [H, W, C]
+                img_tensor = img_tensor.unsqueeze(0)  # 添加批次维度 [1, H, W, C]
+            
+            # 对于掩码，ComfyUI期望格式为[B, H, W]
+            if mask_resized.dtype == np.uint8:
+                mask_tensor = torch.from_numpy(mask_resized.astype(np.float32) / 255.0)
+            else:
+                mask_tensor = torch.from_numpy(mask_resized.astype(np.float32))
+                
+            if len(mask_tensor.shape) == 2:  # [H, W]
+                mask_tensor = mask_tensor.unsqueeze(0)  # 添加批次维度 [1, H, W]
+            elif len(mask_tensor.shape) == 3 and mask_tensor.shape[2] == 1:  # [H, W, 1]
+                mask_tensor = mask_tensor.squeeze(-1).unsqueeze(0)  # 转换为 [1, H, W]
+                
+            logging.info(f"处理后的图像形状: {img_tensor.shape}, 掩码形状: {mask_tensor.shape}")
+            return img_tensor, mask_tensor
+        except Exception as e:
+            logging.error(f"转换为tensor失败: {str(e)}")
+            # 创建一个最小的有效图像和掩码
+            dummy_img = np.zeros((64, 64, 3), dtype=np.uint8)
+            dummy_mask = np.zeros((64, 64), dtype=np.uint8)
+            # 返回dummy图像的tensor
+            return (torch.from_numpy(dummy_img).float() / 255.0).unsqueeze(0), torch.from_numpy(dummy_mask).float().unsqueeze(0)
+
+    def calculate_target_size(self, w, h, resize, width, height, scale_to_side, 
+                            scale_to_length, keep_proportion, divisible_by):
+        """计算目标尺寸"""
+        target_width, target_height = w, h  # 默认保持原始尺寸
         
         # 第一优先级：使用resize参数
         if resize:
@@ -581,8 +663,7 @@ class ResizeImageByPerson:
                 ratio = min(target_width / w, target_height / h)
                 target_width = round(w * ratio)
                 target_height = round(h * ratio)
-                logging.info(f"保持比例后的目标尺寸: {target_width}x{target_height}")
-                
+            
             # 确保尺寸可被divisible_by整除
             if divisible_by > 1:
                 old_tw, old_th = target_width, target_height
@@ -643,56 +724,238 @@ class ResizeImageByPerson:
         target_width = max(1, target_width)
         target_height = max(1, target_height)
 
-        # 调整图像大小
-        try:
-            logging.info(f"最终调整尺寸: {target_width}x{target_height}")
-            img_resized = cv2.resize(img_np, (target_width, target_height), interpolation=interp_method)
-            mask_resized = cv2.resize(mask_np, (target_width, target_height), interpolation=mask_interp_method)
-            logging.info(f"调整后的图像形状: {img_resized.shape}")
-        except Exception as e:
-            logging.error(f"调整尺寸失败: {str(e)}")
-            # 如果调整失败，尝试使用更安全的方法
-            try:
-                img_resized = np.zeros((target_height, target_width, 3), dtype=img_np.dtype)
-                mask_resized = np.zeros((target_height, target_width), dtype=mask_np.dtype)
-                logging.warning(f"创建了空白图像代替调整失败的图像: {img_resized.shape}")
-            except Exception as e2:
-                logging.error(f"创建空白图像也失败: {str(e2)}")
-                # 使用原始图像
-                img_resized = img_np
-                mask_resized = mask_np
+        return target_width, target_height
 
-        # 在ComfyUI中，图像格式应该是[B, H, W, C]
-        # 将numpy图像转换为tensor，并确保格式正确
-        try:
-            if img_resized.dtype == np.uint8:
-                # 如果是uint8，需要归一化为0-1
-                img_tensor = torch.from_numpy(img_resized.astype(np.float32) / 255.0)
-            else:
-                # 如果已经是float类型，确保是float32
-                img_tensor = torch.from_numpy(img_resized.astype(np.float32))
+    def extend_bbox_to_target_ratio(self, bbox, target_ratio, w, h, padding_percent):
+        """扩展边界框到目标比例
+        
+        Args:
+            bbox: 原始边界框 [x_min, y_min, x_max, y_max]
+            target_ratio: 目标宽高比 (width/height)
+            w, h: 原图宽高
+            padding_percent: 基础填充百分比
             
-            # 确保图像是[B, H, W, C]格式
-            if len(img_tensor.shape) == 3:  # [H, W, C]
-                img_tensor = img_tensor.unsqueeze(0)  # 添加批次维度 [1, H, W, C]
+        Returns:
+            扩展后的边界框 [x_min, y_min, x_max, y_max]
+        """
+        x_min, y_min, x_max, y_max = bbox
+        
+        # 记录原始边界框
+        bbox_width = x_max - x_min
+        bbox_height = y_max - y_min
+        orig_ratio = bbox_width / bbox_height
+        
+        logging.info(f"原始边界框: 宽={bbox_width}, 高={bbox_height}, 比例={orig_ratio:.4f}, 目标比例={target_ratio:.4f}")
+        
+        # 首先应用基础填充，保持原有宽高比
+        padding_w = (x_max - x_min) * (padding_percent / 100)
+        padding_h = (y_max - y_min) * (padding_percent / 100)
+        
+        x_min_padded = max(0, x_min - padding_w)
+        y_min_padded = max(0, y_min - padding_h)
+        x_max_padded = min(w, x_max + padding_w)
+        y_max_padded = min(h, y_max + padding_h)
+        
+        # 基础填充后的尺寸
+        bbox_width_padded = x_max_padded - x_min_padded
+        bbox_height_padded = y_max_padded - y_min_padded
+        padded_ratio = bbox_width_padded / bbox_height_padded
+        
+        logging.info(f"基础填充后: 宽={bbox_width_padded}, 高={bbox_height_padded}, 比例={padded_ratio:.4f}")
+        
+        # 计算向目标比例扩展需要的额外像素
+        if abs(padded_ratio - target_ratio) < 0.01:
+            # 如果已经非常接近目标比例，不需要额外调整
+            logging.info("基础填充后已接近目标比例，无需额外调整")
+            return [x_min_padded, y_min_padded, x_max_padded, y_max_padded]
             
-            # 对于掩码，ComfyUI期望格式为[B, H, W]
-            if mask_resized.dtype == np.uint8:
-                mask_tensor = torch.from_numpy(mask_resized.astype(np.float32) / 255.0)
-            else:
-                mask_tensor = torch.from_numpy(mask_resized.astype(np.float32))
+        # 调整比例：选择最小的改动来达到目标比例
+        if padded_ratio < target_ratio:
+            # 当前太窄，需要横向扩展
+            # 计算目标宽度
+            target_width = bbox_height_padded * target_ratio
+            width_diff = target_width - bbox_width_padded
+            
+            # 计算左右各需添加的像素数
+            add_left = width_diff / 2
+            add_right = width_diff / 2
+            
+            # 检查是否超出图像边界
+            if x_min_padded - add_left < 0:
+                # 左边超出边界，将多余的分配给右边
+                add_right += (add_left - x_min_padded)
+                add_left = x_min_padded
+            
+            if x_max_padded + add_right > w:
+                # 右边超出边界，将多余的分配给左边
+                add_left += (add_right - (w - x_max_padded))
+                add_right = w - x_max_padded
                 
-            if len(mask_tensor.shape) == 2:  # [H, W]
-                mask_tensor = mask_tensor.unsqueeze(0)  # 添加批次维度 [1, H, W]
-            elif len(mask_tensor.shape) == 3 and mask_tensor.shape[2] == 1:  # [H, W, 1]
-                mask_tensor = mask_tensor.squeeze(-1).unsqueeze(0)  # 转换为 [1, H, W]
+                # 再次检查左边是否超出
+                if x_min_padded - add_left < 0:
+                    add_left = x_min_padded
+            
+            # 应用横向扩展
+            x_min_final = x_min_padded - add_left
+            x_max_final = x_max_padded + add_right
+            y_min_final = y_min_padded
+            y_max_final = y_max_padded
+            
+            logging.info(f"横向扩展: 左侧添加={add_left:.1f}px, 右侧添加={add_right:.1f}px")
+        else:
+            # 当前太宽，需要纵向扩展
+            # 计算目标高度
+            target_height = bbox_width_padded / target_ratio
+            height_diff = target_height - bbox_height_padded
+            
+            # 计算上下各需添加的像素数
+            add_top = height_diff / 2
+            add_bottom = height_diff / 2
+            
+            # 检查是否超出图像边界
+            if y_min_padded - add_top < 0:
+                # 上边超出边界，将多余的分配给下边
+                add_bottom += (add_top - y_min_padded)
+                add_top = y_min_padded
+            
+            if y_max_padded + add_bottom > h:
+                # 下边超出边界，将多余的分配给上边
+                add_top += (add_bottom - (h - y_max_padded))
+                add_bottom = h - y_max_padded
                 
-            logging.info(f"处理后的图像形状: {img_tensor.shape}, 掩码形状: {mask_tensor.shape}")
-            return img_tensor, mask_tensor
-        except Exception as e:
-            logging.error(f"转换为tensor失败: {str(e)}")
-            # 创建一个最小的有效图像和掩码
-            dummy_img = np.zeros((64, 64, 3), dtype=np.uint8)
-            dummy_mask = np.zeros((64, 64), dtype=np.uint8)
-            # 返回dummy图像的tensor
-            return (torch.from_numpy(dummy_img).float() / 255.0).unsqueeze(0), torch.from_numpy(dummy_mask).float().unsqueeze(0)
+                # 再次检查上边是否超出
+                if y_min_padded - add_top < 0:
+                    add_top = y_min_padded
+            
+            # 应用纵向扩展
+            x_min_final = x_min_padded
+            x_max_final = x_max_padded
+            y_min_final = y_min_padded - add_top
+            y_max_final = y_max_padded + add_bottom
+            
+            logging.info(f"纵向扩展: 上方添加={add_top:.1f}px, 下方添加={add_bottom:.1f}px")
+        
+        # 确保最终坐标在有效范围内
+        x_min_final = max(0, x_min_final)
+        y_min_final = max(0, y_min_final)
+        x_max_final = min(w, x_max_final)
+        y_max_final = min(h, y_max_final)
+        
+        # 计算最终比例
+        final_width = x_max_final - x_min_final
+        final_height = y_max_final - y_min_final
+        final_ratio = final_width / final_height
+        
+        logging.info(f"最终边界框: 宽={final_width}, 高={final_height}, 比例={final_ratio:.4f}")
+        
+        return [x_min_final, y_min_final, x_max_final, y_max_final]
+
+    def resize_by_detection(self, img_np, detections_dict, resize, width, height, 
+                         scale_to_side, scale_to_length, keep_proportion, divisible_by,
+                         interp_method, mask_interp_method, margin_percent,
+                         select_num=None, min_scale=0.8, max_scale=1.2):
+        """基于人物检测结果进行裁剪和缩放
+        
+        输入:
+            img_np: 图像数组
+            detections_dict: 检测结果字典
+            resize等参数: 缩放参数
+            margin_percent: 边界框周围的额外空间（百分比）
+            select_num: 选择的索引，如果为None则使用所有检测
+            min_scale, max_scale: 缩放范围
+            
+        输出:
+            results: 处理后的图像和掩码列表
+        """
+        # 如果检测结果为空，返回None
+        if not detections_dict:
+            return None
+        
+        # 获取检测到的边界框和索引
+        bboxes = detections_dict['bboxes']
+        indices = detections_dict['indices']
+        logging.info(f"检测到{len(bboxes)}个人物，indices={indices}")
+        
+        # 如果启用了索引选择但没有匹配的索引，返回None
+        if select_num is not None and len(indices) > 0 and select_num not in indices:
+            logging.info(f"select_num={select_num}不在检测到的indices={indices}中")
+            return None
+        
+        # 计算目标尺寸
+        orig_w, orig_h = img_np.shape[1], img_np.shape[0]
+        target_width, target_height = self.calculate_target_size(
+            orig_w, orig_h, resize, width, height, scale_to_side, 
+            scale_to_length, keep_proportion, divisible_by
+        )
+        logging.info(f"目标尺寸: {target_width}x{target_height}, 比例: {target_width/target_height:.4f}")
+        
+        # 为目标尺寸创建空白掩码
+        output_masks = []
+        output_images = []
+        
+        # 目标宽高比
+        target_ratio = target_width / target_height
+        
+        # 遍历每个检测到的边界框
+        for i, bbox in enumerate(bboxes):
+            bbox_index = indices[i] if i < len(indices) else i
+            # 如果指定了select_num且不匹配当前索引，则跳过
+            if select_num is not None and select_num != bbox_index:
+                continue
+                
+            logging.info(f"处理人物 #{bbox_index}, 原始边界框: {bbox}")
+            
+            # 扩展边界框以适应目标比例，使用正确的参数顺序
+            extended_bbox = self.extend_bbox_to_target_ratio(
+                bbox, target_ratio, orig_w, orig_h, margin_percent
+            )
+            logging.info(f"扩展后的边界框: {extended_bbox}")
+            
+            # 解包边界框坐标
+            x1, y1, x2, y2 = extended_bbox
+            
+            # 确保边界框在图像范围内
+            x1 = max(0, x1)
+            y1 = max(0, y1)
+            x2 = min(orig_w, x2)
+            y2 = min(orig_h, y2)
+            
+            # 裁剪图像
+            cropped_img = img_np[int(y1):int(y2), int(x1):int(x2)]
+            
+            if cropped_img.size == 0:
+                logging.warning(f"裁剪区域无效: {x1},{y1},{x2},{y2}, 跳过此区域")
+                continue
+                
+            logging.info(f"裁剪区域: {x1},{y1},{x2},{y2}, 裁剪后尺寸: {cropped_img.shape}")
+            
+            # 创建裁剪区域的掩码
+            mask = np.zeros((orig_h, orig_w), dtype=np.uint8)
+            cv2.rectangle(mask, (int(x1), int(y1)), (int(x2), int(y2)), 255, -1)
+            cropped_mask = mask[int(y1):int(y2), int(x1):int(x2)]
+            
+            # 处理裁剪后的图像和掩码
+            processed_img, processed_mask = self.process_single_image(
+                cropped_img, cropped_mask, resize, width, height, 
+                scale_to_side, scale_to_length, keep_proportion, divisible_by,
+                interp_method, mask_interp_method
+            )
+            
+            output_images.append(processed_img)
+            output_masks.append(processed_mask)
+            
+            # 如果只需要处理一个指定的索引，处理完就可以退出循环
+            if select_num is not None:
+                break
+                
+        if not output_images:
+            logging.warning("没有有效的裁剪结果")
+            return None
+            
+        # 将所有结果合并为一个列表返回
+        results = []
+        for img, mask in zip(output_images, output_masks):
+            results.append((img, mask))
+            
+        logging.info(f"resize_by_detection完成，生成了{len(results)}个结果")
+        return results
