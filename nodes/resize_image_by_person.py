@@ -111,7 +111,6 @@ class ResizeImageByPerson:
         return {
             "required": {
                 "images": ("IMAGE",),  # 输入图像张量
-                "masks": ("MASK",),    # 输入遮罩张量
                 "crop_by_person": ("BOOLEAN", {
                     "default": False, 
                     "tooltip": "是否使用person_yolov8m-seg模型检测人物，并在缩放前裁剪到仅包含人物区域"
@@ -185,6 +184,11 @@ class ResizeImageByPerson:
                 "interpolation": (interpolation_modes, {
                     "default": "bilinear",
                     "tooltip": "图像缩放时使用的插值方法"
+                }),
+            },
+            "optional": {
+                "masks": ("MASK", {
+                    "tooltip": "输入遮罩张量，可选。如果不提供，将创建全黑的遮罩"
                 }),
             }
         }
@@ -307,9 +311,10 @@ class ResizeImageByPerson:
                 return [0]
             return []
 
-    def resize_images_and_masks(self, images, masks, crop_by_person, use_largest_person, person_indices, merge_output, 
+    def resize_images_and_masks(self, images, crop_by_person, use_largest_person, person_indices, merge_output, 
                                 person_confidence, padding_percent, resize, width, height, 
-                                keep_proportion, scale_to_side, scale_to_length, divisible_by, interpolation):
+                                keep_proportion, scale_to_side, scale_to_length, divisible_by, interpolation,
+                                masks=None):
         """
         主处理函数，按照以下逻辑顺序处理图像：
         1. 首先根据crop_by_person参数决定是否进行人物裁剪，以及如何裁剪
@@ -321,7 +326,7 @@ class ResizeImageByPerson:
         
         参数:
             images: 输入图像张量
-            masks: 输入掩码张量
+            masks: 输入掩码张量，可选。如果不提供，将创建全黑的掩码
             crop_by_person: 是否使用人物检测进行裁剪
             use_largest_person: 是否只处理面积最大的人物框
             person_indices: 要处理的人物索引字符串
@@ -333,6 +338,14 @@ class ResizeImageByPerson:
         """
         output_images = []
         output_masks = []
+        
+        # 如果未提供masks，创建与images相同批次的全黑mask
+        if masks is None:
+            logging.info("未提供masks，创建全黑mask")
+            # 创建一个与images相同批次和尺寸的全黑mask
+            # masks格式为[batch, height, width]
+            masks = torch.zeros((images.shape[0], images.shape[1], images.shape[2]), 
+                                dtype=torch.float32, device=images.device)
         
         # 设置插值方法
         if interpolation == "nearest-exact":
@@ -353,6 +366,7 @@ class ResizeImageByPerson:
 
         # 打印输入图像的形状，确认格式
         logging.info(f"输入图像形状: {images.shape}")  # 应该是 [N, H, W, C]
+        logging.info(f"输入遮罩形状: {masks.shape}")  # 应该是 [N, H, W]
 
         for img_idx, (img, mask) in enumerate(zip(images, masks)):
             # 在ComfyUI中，图像格式为[H, W, C]
@@ -455,7 +469,7 @@ class ResizeImageByPerson:
                                     
                                     # 裁剪图像和遮罩
                                     crop_img = img_np[int(y_min):int(y_max), int(x_min):int(x_max)]
-                                    crop_mask = mask_np[int(y_min):int(y_max), int(x_min):int(x_max)]
+                                    crop_mask = mask_np[int(y_min):int(y_max), int(x_min):int(x_max)] if mask_np is not None else None
                                     
                                     logging.info(f"智能扩展后的人物区域: {crop_img.shape}, 实际比例: {crop_img.shape[1]/crop_img.shape[0]}, 目标比例: {target_ratio}")
                                     
@@ -476,7 +490,7 @@ class ResizeImageByPerson:
                                     
                                     # 裁剪图像和遮罩
                                     crop_img = img_np[int(y_min):int(y_max), int(x_min):int(x_max)]
-                                    crop_mask = mask_np[int(y_min):int(y_max), int(x_min):int(x_max)]
+                                    crop_mask = mask_np[int(y_min):int(y_max), int(x_min):int(x_max)] if mask_np is not None else None
                                     
                                     logging.info(f"智能扩展后的人物{box_idx}: {crop_img.shape}, 实际比例: {crop_img.shape[1]/crop_img.shape[0]}, 目标比例: {target_ratio}")
                                     
@@ -560,7 +574,7 @@ class ResizeImageByPerson:
         
         输入:
             img_np: numpy格式的图像，格式为[H, W, C]
-            mask_np: numpy格式的掩码，格式为[H, W]
+            mask_np: numpy格式的掩码，格式为[H, W]，可以为None
             
         输出:
             img_tensor: tensor格式的图像，格式为[1, H, W, C]
@@ -568,7 +582,11 @@ class ResizeImageByPerson:
         """
         # 记录输入形状，帮助调试
         logging.info(f"process_single_image输入图像形状: {img_np.shape}")
-        if hasattr(mask_np, 'shape'):
+        if mask_np is None:
+            logging.info("process_single_image: mask_np为None，将创建全黑mask")
+            # 创建一个与图像相同尺寸的全黑mask
+            mask_np = np.zeros((img_np.shape[0], img_np.shape[1]), dtype=np.uint8)
+        elif hasattr(mask_np, 'shape'):
             logging.info(f"process_single_image输入掩码形状: {mask_np.shape}")
             
         # 确保img_np形状正确
@@ -576,11 +594,11 @@ class ResizeImageByPerson:
             img_np = img_np[0]  # 取第一个图像
             
         # 确保mask_np形状正确
-        if len(mask_np.shape) == 3:  # 如果形状是[N, H, W]
+        if mask_np is not None and len(mask_np.shape) == 3:  # 如果形状是[N, H, W]
             mask_np = mask_np[0]  # 取第一个mask
             
         # 检查输入图像有效性
-        if img_np.size == 0 or (hasattr(mask_np, 'size') and mask_np.size == 0):
+        if img_np.size == 0 or (mask_np is not None and hasattr(mask_np, 'size') and mask_np.size == 0):
             logging.error("输入图像或掩码为空")
             # 创建一个最小的有效图像和掩码
             dummy_img = np.zeros((64, 64, 3), dtype=np.uint8)
