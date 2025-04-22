@@ -116,6 +116,10 @@ class ResizeImageByPerson:
                     "default": False, 
                     "tooltip": "是否使用person_yolov8m-seg模型检测人物，并在缩放前裁剪到仅包含人物区域"
                 }),
+                "use_largest_person": ("BOOLEAN", {
+                    "default": False, 
+                    "tooltip": "是否只处理检测到的最大人物框（面积最大）"
+                }),
                 "person_indices": ("STRING", {
                     "default": "0", 
                     "tooltip": "要处理的人物索引，从左到右排序。输入0表示最左边人物；-1表示所有人物；多个索引用逗号分隔，如'0,1'"
@@ -303,15 +307,29 @@ class ResizeImageByPerson:
                 return [0]
             return []
 
-    def resize_images_and_masks(self, images, masks, crop_by_person, person_indices, merge_output, 
+    def resize_images_and_masks(self, images, masks, crop_by_person, use_largest_person, person_indices, merge_output, 
                                 person_confidence, padding_percent, resize, width, height, 
                                 keep_proportion, scale_to_side, scale_to_length, divisible_by, interpolation):
         """
         主处理函数，按照以下逻辑顺序处理图像：
         1. 首先根据crop_by_person参数决定是否进行人物裁剪，以及如何裁剪
+           - 如果use_largest_person=True，则只处理面积最大的人物框
+           - 否则，根据person_indices选择要处理的人物
         2. 然后将裁剪后的图像传递给process_single_image进行尺寸调整
            - 如果resize=True，优先使用width和height参数
            - 如果resize=False但scale_to_side不是"None"，则使用scale_to_side和scale_to_length参数
+        
+        参数:
+            images: 输入图像张量
+            masks: 输入掩码张量
+            crop_by_person: 是否使用人物检测进行裁剪
+            use_largest_person: 是否只处理面积最大的人物框
+            person_indices: 要处理的人物索引字符串
+            merge_output: 处理多个人物时是否合并输出
+            其他参数: 控制缩放和输出格式的参数
+            
+        返回:
+            处理后的图像、掩码和检测到的人物数量
         """
         output_images = []
         output_masks = []
@@ -396,8 +414,20 @@ class ResizeImageByPerson:
                 
                 if total_person_count > 0:
                     try:
-                        # 解析用户提供的索引
-                        valid_indices = self.parse_indices(person_indices, total_person_count - 1)
+                        # 如果启用了只处理最大人物框选项
+                        if use_largest_person and total_person_count > 1:
+                            # 计算每个边界框的面积
+                            areas = [(box[2] - box[0]) * (box[3] - box[1]) for box in all_person_boxes]
+                            # 找出面积最大的边界框索引
+                            largest_idx = areas.index(max(areas))
+                            logging.info(f"选择面积最大的人物框 #{largest_idx}, 面积: {areas[largest_idx]}像素")
+                            # 只保留最大的人物框
+                            all_person_boxes = [all_person_boxes[largest_idx]]
+                            # 更新有效索引为单个索引0
+                            valid_indices = [0]
+                        else:
+                            # 解析用户提供的索引
+                            valid_indices = self.parse_indices(person_indices, total_person_count - 1)
                         
                         # 根据索引选择边界框
                         selected_boxes = [all_person_boxes[idx] for idx in valid_indices if idx < total_person_count]
