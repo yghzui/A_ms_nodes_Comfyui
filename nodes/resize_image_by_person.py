@@ -12,6 +12,7 @@ import math
 import logging
 from ultralytics import YOLO
 from custom_nodes.A_my_nodes.nodes.image_nodes import img2tensor, tensor2img
+import hashlib
 
 comfyui_model_path=folder_paths.models_dir
 person_yolov8m_seg_path=os.path.join(comfyui_model_path,"ultralytics","segm","person_yolov8m-seg.pt")
@@ -197,6 +198,8 @@ class ResizeImageByPerson:
     RETURN_NAMES = ("image", "mask", "person_count")
     FUNCTION = "resize_images_and_masks"
     CATEGORY = "My_node/image"
+
+
 
     def __init__(self):
         self.person_model = None
@@ -566,6 +569,42 @@ class ResizeImageByPerson:
             
             logging.info(f"多图像拼接后输出形状: {final_images.shape}, {final_masks.shape}")
             return final_images, final_masks, torch.tensor([total_person_count], dtype=torch.int32)
+
+    # @classmethod
+    # def IS_CHANGED(s, images, crop_by_person, use_largest_person, person_indices, merge_output,
+    #                             person_confidence, padding_percent, resize, width, height,
+    #                             keep_proportion, scale_to_side, scale_to_length, divisible_by, interpolation,
+    #                             masks=None):
+    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
+    #     m = hashlib.sha256()
+
+    #     # 对图像进行哈希
+    #     images_flat = images.reshape(-1).numpy().tobytes()
+    #     m.update(images_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
+
+    #     # 如果存在masks，也对它进行哈希
+    #     if masks is not None:
+    #         masks_flat = masks.reshape(-1).numpy().tobytes()
+    #         m.update(masks_flat[:1024])
+
+    #     # 将其他参数也加入哈希计算
+    #     m.update(str(crop_by_person).encode())
+    #     m.update(str(use_largest_person).encode())
+    #     m.update(str(person_indices).encode())
+    #     m.update(str(merge_output).encode())
+    #     m.update(str(person_confidence).encode())
+    #     m.update(str(padding_percent).encode())
+    #     m.update(str(resize).encode())
+    #     m.update(str(width).encode())
+    #     m.update(str(height).encode())
+    #     m.update(str(keep_proportion).encode())
+    #     m.update(str(scale_to_side).encode())
+    #     m.update(str(scale_to_length).encode())
+    #     m.update(str(divisible_by).encode())
+    #     m.update(str(interpolation).encode())
+
+    #     return m.digest().hex()
+
 
     def process_single_image(self, img_np, mask_np, resize, width, height, scale_to_side, 
                             scale_to_length, keep_proportion, divisible_by, 

@@ -282,11 +282,21 @@ class LoadAndResizeImageMy:
         return (output_image, output_mask, target_width, target_height, image_dir, image_name, image_ext)
 
     @classmethod
-    def IS_CHANGED(s, image):
+    def IS_CHANGED(s, image, resize, width, height, repeat,
+                   keep_proportion, divisible_by, mask_channel, scale_to_side, scale_to_length):
         image_path = folder_paths.get_annotated_filepath(image)
         m = hashlib.sha256()
         with open(image_path, 'rb') as f:
             m.update(f.read())
+        m.update(str(resize).encode())
+        m.update(str(width).encode())
+        m.update(str(height).encode())
+        m.update(str(repeat).encode())
+        m.update(str(keep_proportion).encode())
+        m.update(str(divisible_by).encode())
+        m.update(str(mask_channel).encode())
+        m.update(str(scale_to_side).encode())
+        m.update(str(scale_to_length).encode())
         return m.digest().hex()
 
     @classmethod
@@ -322,6 +332,36 @@ class ResizeImagesAndMasks:
 
     RETURN_TYPES = ("IMAGE", "MASK")
     FUNCTION = "resize_images_and_masks"
+    
+    # @classmethod
+    # def IS_CHANGED(s, images, masks, resize, width, height, scale_to_side, scale_to_length, keep_proportion, divisible_by):
+    #     image_path = folder_paths.get_annotated_filepath(images)
+    #     m = hashlib.sha256()
+    #     with open(image_path, 'rb') as f:
+    #         m.update(f.read())
+    #     # return m.digest().hex()
+        
+    #     # # 计算输入的哈希值，确保只有在输入变化时才重新计算
+    #     # m = hashlib.sha256()
+        
+    #     # # 对图像进行哈希
+    #     # images_flat = images.reshape(-1).numpy().tobytes()
+    #     # m.update(images_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
+        
+    #     # 对masks进行哈希
+    #     masks_flat = masks.reshape(-1).numpy().tobytes()
+    #     m.update(masks_flat[:1024])
+        
+    #     # 将其他参数也加入哈希计算
+    #     m.update(str(resize).encode())
+    #     m.update(str(width).encode())
+    #     m.update(str(height).encode())
+    #     m.update(str(scale_to_side).encode())
+    #     m.update(str(scale_to_length).encode())
+    #     m.update(str(keep_proportion).encode())
+    #     m.update(str(divisible_by).encode())
+        
+    #     return m.digest().hex()
 
     def resize_images_and_masks(self, images, masks, resize, width, height, scale_to_side, scale_to_length, keep_proportion, divisible_by):
         output_images = []
@@ -402,101 +442,6 @@ class ResizeImagesAndMasks:
             output_masks.append(torch.from_numpy(mask_resized).float())
 
         return torch.stack(output_images), torch.stack(output_masks)
-# class CropFaceMy:
-#     @classmethod
-#     def INPUT_TYPES(s):
-#         return {"required": {"image": ("IMAGE",),
-#                              "facedetection": (["retinaface_resnet50", "retinaface_mobile0.25", "YOLOv5l", "YOLOv5n"],),
-#                              "output_size": ("INT", {"default": 512, "min": 256, "max": 1024, "step": 2})
-#                              }}
-
-#     RETURN_TYPES = ("IMAGE","MASK","STRING")
-
-#     FUNCTION = "crop_face"
-
-#     CATEGORY = "My_node/image"
-
-#     def __init__(self):
-#         self.face_helper = None
-
-#     def crop_face(self, image, facedetection, output_size):
-#         device = model_management.get_torch_device()
-#         if self.face_helper is None:
-#             self.face_helper = FaceRestoreHelper(1, face_size=512, crop_ratio=(1, 1), det_model=facedetection,
-#                                                  save_ext='png', use_parse=True, device=device)
-
-#         image_np = 255. * image.cpu().numpy()
-
-#         total_images = image_np.shape[0]
-#         out_images = np.ndarray(shape=(total_images, output_size, output_size, 3))
-#         next_idx = 0
-
-#         # 获取输入样本的宽高
-#         height, width = image.shape[1:3]  # 形状为 (2, 960, 720, 3)，获取宽高
-
-#         # 创建一个与样本数量相同的纯黑张量
-#         mask = torch.zeros((total_images, height, width), dtype=torch.float32)
-#         squares_info = []  # 用于记录正方形的位置信息
-
-#         for i in range(total_images):
-
-#             cur_image_np = image_np[i, :, :, ::-1]
-
-#             original_resolution = cur_image_np.shape[0:2]
-
-#             if self.face_helper is None:
-#                 return image
-
-#             self.face_helper.clean_all()
-#             self.face_helper.read_image(cur_image_np)
-#             self.face_helper.get_face_landmarks_5(only_center_face=False, resize=640, eye_dist_threshold=5)
-#             self.face_helper.align_warp_face()
-#             print("面部信息:",self.face_helper.all_landmarks_5)
-#             print("面部框:",self.face_helper.det_faces)
-#             faces_found = len(self.face_helper.cropped_faces)
-#             # print("self.face_helper.cropped_faces:",self.face_helper.cropped_faces)
-#             if faces_found == 0:
-#                 next_idx += 1  # output black image for no face
-#             if out_images.shape[0] < next_idx + faces_found:
-#                 print(out_images.shape)
-#                 print((next_idx + faces_found, output_size, output_size, 3))
-#                 print('aaaaa')
-#                 out_images = np.resize(out_images, (next_idx + faces_found, output_size, output_size, 3))
-#                 print(out_images.shape)
-#             for j in range(faces_found):
-#                 cropped_face_1 = self.face_helper.cropped_faces[j]
-#                 cropped_face_2 = img2tensor(cropped_face_1 / 255., bgr2rgb=True, float32=True)
-#                 normalize(cropped_face_2, (0.5, 0.5, 0.5), (0.5, 0.5, 0.5), inplace=True)
-#                 cropped_face_3 = cropped_face_2.unsqueeze(0).to(device)
-#                 cropped_face_4 = tensor2img(cropped_face_3, rgb2bgr=True, min_max=(-1, 1)).astype('uint8')
-#                 cropped_face_5 = cv2.cvtColor(cropped_face_4, cv2.COLOR_BGR2RGB)
-#                 out_images[next_idx] = cv2.resize(cropped_face_5, (output_size, output_size))  # 调整输出图像大小
-#                 next_idx += 1
-
-#                 # 计算面部框的坐标
-#                 bbox = self.face_helper.det_faces[j]
-#                 x1, y1, x2, y2 = bbox[:4]  # 获取面部框的坐标
-#                 center_x = (x1 + x2) / 2
-#                 center_y = (y1 + y2) / 2
-#                 side_length = min(x2 - x1, y2 - y1)  # 计算正方形的边长
-
-#                 # 计算正方形的边长和中心点
-#                 square_size = int(side_length)
-#                 square_x = int(center_x - square_size // 2)
-#                 square_y = int(center_y - square_size // 2)
-
-#                 # 将正方形区域填充为白色
-#                 mask[i, square_y:square_y + square_size, square_x:square_x + square_size] = 1.0
-
-#                 # 记录正方形的信息
-#                 if len(squares_info) <= i:
-#                     squares_info.append([])
-#                 squares_info[i].append([square_x, square_y, square_size])
-
-#         cropped_face_6 = np.array(out_images).astype(np.float32) / 255.0
-#         cropped_face_7 = torch.from_numpy(cropped_face_6)
-
-#         return (cropped_face_7, mask, str(squares_info))  # 返回张量、mask和正方形信息
 
 class CropFaceMy:
     @classmethod
@@ -514,6 +459,24 @@ class CropFaceMy:
     FUNCTION = "crop_face"
 
     CATEGORY = "My_node/image"
+    
+    # @classmethod
+    # def IS_CHANGED(s, image, det_thresh, scale_factor, device, det_size, output_size):
+    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
+    #     m = hashlib.sha256()
+        
+    #     # 对图像进行哈希
+    #     images_flat = image.reshape(-1).numpy().tobytes()
+    #     m.update(images_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
+        
+    #     # 将其他参数也加入哈希计算
+    #     m.update(str(det_thresh).encode())
+    #     m.update(str(scale_factor).encode())
+    #     m.update(str(device).encode())
+    #     m.update(str(det_size).encode())
+    #     m.update(str(output_size).encode())
+        
+    #     return m.digest().hex()
 
     def __init__(self):
         self.face_helper = None
@@ -623,7 +586,7 @@ class CropFaceMy:
                     # square_size = min(int(side_length))
                 square_size = min(square_size, width - square_x, height - square_y)
 
-                # 将正方形区域填充为白色    
+                # 将正方形区域填充为白色
                 mask[i, square_y:int(square_y + square_size), square_x:int(square_x + square_size)] = 1.0
                 
                 # 创建单独的人脸遮罩
@@ -850,6 +813,29 @@ class CreateBboxMask:
 
         return (masked_image_tensor, mask_tensor)  # 修改返回值以包含裁剪后的面部图像张量
 
+    # @classmethod
+    # def IS_CHANGED(s, image, det_thresh, device, size, expand_left, expand_right, expand_top, expand_bottom):
+    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
+    #     m = hashlib.sha256()
+        
+    #     # 对图像进行哈希
+    #     images_flat = image.reshape(-1).numpy().tobytes()
+    #     m.update(images_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
+        
+    #     # 将其他参数也加入哈希计算
+    #     m.update(str(det_thresh).encode())
+    #     m.update(str(device).encode())
+    #     m.update(str(size).encode())
+    #     m.update(str(expand_left).encode())
+    #     m.update(str(expand_right).encode())
+    #     m.update(str(expand_top).encode())
+    #     m.update(str(expand_bottom).encode())
+        
+    #     return m.digest().hex()
+
+    def __init__(self):
+        self.face_helper = None
+
 
 class PasteFacesMy:
     @classmethod
@@ -865,6 +851,23 @@ class PasteFacesMy:
     RETURN_TYPES = ("IMAGE",)  # 返回合成后的图像
     FUNCTION = "paste_faces"
     CATEGORY = "My_node/image"
+    
+    # @classmethod
+    # def IS_CHANGED(s, base_image, face_images, squares_info):
+    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
+    #     m = hashlib.sha256()
+        
+    #     # 对图像进行哈希
+    #     base_image_flat = base_image.reshape(-1).numpy().tobytes()
+    #     m.update(base_image_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
+        
+    #     face_images_flat = face_images.reshape(-1).numpy().tobytes()
+    #     m.update(face_images_flat[:1024])
+        
+    #     # 对字符串参数进行哈希
+    #     m.update(str(squares_info).encode())
+        
+    #     return m.digest().hex()
 
     def paste_faces(self, base_image, face_images, squares_info):
         # 将squares_info从字符串转换为列表
@@ -935,6 +938,17 @@ class GenerateWhiteTensor:
     RETURN_TYPES = ("MASK",)
     FUNCTION = "generate_tensor"
     CATEGORY = "My_node/tensor"
+    
+    # @classmethod
+    # def IS_CHANGED(s, input_str, size):
+    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
+    #     m = hashlib.sha256()
+        
+    #     # 对字符串参数进行哈希
+    #     m.update(str(input_str).encode())
+    #     m.update(str(size).encode())
+        
+    #     return m.digest().hex()
 
     def generate_tensor(self, input_str, size):
         # 将输入字符串转换为列表
@@ -990,6 +1004,35 @@ class MyLoadImageListPlus:
     OUTPUT_IS_LIST = (True, True, True, True, True, True, True, False)
     FUNCTION = "make_list"
     CATEGORY = "My_node/image"
+    
+    # @classmethod
+    # def IS_CHANGED(s, start_index, max_images, input_folder, scale_to_side, scale_to_length):
+    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
+    #     m = hashlib.sha256()
+        
+    #     # 对字符串参数进行哈希
+    #     m.update(str(start_index).encode())
+    #     m.update(str(max_images).encode())
+    #     m.update(str(input_folder).encode())
+    #     m.update(str(scale_to_side).encode())
+    #     m.update(str(scale_to_length).encode())
+        
+    #     # 如果输入文件夹存在，还需要检查文件夹内容
+    #     if os.path.exists(input_folder):
+    #         # 获取文件夹中的所有文件，并按名称排序
+    #         files = sorted([f for f in os.listdir(input_folder) if os.path.isfile(os.path.join(input_folder, f))])
+            
+    #         # 如果文件数量太多，只取部分文件名进行哈希
+    #         if len(files) > 100:
+    #             files = files[:100]
+            
+    #         # 将文件名和修改时间加入哈希计算
+    #         for f in files:
+    #             file_path = os.path.join(input_folder, f)
+    #             m.update(f.encode())
+    #             m.update(str(os.path.getmtime(file_path)).encode())
+        
+    #     return m.digest().hex()
 
     def make_list(self, start_index, max_images, input_folder, scale_to_side, scale_to_length):
         if not input_folder:
@@ -1110,6 +1153,24 @@ class CropFaceMyDetailed:
     FUNCTION = "crop_face"
 
     CATEGORY = "My_node/image"
+
+    # @classmethod
+    # def IS_CHANGED(s, image, det_thresh, scale_factor, device, det_size, output_size):
+    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
+    #     m = hashlib.sha256()
+        
+    #     # 对图像进行哈希
+    #     images_flat = image.reshape(-1).numpy().tobytes()
+    #     m.update(images_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
+        
+    #     # 将其他参数也加入哈希计算
+    #     m.update(str(det_thresh).encode())
+    #     m.update(str(scale_factor).encode())
+    #     m.update(str(device).encode())
+    #     m.update(str(det_size).encode())
+    #     m.update(str(output_size).encode())
+        
+    #     return m.digest().hex()
 
     def __init__(self):
         self.face_helper = None
@@ -1336,6 +1397,33 @@ class PasteFacesAdvanced:
     RETURN_NAMES = ("result_image", "paste_mask")
     FUNCTION = "paste_faces"
     CATEGORY = "My_node/image"
+    
+    # @classmethod
+    # def IS_CHANGED(s, background_image, face_image, original_eye_points, cropped_eye_points, 
+    #              background_face_indices, paste_face_indices, enable_rotation, blend_alpha, 
+    #              scale_adjustment, debug_mode, preserve_face):
+    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
+    #     m = hashlib.sha256()
+        
+    #     # 对图像进行哈希
+    #     background_image_flat = background_image.reshape(-1).numpy().tobytes()
+    #     m.update(background_image_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
+        
+    #     face_image_flat = face_image.reshape(-1).numpy().tobytes()
+    #     m.update(face_image_flat[:1024])
+        
+    #     # 将其他参数也加入哈希计算
+    #     m.update(str(original_eye_points).encode())
+    #     m.update(str(cropped_eye_points).encode())
+    #     m.update(str(background_face_indices).encode())
+    #     m.update(str(paste_face_indices).encode())
+    #     m.update(str(enable_rotation).encode())
+    #     m.update(str(blend_alpha).encode())
+    #     m.update(str(scale_adjustment).encode())
+    #     m.update(str(debug_mode).encode())
+    #     m.update(str(preserve_face).encode())
+        
+    #     return m.digest().hex()
 
     def paste_faces(self, background_image, face_image, original_eye_points, cropped_eye_points, 
                    background_face_indices, paste_face_indices, enable_rotation, blend_alpha, scale_adjustment, debug_mode,

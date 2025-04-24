@@ -48,6 +48,20 @@ class CreateTextMask:
     FUNCTION = "crop_text"
     CATEGORY = "My_node/mask"
 
+    # @classmethod
+    # def IS_CHANGED(s, image, device):
+    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
+    #     m = hashlib.sha256()
+        
+    #     # 对图像进行哈希
+    #     images_flat = image.reshape(-1).numpy().tobytes()
+    #     m.update(images_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
+        
+    #     # 将其他参数也加入哈希计算
+    #     m.update(str(device).encode())
+        
+    #     return m.digest().hex()
+
     def crop_text(self, image, device):
         if device == -1:
             use_gpu = False
@@ -112,6 +126,20 @@ class TextMaskMy:
     CATEGORY = "My_node/example"
     RETURN_TYPES = ("IMAGE", "MASK")
     FUNCTION = "example_func"
+    
+    # @classmethod
+    # def IS_CHANGED(s, image, model):
+    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
+    #     m = hashlib.sha256()
+        
+    #     # 对图像进行哈希
+    #     images_flat = image.reshape(-1).numpy().tobytes()
+    #     m.update(images_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
+        
+    #     # 将其他参数也加入哈希计算
+    #     m.update(str(model).encode())
+        
+    #     return m.digest().hex()
 
     def example_func(self, image, model):
         start_time = time.time()
@@ -174,6 +202,22 @@ class GroundingDinoGetBbox:
 
     RETURN_TYPES = ("IMAGE", "STRING")
     FUNCTION = "example_func"
+
+    # @classmethod
+    # def IS_CHANGED(s, image, grounding_dino_model, threshold, prompt):
+    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
+    #     m = hashlib.sha256()
+        
+    #     # 对图像进行哈希
+    #     images_flat = image.reshape(-1).numpy().tobytes()
+    #     m.update(images_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
+        
+    #     # 将其他参数也加入哈希计算
+    #     m.update(str(grounding_dino_model).encode())
+    #     m.update(str(threshold).encode())
+    #     m.update(str(prompt).encode())
+        
+    #     return m.digest().hex()
 
     def example_func(self, image, grounding_dino_model, threshold, prompt):
         global DINO_MODEL
@@ -319,6 +363,24 @@ class MaskAdd:
     CATEGORY = "My_node/mask"
     RETURN_TYPES = ("MASK",)
     FUNCTION = "add_multiple_masks"
+    
+    # @classmethod
+    # def IS_CHANGED(s, mask_count, dilation_erosion, **kwargs):
+    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
+    #     m = hashlib.sha256()
+        
+    #     # 将参数加入哈希计算
+    #     m.update(str(mask_count).encode())
+    #     m.update(str(dilation_erosion).encode())
+        
+    #     # 对每个mask进行哈希
+    #     for i in range(1, mask_count + 1):
+    #         mask = kwargs.get(f"mask_{i}")
+    #         if mask is not None:
+    #             mask_flat = mask.reshape(-1).numpy().tobytes()
+    #             m.update(mask_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
+        
+    #     return m.digest().hex()
 
     def add_multiple_masks(self, mask_count, dilation_erosion, **kwargs):
         masks = [kwargs.get(f"mask_{i}") for i in range(1, mask_count + 1) if kwargs.get(f"mask_{i}") is not None]
@@ -457,6 +519,30 @@ class MaskSubtract:
     RETURN_NAMES = ("sum_first_n", "sum_n_to_12", "result_mask")
     FUNCTION = "subtract_multiple_masks"
 
+    # @classmethod
+    # def IS_CHANGED(s, n, dilation_erosion_1, fill_region_mask_1, dilation_erosion_2, fill_region_mask_2,
+    #              dilation_erosion_result, fill_region_mask_result, **kwargs):
+    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
+    #     m = hashlib.sha256()
+        
+    #     # 将参数加入哈希计算
+    #     m.update(str(n).encode())
+    #     m.update(str(dilation_erosion_1).encode())
+    #     m.update(str(fill_region_mask_1).encode())
+    #     m.update(str(dilation_erosion_2).encode())
+    #     m.update(str(fill_region_mask_2).encode())
+    #     m.update(str(dilation_erosion_result).encode())
+    #     m.update(str(fill_region_mask_result).encode())
+        
+    #     # 对每个mask进行哈希
+    #     for i in range(1, 13):
+    #         mask = kwargs.get(f"mask_{i}")
+    #         if mask is not None:
+    #             mask_flat = mask.reshape(-1).numpy().tobytes()
+    #             m.update(mask_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
+        
+    #     return m.digest().hex()
+
     def subtract_multiple_masks(self, n, dilation_erosion_1, fill_region_mask_1, dilation_erosion_2, fill_region_mask_2,
                                 dilation_erosion_result, fill_region_mask_result, **kwargs):
         # Collect all masks, including None, to maintain order
@@ -485,6 +571,26 @@ class MaskOverlap:
     RETURN_TYPES = ("MASK",)
     RETURN_NAMES = ("mask_2",)
     FUNCTION = "calculate_overlap"
+    
+    # @classmethod
+    # def IS_CHANGED(s, mask_1, mask_2, threshold, tolerance):
+    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
+    #     m = hashlib.sha256()
+        
+    #     # 对mask进行哈希
+    #     if mask_1 is not None:
+    #         mask_1_flat = mask_1.reshape(-1).numpy().tobytes()
+    #         m.update(mask_1_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
+        
+    #     if mask_2 is not None:
+    #         mask_2_flat = mask_2.reshape(-1).numpy().tobytes()
+    #         m.update(mask_2_flat[:1024])
+        
+    #     # 将其他参数也加入哈希计算
+    #     m.update(str(threshold).encode())
+    #     m.update(str(tolerance).encode())
+        
+    #     return m.digest().hex()
 
     def calculate_overlap(self, mask_1, mask_2, threshold, tolerance):
         # 将mask转换为NumPy数组
@@ -525,6 +631,24 @@ class PasteMasksMy:
     RETURN_TYPES = ("MASK",)  # 返回合成后的遮罩
     FUNCTION = "paste_masks"
     CATEGORY = "My_node/mask"
+    
+    # @classmethod
+    # def IS_CHANGED(s, base_image, mask_images, squares_info):
+    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
+    #     m = hashlib.sha256()
+        
+    #     # 对图像进行哈希
+    #     base_image_flat = base_image.reshape(-1).numpy().tobytes()
+    #     m.update(base_image_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
+        
+    #     # 对masks进行哈希
+    #     mask_images_flat = mask_images.reshape(-1).numpy().tobytes()
+    #     m.update(mask_images_flat[:1024])
+        
+    #     # 将其他参数也加入哈希计算
+    #     m.update(str(squares_info).encode())
+        
+    #     return m.digest().hex()
 
     def paste_masks(self, base_image, mask_images, squares_info):
         # 将squares_info从字符串转换为列表
@@ -611,6 +735,17 @@ class RemoveGlassesFaceMask:
     CATEGORY = "My_node/mask"
     RETURN_TYPES = ("MASK",)
     FUNCTION = "get_glasses_mask"
+    
+    # @classmethod
+    # def IS_CHANGED(s, image):
+    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
+    #     m = hashlib.sha256()
+        
+    #     # 对图像进行哈希
+    #     images_flat = image.reshape(-1).numpy().tobytes()
+    #     m.update(images_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
+        
+    #     return m.digest().hex()
 
     def get_glasses_mask(self, image):
         cur_dir = os.path.dirname(os.path.abspath(__file__))
@@ -651,6 +786,21 @@ class AdjustMaskValues:
     CATEGORY = "My_node/mask"
     RETURN_TYPES = ("MASK",)
     FUNCTION = "adjust_values"
+    
+    # @classmethod
+    # def IS_CHANGED(s, masks, value):
+    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
+    #     m = hashlib.sha256()
+        
+    #     # 对masks进行哈希
+    #     if masks is not None:
+    #         masks_flat = masks.reshape(-1).numpy().tobytes()
+    #         m.update(masks_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
+        
+    #     # 将其他参数也加入哈希计算
+    #     m.update(str(value).encode())
+        
+    #     return m.digest().hex()
 
     def adjust_values(self, masks, value):
         # 确保值在0到1之间
