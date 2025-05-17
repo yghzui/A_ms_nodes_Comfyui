@@ -43,8 +43,7 @@ class I2VConfigureNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "input_width": ("INT", {"default": 1024, "min": 64, "max": 8192}),
-                "input_height": ("INT", {"default": 768, "min": 64, "max": 8192}),
+                "images": ("IMAGE",),
                 "output_width": ("INT", {"default": 512, "min": 64, "max": 8192}),
                 "output_height": ("INT", {"default": 768, "min": 64, "max": 8192}),
                 "length": ("INT", {"default": 33, "min": 1, "max": 100}),
@@ -58,7 +57,10 @@ class I2VConfigureNode:
     FUNCTION = "adjust_i2v_config"
     CATEGORY = "A_my_nodes/math"
 
-    def adjust_i2v_config(self, input_width, input_height, output_width, output_height, length, batch_size, enable_ratio_adjustment):
+    def adjust_i2v_config(self, images, output_width, output_height, length, batch_size, enable_ratio_adjustment):
+        # 从图像张量中获取尺寸信息 (n,h,w,c)
+        _, input_height, input_width, _ = images.shape
+        
         if not enable_ratio_adjustment:
             return (output_width, output_height, length, batch_size)
         
