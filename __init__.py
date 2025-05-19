@@ -13,6 +13,7 @@ from .nodes.resize_image_by_person import ResizeImageByPerson
 # from .nodes.a_person_face_landmark_mask_generator_comfyui_by_my import APersonFaceLandmarkMaskGenerator
 from .nodes.person_and_face.a_person_face_landmark_mask_generator_comfyui import  APersonFaceLandmarkMaskGenerator
 from .nodes.math import AspectRatioAdjuster,I2VConfigureNode
+from .nodes.face_flip import FaceFlip
 NODE_CLASS_MAPPINGS = {
     "LoadAndResizeImageMy": LoadAndResizeImageMy,
     "ResizeImagesAndMasks": ResizeImagesAndMasks,
@@ -38,7 +39,8 @@ NODE_CLASS_MAPPINGS = {
     "APersonFaceLandmarkMaskGeneratorByMy":APersonFaceLandmarkMaskGenerator,
     "NoticeSound": NoticeSound,
     "AspectRatioAdjuster": AspectRatioAdjuster,
-    "I2VConfigureNode": I2VConfigureNode
+    "I2VConfigureNode": I2VConfigureNode,
+    "ImageFlipNode": FaceFlip
 
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -67,7 +69,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "APersonFaceLandmarkMaskGeneratorByMy":"APersonFaceLandmarkMaskGeneratorByMy 生成面部遮罩 by My",
     "NoticeSound": "铃声提醒节点 by My",
     "AspectRatioAdjuster": "宽高比调整节点 by My",
-    "I2VConfigureNode": "I2V配置节点 by My"
+    "I2VConfigureNode": "I2V配置节点 by My",
+    "ImageFlipNode": "图像翻转节点 by My"
 
 }
 
