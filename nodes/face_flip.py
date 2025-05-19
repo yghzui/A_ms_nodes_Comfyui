@@ -90,19 +90,46 @@ def detect_face_orientation(image: np.ndarray, detection_threshold: float = 0.5,
         
         # 使用第一个检测到的人脸（通常是最大/最清晰的）
         landmarks = face_landmarks[0]
+        h, w = image.shape[:2]
         
-        if mode == 'nose_eyes':
-            try:
-                # 获取鼻尖和外眼角的关键点
-                nose_tip = landmarks.landmark[4]      # 鼻尖
-                right_eye = landmarks.landmark[133]   # 右眼右角
-                left_eye = landmarks.landmark[362]    # 左眼左角
+        try:
+            # 获取两个内眼角点
+            inner_corner1 = landmarks.landmark[33]  # 右眼内眼角
+            inner_corner2 = landmarks.landmark[362]  # 左眼内眼角
+            
+            # 计算两个内眼角到左边框的距离
+            dist1_to_left = inner_corner1.x * w  # 第一个内眼角到左边的距离
+            dist2_to_left = inner_corner2.x * w  # 第二个内眼角到左边的距离
+            
+            # 根据到左边框的距离确定观察者视角的左右眼
+            if dist1_to_left < dist2_to_left:
+                # inner_corner1 是观察者视角的左眼
+                left_inner = inner_corner1
+                right_inner = inner_corner2
+                left_outer = landmarks.landmark[133]   # 原右眼外眼角
+                right_outer = landmarks.landmark[263]  # 原左眼外眼角
+                left_pupil = landmarks.landmark[468]   # 原右眼瞳孔
+                right_pupil = landmarks.landmark[473]  # 原左眼瞳孔
+                print("[FaceFlip] 根据内眼角位置判断：第一个眼睛是观察者视角的左眼")
+            else:
+                # inner_corner2 是观察者视角的左眼
+                left_inner = inner_corner2
+                right_inner = inner_corner1
+                left_outer = landmarks.landmark[263]   # 原左眼外眼角
+                right_outer = landmarks.landmark[133]  # 原右眼外眼角
+                left_pupil = landmarks.landmark[473]   # 原左眼瞳孔
+                right_pupil = landmarks.landmark[468]  # 原右眼瞳孔
+                print("[FaceFlip] 根据内眼角位置判断：第二个眼睛是观察者视角的左眼")
+            
+            if mode == 'nose_eyes':
+                # 获取鼻尖点
+                nose_tip = landmarks.landmark[4]  # 鼻尖
                 
-                # 计算鼻尖到两个外眼角的距离
-                dist_to_right = ((nose_tip.x - right_eye.x)**2 + 
-                               (nose_tip.y - right_eye.y)**2)**0.5
-                dist_to_left = ((nose_tip.x - left_eye.x)**2 + 
-                              (nose_tip.y - left_eye.y)**2)**0.5
+                # 计算鼻尖到左右外眼角的距离
+                dist_to_left = ((nose_tip.x - left_outer.x)**2 + 
+                              (nose_tip.y - left_outer.y)**2)**0.5
+                dist_to_right = ((nose_tip.x - right_outer.x)**2 + 
+                               (nose_tip.y - right_outer.y)**2)**0.5
                 
                 # 比较距离判断朝向
                 if dist_to_left > dist_to_right:
@@ -111,95 +138,41 @@ def detect_face_orientation(image: np.ndarray, detection_threshold: float = 0.5,
                 else:
                     print(f"[FaceFlip] 鼻尖到左眼距离 {dist_to_left:.2f} < 到右眼距离 {dist_to_right:.2f}，判断为朝左")
                     return "left", landmarks
-                    
-            except (IndexError, AttributeError) as e:
-                print(f"[FaceFlip] 关键点检测错误: {e}")
-                return None, None
-        
-        else:  # eyes mode
-            try:
-                # 右眼的关键点 (33: 右眼左角, 133: 右眼右角)
-                right_eye_left = landmarks.landmark[33]
-                right_eye_right = landmarks.landmark[133]
-                # 右眼的瞳孔中心点 (468: 右眼瞳孔)
-                right_pupil = landmarks.landmark[468]
-                
-                # 左眼的关键点 (362: 左眼左角, 263: 左眼右角)
-                left_eye_left = landmarks.landmark[362]
-                left_eye_right = landmarks.landmark[263]
-                # 左眼的瞳孔中心点 (473: 左眼瞳孔)
-                left_pupil = landmarks.landmark[473]
-            except (IndexError, AttributeError) as e:
-                print(f"[FaceFlip] 关键点检测错误: {e}")
-                return None, None
             
-            # 计算瞳孔距离眼角的距离，用于判断脸的朝向
-            orientation_left = "unknown"
-            orientation_right = "unknown"
-            
-            # 检查左眼
-            valid_left = True
-            try:
+            else:  # eyes mode
                 # 计算左眼瞳孔距左眼角和右眼角的距离
-                dist_to_left = ((left_pupil.x - left_eye_left.x)**2 + 
-                                (left_pupil.y - left_eye_left.y)**2)**0.5
-                dist_to_right = ((left_pupil.x - left_eye_right.x)**2 + 
-                                (left_pupil.y - left_eye_right.y)**2)**0.5
+                left_dist_to_inner = ((left_pupil.x - left_inner.x)**2 + 
+                                    (left_pupil.y - left_inner.y)**2)**0.5
+                left_dist_to_outer = ((left_pupil.x - left_outer.x)**2 + 
+                                    (left_pupil.y - left_outer.y)**2)**0.5
                 
-                if dist_to_left > dist_to_right:
-                    orientation_left = "left"
-                    print(f"[FaceFlip] 左眼: 瞳孔距左眼角 {dist_to_left:.2f} > 距右眼角 {dist_to_right:.2f}，判断为朝向左侧")
-                else:
-                    orientation_left = "right"
-                    print(f"[FaceFlip] 左眼: 瞳孔距左眼角 {dist_to_left:.2f} < 距右眼角 {dist_to_right:.2f}，判断为朝向右侧")
-            except (AttributeError, TypeError) as e:
-                print(f"[FaceFlip] 左眼距离计算错误: {e}")
-                valid_left = False
-            
-            # 检查右眼
-            valid_right = True
-            try:
                 # 计算右眼瞳孔距左眼角和右眼角的距离
-                dist_to_left = ((right_pupil.x - right_eye_left.x)**2 + 
-                               (right_pupil.y - right_eye_left.y)**2)**0.5
-                dist_to_right = ((right_pupil.x - right_eye_right.x)**2 + 
-                                (right_pupil.y - right_eye_right.y)**2)**0.5
+                right_dist_to_inner = ((right_pupil.x - right_inner.x)**2 + 
+                                     (right_pupil.y - right_inner.y)**2)**0.5
+                right_dist_to_outer = ((right_pupil.x - right_outer.x)**2 + 
+                                     (right_pupil.y - right_outer.y)**2)**0.5
                 
-                if dist_to_left > dist_to_right:
-                    orientation_right = "left"
-                    print(f"[FaceFlip] 右眼: 瞳孔距左眼角 {dist_to_left:.2f} > 距右眼角 {dist_to_right:.2f}，判断为朝向左侧")
+                # 判断朝向：如果两只眼睛的瞳孔都更靠近内眼角，说明朝向观察者的左侧
+                if (left_dist_to_inner < left_dist_to_outer and 
+                    right_dist_to_inner < right_dist_to_outer):
+                    print("[FaceFlip] 两只眼睛的瞳孔都更靠近内眼角，判断为朝左")
+                    return "left", landmarks
+                elif (left_dist_to_inner > left_dist_to_outer and 
+                      right_dist_to_inner > right_dist_to_outer):
+                    print("[FaceFlip] 两只眼睛的瞳孔都更靠近外眼角，判断为朝右")
+                    return "right", landmarks
                 else:
-                    orientation_right = "right"
-                    print(f"[FaceFlip] 右眼: 瞳孔距左眼角 {dist_to_left:.2f} < 距右眼角 {dist_to_right:.2f}，判断为朝向右侧")
-            except (AttributeError, TypeError) as e:
-                print(f"[FaceFlip] 右眼距离计算错误: {e}")
-                valid_right = False
-            
-            # 根据检测结果确定最终朝向
-            final_orientation = None
-            if valid_left and valid_right:
-                # 两只眼睛都可用，判断结果一致则使用该结果
-                if orientation_left == orientation_right:
-                    final_orientation = orientation_left
-                    print(f"[FaceFlip] 左右眼判断结果一致: {final_orientation}")
-                else:
-                    # 如果结果不一致，取左眼的结果（通常左眼更准确）
-                    final_orientation = orientation_left
-                    print(f"[FaceFlip] 左右眼判断结果不一致，优先使用左眼结果: {final_orientation}")
-            elif valid_left:
-                # 只有左眼可用
-                final_orientation = orientation_left
-                print(f"[FaceFlip] 只有左眼可用，使用左眼判断结果: {final_orientation}")
-            elif valid_right:
-                # 只有右眼可用
-                final_orientation = orientation_right
-                print(f"[FaceFlip] 只有右眼可用，使用右眼判断结果: {final_orientation}")
-            else:
-                # 都不可用
-                print("[FaceFlip] 眼部关键点无法用于判断朝向")
-                return None, None
-            
-            return final_orientation, landmarks
+                    # 如果两只眼睛的判断结果不一致，优先使用观察者视角的左眼结果
+                    if left_dist_to_inner < left_dist_to_outer:
+                        print("[FaceFlip] 左右眼判断不一致，使用左眼判断结果：朝左")
+                        return "left", landmarks
+                    else:
+                        print("[FaceFlip] 左右眼判断不一致，使用左眼判断结果：朝右")
+                        return "right", landmarks
+                
+        except (IndexError, AttributeError) as e:
+            print(f"[FaceFlip] 关键点检测错误: {e}")
+            return None, None
 
 
 class FaceFlip:
