@@ -104,7 +104,7 @@ def detect_face_orientation(image: np.ndarray, detection_threshold: float = 0.5,
         
         try:
             # 获取两个内眼角点
-            inner_corner1 = landmarks.landmark[33]  # 右眼内眼角
+            inner_corner1 = landmarks.landmark[133]  # 右眼内眼角
             inner_corner2 = landmarks.landmark[362]  # 左眼内眼角
             
             # 计算两个内眼角到左边框的距离
@@ -116,7 +116,7 @@ def detect_face_orientation(image: np.ndarray, detection_threshold: float = 0.5,
                 # inner_corner1 是观察者视角的左眼
                 left_inner = inner_corner1
                 right_inner = inner_corner2
-                left_outer = landmarks.landmark[133]   # 原右眼外眼角
+                left_outer = landmarks.landmark[33]   # 原右眼外眼角
                 right_outer = landmarks.landmark[263]  # 原左眼外眼角
                 left_pupil = landmarks.landmark[468]   # 原右眼瞳孔
                 right_pupil = landmarks.landmark[473]  # 原左眼瞳孔
@@ -136,10 +136,10 @@ def detect_face_orientation(image: np.ndarray, detection_threshold: float = 0.5,
                 nose_tip = landmarks.landmark[4]  # 鼻尖
                 
                 # 计算鼻尖到左右外眼角的距离
-                dist_to_left = ((nose_tip.x - left_outer.x)**2 + 
-                              (nose_tip.y - left_outer.y)**2)**0.5
-                dist_to_right = ((nose_tip.x - right_outer.x)**2 + 
-                               (nose_tip.y - right_outer.y)**2)**0.5
+                dist_to_left = ((nose_tip.x - left_inner.x)**2 + 
+                              (nose_tip.y - left_inner.y)**2)**0.5
+                dist_to_right = ((nose_tip.x - right_inner.x)**2 + 
+                               (nose_tip.y - right_inner.y)**2)**0.5
                 
                 # 比较距离判断朝向
                 if dist_to_left > dist_to_right:
@@ -256,13 +256,16 @@ class FaceFlip:
             "required": {
                 "image": ("IMAGE",),  # 输入图像张量，格式为n,h,w,c
                 "auto_flip_face": ("BOOLEAN", {"default": True, "tooltip": "根据人脸朝向自动翻转图像"}),
-                "target_orientation": (["left", "right"], {"default": "left", "tooltip": "设置人脸希望朝向的方向"}),
+                "target_orientation": (["left", "right"], {"default": "left", "tooltip": "设置人脸希望朝向的方向，如果提供了参考图像则会被参考图像的朝向覆盖"}),
                 "horizontal_flip": ("BOOLEAN", {"default": False, "tooltip": "手动水平翻转图像"}),
                 "vertical_flip": ("BOOLEAN", {"default": False, "tooltip": "手动垂直翻转图像"}),
                 "detection_threshold": ("FLOAT", {"default": 0.5, "min": 0.1, "max": 0.9, "step": 0.05, "tooltip": "人脸检测阈值，值越低检测越宽松"}),
-                "detection_mode": (["eyes", "nose_eyes"], {"default": "eyes", "tooltip": "检测模式：eyes-使用瞳孔位置，nose_eyes-使用鼻尖和外眼角距离"}),
+                "detection_mode": (["eyes", "nose_eyes"], {"default": "eyes", "tooltip": "检测模式：eyes-使用瞳孔位置，nose_eyes-使用鼻尖和内眼角距离"}),
                 "use_insightface": ("BOOLEAN", {"default": True, "tooltip": "是否使用InsightFace进行人脸检测和裁剪"}),
                 "face_scale": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1, "tooltip": "人脸检测框缩放比例"}),
+            },
+            "optional": {
+                "reference_image": ("IMAGE", {"tooltip": "参考图像，用于确定目标朝向"})
             }
         }
 
@@ -272,7 +275,7 @@ class FaceFlip:
     CATEGORY = "My_node/image"
 
     def flip_images(self, image, auto_flip_face, target_orientation, horizontal_flip, vertical_flip, 
-                   detection_threshold, detection_mode, use_insightface, face_scale):
+                   detection_threshold, detection_mode, use_insightface, face_scale, reference_image=None):
         """
         执行图像翻转处理
         
@@ -286,11 +289,36 @@ class FaceFlip:
             detection_mode: 检测模式
             use_insightface: 是否使用InsightFace
             face_scale: 人脸框缩放比例
+            reference_image: 参考图像，用于确定目标朝向
             
         Returns:
             处理后的图像张量 (n,h,w,c)
             带关键点标注的图像张量 (n,h,w,c)
         """
+        # 如果提供了参考图像，先判断参考图像的朝向
+        if reference_image is not None and auto_flip_face:
+            print("[FaceFlip] 检测参考图像朝向")
+            ref_img = reference_image[0].cpu().numpy()  # 使用第一张图作为参考
+            ref_img_cv = (ref_img * 255).astype(np.uint8)
+            
+            if use_insightface and face_analyzer is not None:
+                # 使用InsightFace检测和裁剪参考图像中的人脸
+                cropped_face, _ = detect_and_crop_face(ref_img_cv, face_scale)
+                if cropped_face is not None:
+                    ref_orientation, _ = detect_face_orientation(cropped_face, detection_threshold, detection_mode)
+                else:
+                    # 如果InsightFace检测失败，使用MediaPipe
+                    ref_orientation, _ = detect_face_orientation(ref_img_cv, detection_threshold, detection_mode)
+            else:
+                # 直接使用MediaPipe检测参考图像
+                ref_orientation, _ = detect_face_orientation(ref_img_cv, detection_threshold, detection_mode)
+            
+            if ref_orientation is not None:
+                print(f"[FaceFlip] 参考图像朝向: {ref_orientation}")
+                target_orientation = ref_orientation
+            else:
+                print("[FaceFlip] 无法检测参考图像朝向，使用默认目标朝向")
+
         batch_size = image.shape[0]
         output_images = []
         output_landmarks_images = []
