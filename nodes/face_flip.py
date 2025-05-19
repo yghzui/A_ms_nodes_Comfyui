@@ -9,7 +9,17 @@ from mediapipe.tasks.python import vision
 import folder_paths
 from typing import List, Tuple, Dict, Any, Optional, Union
 from PIL import Image, ImageDraw, ImageFont
+import insightface
+from insightface.app import FaceAnalysis
 
+# 初始化 InsightFace
+try:
+    face_analyzer = FaceAnalysis(providers=['CPUExecutionProvider'])
+    face_analyzer.prepare(ctx_id=0, det_size=(640, 640))
+    print("[FaceFlip] InsightFace 初始化成功")
+except Exception as e:
+    print(f"[FaceFlip] InsightFace 初始化失败: {e}")
+    face_analyzer = None
 
 def draw_eye_landmarks(image: np.ndarray, landmarks, mode: str) -> np.ndarray:
     """
@@ -174,6 +184,61 @@ def detect_face_orientation(image: np.ndarray, detection_threshold: float = 0.5,
             print(f"[FaceFlip] 关键点检测错误: {e}")
             return None, None
 
+def detect_and_crop_face(image: np.ndarray, scale_factor: float = 1.0) -> Tuple[Optional[np.ndarray], Optional[Dict]]:
+    """
+    使用 InsightFace 检测并裁剪人脸
+    
+    Args:
+        image: 输入图像
+        scale_factor: 人脸框缩放比例
+        
+    Returns:
+        裁剪后的人脸图像和人脸信息
+    """
+    if face_analyzer is None:
+        return None, None
+        
+    try:
+        # 检测人脸
+        faces = face_analyzer.get(image)
+        if not faces:
+            print("[FaceFlip] InsightFace 未检测到人脸")
+            return None, None
+            
+        # 获取最大的人脸
+        face = max(faces, key=lambda x: x.bbox[2] * x.bbox[3])
+        bbox = face.bbox.astype(int)
+        
+        # 计算裁剪区域（考虑缩放因子）
+        x1, y1, x2, y2 = bbox
+        w, h = x2 - x1, y2 - y1
+        center_x, center_y = x1 + w // 2, y1 + h // 2
+        
+        # 计算新的宽高
+        new_w = int(w * scale_factor)
+        new_h = int(h * scale_factor)
+        
+        # 计算新的裁剪区域
+        new_x1 = max(0, center_x - new_w // 2)
+        new_y1 = max(0, center_y - new_h // 2)
+        new_x2 = min(image.shape[1], new_x1 + new_w)
+        new_y2 = min(image.shape[0], new_y1 + new_h)
+        
+        # 裁剪图像
+        cropped_face = image[new_y1:new_y2, new_x1:new_x2]
+        
+        # 记录裁剪信息
+        crop_info = {
+            'original_bbox': bbox,
+            'crop_bbox': [new_x1, new_y1, new_x2, new_y2],
+            'scale_factor': scale_factor
+        }
+        
+        return cropped_face, crop_info
+        
+    except Exception as e:
+        print(f"[FaceFlip] InsightFace 处理失败: {e}")
+        return None, None
 
 class FaceFlip:
     """
@@ -196,6 +261,8 @@ class FaceFlip:
                 "vertical_flip": ("BOOLEAN", {"default": False, "tooltip": "手动垂直翻转图像"}),
                 "detection_threshold": ("FLOAT", {"default": 0.5, "min": 0.1, "max": 0.9, "step": 0.05, "tooltip": "人脸检测阈值，值越低检测越宽松"}),
                 "detection_mode": (["eyes", "nose_eyes"], {"default": "eyes", "tooltip": "检测模式：eyes-使用瞳孔位置，nose_eyes-使用鼻尖和外眼角距离"}),
+                "use_insightface": ("BOOLEAN", {"default": True, "tooltip": "是否使用InsightFace进行人脸检测和裁剪"}),
+                "face_scale": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1, "tooltip": "人脸检测框缩放比例"}),
             }
         }
 
@@ -204,7 +271,8 @@ class FaceFlip:
     FUNCTION = "flip_images"
     CATEGORY = "My_node/image"
 
-    def flip_images(self, image, auto_flip_face, target_orientation, horizontal_flip, vertical_flip, detection_threshold, detection_mode):
+    def flip_images(self, image, auto_flip_face, target_orientation, horizontal_flip, vertical_flip, 
+                   detection_threshold, detection_mode, use_insightface, face_scale):
         """
         执行图像翻转处理
         
@@ -216,26 +284,26 @@ class FaceFlip:
             vertical_flip: 是否手动垂直翻转
             detection_threshold: 人脸检测阈值
             detection_mode: 检测模式
+            use_insightface: 是否使用InsightFace
+            face_scale: 人脸框缩放比例
             
         Returns:
             处理后的图像张量 (n,h,w,c)
             带关键点标注的图像张量 (n,h,w,c)
         """
-        # 输入是(n,h,w,c)格式的张量，转换为numpy处理
         batch_size = image.shape[0]
         output_images = []
         output_landmarks_images = []
         
         print(f"[FaceFlip] 开始处理 {batch_size} 张图像")
-        print(f"[FaceFlip] 参数: 自动翻转={auto_flip_face}, 目标朝向={target_orientation}, 水平翻转={horizontal_flip}, 垂直翻转={vertical_flip}, 检测模式={detection_mode}")
+        print(f"[FaceFlip] 参数: 自动翻转={auto_flip_face}, 目标朝向={target_orientation}, "
+              f"水平翻转={horizontal_flip}, 垂直翻转={vertical_flip}, 检测模式={detection_mode}, "
+              f"使用InsightFace={use_insightface}, 人脸缩放={face_scale}")
 
         for i in range(batch_size):
-            # 处理每张图像
             print(f"[FaceFlip] 处理第 {i+1}/{batch_size} 张图像")
             img = image[i].cpu().numpy()  # 转换为numpy数组
-            # 转换为OpenCV格式 (BGR)，便于人脸检测
             img_cv = (img * 255).astype(np.uint8)
-            # 默认不翻转
             do_horizontal_flip = horizontal_flip
             
             # 创建带关键点的图像副本
@@ -243,33 +311,55 @@ class FaceFlip:
             landmarks_img_cv = img_cv.copy()
             
             if auto_flip_face:
-                # 检测人脸朝向
-                face_orientation, landmarks = detect_face_orientation(img_cv, detection_threshold, detection_mode)
-                
-                if face_orientation is not None:
-                    # 如果检测到人脸，并且朝向与目标方向不符，进行水平翻转
-                    if face_orientation != target_orientation:
-                        do_horizontal_flip = not do_horizontal_flip  # 翻转状态取反
-                        print(f"[FaceFlip] 检测到人脸朝向 {face_orientation}，与目标朝向 {target_orientation} 不符，需要翻转")
+                if use_insightface and face_analyzer is not None:
+                    # 使用InsightFace检测和裁剪人脸
+                    cropped_face, crop_info = detect_and_crop_face(img_cv, face_scale)
+                    if cropped_face is not None:
+                        # 在裁剪的人脸上进行朝向检测
+                        face_orientation, landmarks = detect_face_orientation(cropped_face, detection_threshold, detection_mode)
+                        
+                        if face_orientation is not None:
+                            if face_orientation != target_orientation:
+                                do_horizontal_flip = not do_horizontal_flip
+                                print(f"[FaceFlip] 检测到人脸朝向 {face_orientation}，与目标朝向 {target_orientation} 不符，需要翻转")
+                            else:
+                                print(f"[FaceFlip] 检测到人脸朝向 {face_orientation}，与目标朝向 {target_orientation} 相符，无需翻转")
+                            
+                            # 在landmarks图像上绘制关键点
+                            if landmarks is not None:
+                                cropped_landmarks = draw_eye_landmarks(cropped_face, landmarks, detection_mode)
+                                # 将带关键点的裁剪图像放回原图对应位置
+                                x1, y1, x2, y2 = crop_info['crop_bbox']
+                                landmarks_img_cv[y1:y2, x1:x2] = cropped_landmarks
+                                landmarks_img = landmarks_img_cv.astype(np.float32) / 255.0
                     else:
-                        print(f"[FaceFlip] 检测到人脸朝向 {face_orientation}，与目标朝向 {target_orientation} 相符，无需翻转")
-                    
-                    # 在landmarks图像上绘制关键点
-                    if landmarks is not None:
-                        landmarks_img_cv = draw_eye_landmarks(landmarks_img_cv, landmarks, detection_mode)
-                        landmarks_img = landmarks_img_cv.astype(np.float32) / 255.0
+                        print("[FaceFlip] InsightFace未检测到人脸，尝试使用MediaPipe")
+                        face_orientation, landmarks = detect_face_orientation(img_cv, detection_threshold, detection_mode)
+                        if face_orientation is not None:
+                            if face_orientation != target_orientation:
+                                do_horizontal_flip = not do_horizontal_flip
+                            if landmarks is not None:
+                                landmarks_img_cv = draw_eye_landmarks(landmarks_img_cv, landmarks, detection_mode)
+                                landmarks_img = landmarks_img_cv.astype(np.float32) / 255.0
                 else:
-                    print("[FaceFlip] 未能确定人脸朝向，跳过自动翻转")
+                    # 直接使用MediaPipe
+                    face_orientation, landmarks = detect_face_orientation(img_cv, detection_threshold, detection_mode)
+                    if face_orientation is not None:
+                        if face_orientation != target_orientation:
+                            do_horizontal_flip = not do_horizontal_flip
+                        if landmarks is not None:
+                            landmarks_img_cv = draw_eye_landmarks(landmarks_img_cv, landmarks, detection_mode)
+                            landmarks_img = landmarks_img_cv.astype(np.float32) / 255.0
             
-            # 根据最终确定的状态进行翻转
+            # 执行翻转操作
             if do_horizontal_flip:
                 print("[FaceFlip] 执行水平翻转")
-                img = np.flip(img, axis=1).copy()  # 添加.copy()确保数组连续
+                img = np.flip(img, axis=1).copy()
                 landmarks_img = np.flip(landmarks_img, axis=1).copy()
             
             if vertical_flip:
                 print("[FaceFlip] 执行垂直翻转")
-                img = np.flip(img, axis=0).copy()  # 添加.copy()确保数组连续
+                img = np.flip(img, axis=0).copy()
                 landmarks_img = np.flip(landmarks_img, axis=0).copy()
             
             # 确保数组是连续的
@@ -278,12 +368,10 @@ class FaceFlip:
             if not landmarks_img.flags['C_CONTIGUOUS']:
                 landmarks_img = np.ascontiguousarray(landmarks_img)
             
-            # 添加到输出列表
             output_images.append(torch.from_numpy(img))
             output_landmarks_images.append(torch.from_numpy(landmarks_img))
         
         print("[FaceFlip] 处理完成")
-        # 将所有处理后的图像合并为批次
         return (torch.stack(output_images), torch.stack(output_landmarks_images))
 
 
@@ -294,7 +382,7 @@ if __name__ == "__main__":
     import os
     
     # 读取测试图片
-    image_path = r"D:\AI\SD\input\小伙伴\A未分类\mmexport1747579574354.jpg" # 请确保这个路径存在
+    image_path = r"D:\AI\SD\input\小伙伴\A未分类\mmexport1743939746937.jpg"
     
     # 处理中文路径
     img = cv2.imdecode(np.fromfile(image_path, dtype=np.uint8), cv2.IMREAD_COLOR)
@@ -307,18 +395,20 @@ if __name__ == "__main__":
     img = img.astype(np.float32) / 255.0
     
     # 转换为 torch tensor 并添加 batch 维度
-    img_tensor = torch.from_numpy(img)[None, ...]  # shape: (1, H, W, 3)
+    img_tensor = torch.from_numpy(img)[None, ...]
     
     # 创建 FaceFlip 实例并处理图片
     face_flip = FaceFlip()
     flipped_image, landmarks_image = face_flip.flip_images(
         image=img_tensor,
         auto_flip_face=True,
-        target_orientation="right",
+        target_orientation="left",
         horizontal_flip=False,
         vertical_flip=False,
         detection_threshold=0.3,
-        detection_mode="nose_eyes"  # 使用新的检测模式
+        detection_mode="nose_eyes",
+        use_insightface=True,
+        face_scale=1.2
     )
     
     # 转换回 OpenCV 格式并保存
@@ -332,12 +422,11 @@ if __name__ == "__main__":
     dir_path = os.path.dirname(image_path)
     file_name = os.path.splitext(os.path.basename(image_path))[0]
     
-    # 保存原图和结果图片
+    # 保存图片
     original_save_path = os.path.join(dir_path, f"{file_name}_original.jpg")
     result_save_path = os.path.join(dir_path, f"{file_name}_result.jpg")
     landmarks_save_path = os.path.join(dir_path, f"{file_name}_landmarks.jpg")
     
-    # 使用 imencode 和 fromfile 来保存带中文路径的图片
     cv2.imencode('.jpg', img * 255)[1].tofile(original_save_path)
     cv2.imencode('.jpg', result_img)[1].tofile(result_save_path)
     cv2.imencode('.jpg', landmarks_img)[1].tofile(landmarks_save_path)
