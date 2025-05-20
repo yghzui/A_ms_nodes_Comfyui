@@ -1145,6 +1145,8 @@ class CropFaceMyDetailed:
                              "device": ([-1, 0], {"default": -1, "tooltip": "-1:cpu, 0:gpu"}),
                              "det_size": ("INT", {"default": 512, "min": 256, "max": 1024, "step": 2}),
                              "output_size": ("INT", {"default": 512, "min": 256, "max": 1024, "step": 2}),
+                             "face_indices": ("STRING", {"default": "-1", "tooltip": "选择要处理的人脸索引，-1表示所有人脸，多个索引用逗号分隔，如'0,1'"}),
+                             "only_max_score": ("BOOLEAN", {"default": False, "tooltip": "是否只输出检测分数最高的人脸"}),
                              }}
 
     RETURN_TYPES = ("IMAGE", "MASK", "STRING", "MASK", "STRING", "STRING", "IMAGE", "IMAGE")
@@ -1175,8 +1177,7 @@ class CropFaceMyDetailed:
     def __init__(self):
         self.face_helper = None
 
-    def crop_face(self, image, det_thresh, scale_factor, device, det_size, output_size):
-
+    def crop_face(self, image, det_thresh, scale_factor, device, det_size, output_size, face_indices, only_max_score):
         if device < 0:
             provider = "CPU"
         else:
@@ -1229,13 +1230,35 @@ class CropFaceMyDetailed:
                 continue
 
             faces = model.get(cur_image_np)
-            faces_found = len(faces)
-            for j in range(faces_found):
-                bbox = faces[j].bbox
+            
+            # 如果只需要最高分数的人脸
+            if only_max_score and faces:
+                faces = [max(faces, key=lambda x: x.det_score)]
+            
+            # 处理face_indices参数
+            selected_faces = []
+            if face_indices == "-1":
+                selected_faces = faces  # 使用所有人脸
+            else:
+                try:
+                    # 解析索引字符串
+                    indices = [int(idx.strip()) for idx in face_indices.split(',')]
+                    # 过滤有效的索引
+                    valid_indices = [idx for idx in indices if 0 <= idx < len(faces)]
+                    if not valid_indices:  # 如果没有有效索引，使用所有人脸
+                        selected_faces = faces
+                    else:
+                        selected_faces = [faces[idx] for idx in valid_indices]
+                except ValueError:
+                    selected_faces = faces  # 如果解析出错，使用所有人脸
+            
+            faces_found = len(selected_faces)
+            for j, face in enumerate(selected_faces):
+                bbox = face.bbox
                 x1, y1, x2, y2 = bbox[:4]  # 获取面部框的坐标
                 
                 # 获取关键点信息
-                kps = faces[j].kps  # 获取关键点坐标
+                kps = face.kps  # 获取关键点坐标
                 # insightface的关键点格式为[左眼，右眼，鼻尖，左嘴角，右嘴角]
                 left_eye = kps[0]  # 左眼中心坐标
                 right_eye = kps[1]  # 右眼中心坐标
