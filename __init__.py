@@ -8,17 +8,19 @@ from .nodes.image_nodes import *
 from .nodes.mask_nodes import *
 from .nodes.text_nodes import *
 from .nodes.notice import NoticeSound
-from .nodes.resize_image_by_person import ResizeImageByPerson
+from .nodes.resize_image_by_person import ResizeImageByPerson,CropInfoToNumbers
 # from .nodes.a_person_face_landmark_mask_generator_comfyui_add_nose import APersonFaceLandmarkMaskGeneratorAddNose
 # from .nodes.a_person_face_landmark_mask_generator_comfyui_by_my import APersonFaceLandmarkMaskGenerator
 from .nodes.person_and_face.a_person_face_landmark_mask_generator_comfyui import  APersonFaceLandmarkMaskGenerator
 from .nodes.math import AspectRatioAdjuster,I2VConfigureNode
 from .nodes.face_flip import FaceFlip
 from .nodes.create_color_image_mask import CreateColorImageAndMask
+
 NODE_CLASS_MAPPINGS = {
     "LoadAndResizeImageMy": LoadAndResizeImageMy,
     "ResizeImagesAndMasks": ResizeImagesAndMasks,
     "ResizeImageByPerson": ResizeImageByPerson,
+    "CropInfoToNumbers": CropInfoToNumbers,
     "CropFaceMy": CropFaceMy,
     "CropFaceMyDetailed": CropFaceMyDetailed,
     "CreateFaceBboxMask": CreateBboxMask,
@@ -49,6 +51,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by My",
     "ResizeImagesAndMasks": "Resize Images and Masks by My",
     "ResizeImageByPerson": "Resize Image by Person by My",
+    "CropInfoToNumbers": "Crop Info to Numbers by My",
     "CropFaceMy": "Crop Face by My",
     "CropFaceMyDetailed": "Crop Face Detailed by My",
     "CreateFaceBboxMask": "Create Face Bbox Mask by My",

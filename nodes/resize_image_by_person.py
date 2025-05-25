@@ -1075,3 +1075,96 @@ class ResizeImageByPerson:
             
         logging.info(f"resize_by_detection完成，生成了{len(results)}个结果")
         return results
+
+class CropInfoToNumbers:
+    """将裁剪信息字符串转换为具体的数值输出"""
+    
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "crop_info": ("STRING", {"default": "[0,0,0,0]"}),
+                "index": ("INT", {
+                    "default": 0, 
+                    "min": 0,
+                    "max": 999,
+                    "step": 1,
+                    "tooltip": "当有多个裁剪框时，选择要输出的索引。如果索引超出范围，将使用最后一个框的值"
+                }),
+            },
+        }
+    
+    RETURN_TYPES = ("INT", "INT", "INT", "INT", "INT", "INT")
+    RETURN_NAMES = ("x_min", "y_min", "x_max", "y_max", "width", "height")
+    FUNCTION = "convert_crop_info"
+    CATEGORY = "My_node/image"
+
+    def convert_crop_info(self, crop_info: str, index: int = 0):
+        """
+        将裁剪信息字符串转换为具体的数值
+        
+        Args:
+            crop_info: 裁剪信息字符串，格式为 "[x1,y1,x2,y2]" 或 "[x1,y1,x2,y2], [x3,y3,x4,y4], ..."
+            index: 要获取的裁剪框索引
+            
+        Returns:
+            tuple: (x_min, y_min, x_max, y_max, width, height)
+        """
+        try:
+            # 移除所有空格
+            crop_info = crop_info.replace(" ", "")
+            
+            # 分割多个裁剪框
+            boxes = crop_info.split(",")
+            box_list = []
+            current_box = []
+            
+            # 解析裁剪框字符串
+            for part in boxes:
+                # 检查是否包含左括号
+                if "[" in part:
+                    # 开始新的裁剪框
+                    current_box = []
+                    # 清理并添加数字
+                    num = part.replace("[", "").replace("]", "")
+                    if num:
+                        current_box.append(int(num))
+                # 检查是否包含右括号
+                elif "]" in part:
+                    # 清理并添加最后一个数字
+                    num = part.replace("[", "").replace("]", "")
+                    if num:
+                        current_box.append(int(num))
+                    # 如果收集到4个数字，添加到框列表
+                    if len(current_box) == 4:
+                        box_list.append(current_box)
+                    current_box = []
+                else:
+                    # 添加中间的数字
+                    num = part.replace("[", "").replace("]", "")
+                    if num:
+                        current_box.append(int(num))
+            
+            # 如果没有解析到任何有效的框，返回默认值
+            if not box_list:
+                logging.warning(f"无法解析裁剪信息: {crop_info}")
+                return 0, 0, 0, 0, 0, 0
+            
+            # 如果索引超出范围，使用最后一个框
+            if index >= len(box_list):
+                logging.info(f"索引 {index} 超出范围，使用最后一个框")
+                selected_box = box_list[-1]
+            else:
+                selected_box = box_list[index]
+            
+            # 计算宽度和高度
+            x_min, y_min, x_max, y_max = selected_box
+            width = x_max - x_min
+            height = y_max - y_min
+            
+            # 返回所有值，包括计算出的宽度和高度
+            return x_min, y_min, x_max, y_max, width, height
+            
+        except Exception as e:
+            logging.error(f"解析裁剪信息时出错: {str(e)}")
+            return 0, 0, 0, 0, 0, 0
