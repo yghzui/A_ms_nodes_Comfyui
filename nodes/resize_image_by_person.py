@@ -194,8 +194,8 @@ class ResizeImageByPerson:
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "MASK", "INT")
-    RETURN_NAMES = ("image", "mask", "person_count")
+    RETURN_TYPES = ("IMAGE", "MASK", "INT", "STRING")
+    RETURN_NAMES = ("image", "mask", "person_count", "crop_info")
     FUNCTION = "resize_images_and_masks"
     CATEGORY = "My_node/image"
 
@@ -341,6 +341,7 @@ class ResizeImageByPerson:
         """
         output_images = []
         output_masks = []
+        crop_boxes = []  # 新增：用于存储裁剪框信息
         
         # 如果未提供masks，创建与images相同批次的全黑mask
         if masks is None:
@@ -474,6 +475,10 @@ class ResizeImageByPerson:
                                     crop_img = img_np[int(y_min):int(y_max), int(x_min):int(x_max)]
                                     crop_mask = mask_np[int(y_min):int(y_max), int(x_min):int(x_max)] if mask_np is not None else None
                                     
+                                    # 记录裁剪框信息
+                                    crop_info = f"[{int(x_min)},{int(y_min)},{int(x_max)},{int(y_max)}]"
+                                    crop_boxes.append(crop_info)
+                                    
                                     logging.info(f"智能扩展后的人物区域: {crop_img.shape}, 实际比例: {crop_img.shape[1]/crop_img.shape[0]}, 目标比例: {target_ratio}")
                                     
                                     # 添加到处理列表
@@ -483,6 +488,8 @@ class ResizeImageByPerson:
                                     logging.warning("无法获取合并边界框，使用原始图像")
                                     images_to_process.append(img_np)
                                     masks_to_process.append(mask_np)
+                                    # 使用原图尺寸，位置从[0,0]开始
+                                    crop_boxes.append(f"[0,0,{w},{h}]")
                             else:
                                 # 处理多个独立的边界框
                                 for box_idx, box in enumerate(selected_boxes):
@@ -495,6 +502,10 @@ class ResizeImageByPerson:
                                     crop_img = img_np[int(y_min):int(y_max), int(x_min):int(x_max)]
                                     crop_mask = mask_np[int(y_min):int(y_max), int(x_min):int(x_max)] if mask_np is not None else None
                                     
+                                    # 记录裁剪框信息
+                                    crop_info = f"[{int(x_min)},{int(y_min)},{int(x_max)},{int(y_max)}]"
+                                    crop_boxes.append(crop_info)
+                                    
                                     logging.info(f"智能扩展后的人物{box_idx}: {crop_img.shape}, 实际比例: {crop_img.shape[1]/crop_img.shape[0]}, 目标比例: {target_ratio}")
                                     
                                     # 添加到处理列表
@@ -505,20 +516,28 @@ class ResizeImageByPerson:
                             logging.info("没有选中有效边界框，处理整个图像")
                             images_to_process.append(img_np)
                             masks_to_process.append(mask_np)
+                            # 使用原图尺寸，位置从[0,0]开始
+                            crop_boxes.append(f"[0,0,{w},{h}]")
                     except Exception as e:
                         logging.error(f"边界框处理失败: {str(e)}")
                         images_to_process.append(img_np)
                         masks_to_process.append(mask_np)
+                        # 使用原图尺寸，位置从[0,0]开始
+                        crop_boxes.append(f"[0,0,{w},{h}]")
                 else:
                     # 没有检测到人物，处理整个图像
                     logging.info("未检测到人物，处理整个图像")
                     images_to_process.append(img_np)
                     masks_to_process.append(mask_np)
+                    # 使用原图尺寸，位置从[0,0]开始
+                    crop_boxes.append(f"[0,0,{w},{h}]")
             else:
                 # 不裁剪，直接处理整个图像
                 logging.info("不进行人物裁剪，处理整个图像")
                 images_to_process.append(img_np)
                 masks_to_process.append(mask_np)
+                # 使用原图尺寸，位置从[0,0]开始
+                crop_boxes.append(f"[0,0,{w},{h}]")
             
             # 步骤2：缩放处理 - 对每个裁剪后的图像应用尺寸调整
             for proc_img, proc_mask in zip(images_to_process, masks_to_process):
@@ -536,15 +555,18 @@ class ResizeImageByPerson:
         # 如果没有处理任何图像，返回原始图像
         if not output_images:
             logging.info(f"没有处理任何图像，返回原始图像: {images.shape}, {masks.shape}")
-            return images, masks, torch.tensor([total_person_count], dtype=torch.int32)
+            # 使用原图尺寸，位置从[0,0]开始
+            return images, masks, total_person_count, f"[0,0,{w},{h}]"
         
         # 处理输出
         if len(output_images) == 1:
             # 如果只有一个图像，直接返回而不需要拼接
             result_img = output_images[0]
             result_mask = output_masks[0]
+            # 如果没有裁剪框信息，使用原图尺寸
+            crop_info = crop_boxes[0] if crop_boxes else f"[0,0,{w},{h}]"
             logging.info(f"单图像输出形状: {result_img.shape}, {result_mask.shape}")
-            return result_img, result_mask, torch.tensor([total_person_count], dtype=torch.int32)
+            return result_img, result_mask, total_person_count, crop_info
         else:
             # 如果有多个图像，确保它们有相同的形状，然后拼接
             # 过滤掉形状不一致的图像
@@ -553,22 +575,29 @@ class ResizeImageByPerson:
             
             filtered_images = []
             filtered_masks = []
-            for img, mask in zip(output_images, output_masks):
+            filtered_crop_boxes = []
+            for i, (img, mask) in enumerate(zip(output_images, output_masks)):
                 if img.shape[1:] == first_img_shape and mask.shape[1:] == first_mask_shape:
                     filtered_images.append(img)
                     filtered_masks.append(mask)
+                    if i < len(crop_boxes):
+                        filtered_crop_boxes.append(crop_boxes[i])
             
             if not filtered_images:
                 # 如果没有有效图像，返回原始图像
                 logging.info(f"没有有效的过滤图像，返回原始图像: {images.shape}, {masks.shape}")
-                return images, masks, torch.tensor([total_person_count], dtype=torch.int32)
+                # 使用原图尺寸，位置从[0,0]开始
+                return images, masks, total_person_count, f"[0,0,{w},{h}]"
             
             # 拼接所有有效的图像和掩码
             final_images = torch.cat(filtered_images, dim=0)
             final_masks = torch.cat(filtered_masks, dim=0)
             
+            # 合并裁剪框信息为字符串
+            crop_info = ", ".join(filtered_crop_boxes) if filtered_crop_boxes else f"[0,0,{w},{h}]"
+            
             logging.info(f"多图像拼接后输出形状: {final_images.shape}, {final_masks.shape}")
-            return final_images, final_masks, torch.tensor([total_person_count], dtype=torch.int32)
+            return final_images, final_masks, total_person_count, crop_info
 
     # @classmethod
     # def IS_CHANGED(s, images, crop_by_person, use_largest_person, person_indices, merge_output,
