@@ -44,7 +44,9 @@ NODE_CLASS_MAPPINGS = {
     "AspectRatioAdjuster": AspectRatioAdjuster,
     "I2VConfigureNode": I2VConfigureNode,
     "ImageFlipNode": FaceFlip,
-    "CreateColorImageAndMask": CreateColorImageAndMask
+    "CreateColorImageAndMask": CreateColorImageAndMask,
+    "NormalizeMask": NormalizeMask,
+    "AnalyzeMask": AnalyzeMask
 
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -76,7 +78,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "AspectRatioAdjuster": "宽高比调整节点 by My",
     "I2VConfigureNode": "I2V配置节点 by My",
     "ImageFlipNode": "图像翻转节点 by My",
-    "CreateColorImageAndMask": "创建颜色图像和遮罩节点 by My"
+    "CreateColorImageAndMask": "创建颜色图像和遮罩节点 by My",
+    "NormalizeMask": "NormalizeMask 归一化遮罩节点 by My",
+    "AnalyzeMask": "AnalyzeMask 分析遮罩节点 by My"
 
 }
 
