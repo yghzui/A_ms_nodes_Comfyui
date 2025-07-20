@@ -42,15 +42,46 @@ function showLightbox(url) {
     Object.assign(lightbox.style, {
         position: "fixed", top: "0", left: "0", width: "100%", height: "100%",
         backgroundColor: "rgba(0, 0, 0, 0.85)", display: "flex",
+        flexDirection: "column", // 改为纵向布局
         justifyContent: "center", alignItems: "center", zIndex: "1001",
     });
+
+    const container = document.createElement("div");
+    Object.assign(container.style, {
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: "10px" // 图片和尺寸信息之间的间距
+    });
+
     const img = document.createElement("img");
     img.src = url;
     Object.assign(img.style, {
-        maxWidth: "90%", maxHeight: "90%", objectFit: "contain",
+        maxWidth: "95%", maxHeight: "95%", objectFit: "contain",
     });
-    lightbox.appendChild(img);
+
+    const sizeInfo = document.createElement("div");
+    Object.assign(sizeInfo.style, {
+        color: "white",
+        fontSize: "16px",
+        fontFamily: "monospace",
+        padding: "5px 10px",
+        backgroundColor: "rgba(0, 0, 0, 0.5)",
+        borderRadius: "4px",
+        marginTop: "10px"
+    });
+    sizeInfo.textContent = "加载中...";
+
+    // 当图片加载完成后显示尺寸
+    img.onload = () => {
+        sizeInfo.textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
+    };
+
+    container.appendChild(img);
+    container.appendChild(sizeInfo);
+    lightbox.appendChild(container);
     document.body.appendChild(lightbox);
+    
     lightbox.addEventListener("click", () => document.body.removeChild(lightbox));
 }
 
