@@ -15,6 +15,8 @@ from .nodes.person_and_face.a_person_face_landmark_mask_generator_comfyui import
 from .nodes.math import AspectRatioAdjuster,I2VConfigureNode
 from .nodes.face_flip import FaceFlip
 from .nodes.create_color_image_mask import CreateColorImageAndMask
+# 导入新的批量加载节点
+from .nodes.load_image_batch import LoadImageBatchAdvanced
 
 NODE_CLASS_MAPPINGS = {
     "LoadAndResizeImageMy": LoadAndResizeImageMy,
@@ -46,8 +48,9 @@ NODE_CLASS_MAPPINGS = {
     "ImageFlipNode": FaceFlip,
     "CreateColorImageAndMask": CreateColorImageAndMask,
     "NormalizeMask": NormalizeMask,
-    "AnalyzeMask": AnalyzeMask
-
+    "AnalyzeMask": AnalyzeMask,
+    # 注册新的节点
+    "LoadImageBatchAdvanced": LoadImageBatchAdvanced,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by My",
@@ -80,10 +83,12 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageFlipNode": "图像翻转节点 by My",
     "CreateColorImageAndMask": "创建颜色图像和遮罩节点 by My",
     "NormalizeMask": "NormalizeMask 归一化遮罩节点 by My",
-    "AnalyzeMask": "AnalyzeMask 分析遮罩节点 by My"
-
+    "AnalyzeMask": "AnalyzeMask 分析遮罩节点 by My",
+    # 为新节点添加显示名称
+    "LoadImageBatchAdvanced": "Load Image Batch (Advanced) 批量加载 by my",
 }
 
+WEB_DIRECTORY = "./web/js"
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS']
 """
  "APersonFaceLandmarkMaskGeneratorAddNose": APersonFaceLandmarkMaskGeneratorAddNose,
