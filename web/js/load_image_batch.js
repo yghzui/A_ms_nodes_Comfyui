@@ -55,21 +55,78 @@ function showLightbox(url) {
 }
 
 /**
+ * 计算给定容器尺寸和图片数量下的最佳行列数
+ * @param {number} containerWidth - 容器宽度
+ * @param {number} containerHeight - 容器高度
+ * @param {number} imageCount - 图片数量
+ * @returns {{rows: number, cols: number, size: number}} 最佳的行列数和单个图片的大小
+ */
+function calculateOptimalGrid(containerWidth, containerHeight, imageCount) {
+    if (imageCount === 0) return { rows: 0, cols: 0, size: 0 };
+    if (imageCount === 1) return { rows: 1, cols: 1, size: Math.min(containerWidth, containerHeight) };
+
+    const GAP = 2; // 图片间的间距
+    const PADDING = 5; // 容器的内边距
+    
+    // 可用空间
+    const availableWidth = containerWidth - (PADDING * 2);
+    const availableHeight = containerHeight - (PADDING * 2);
+    
+    // 初始化最佳值
+    let bestRows = 1;
+    let bestCols = 1;
+    let bestSize = 0;
+    
+    // 尝试不同的行数
+    for (let rows = 1; rows <= imageCount; rows++) {
+        // 计算对应的列数（向上取整以确保能容纳所有图片）
+        const cols = Math.ceil(imageCount / rows);
+        
+        // 计算基于宽度的单个图片大小
+        const sizeFromWidth = (availableWidth - (GAP * (cols - 1))) / cols;
+        // 计算基于高度的单个图片大小
+        const sizeFromHeight = (availableHeight - (GAP * (rows - 1))) / rows;
+        
+        // 取较小的尺寸确保不会超出容器
+        const size = Math.min(sizeFromWidth, sizeFromHeight);
+        
+        // 检查这个尺寸是否合适
+        const totalWidth = (size * cols) + (GAP * (cols - 1));
+        const totalHeight = (size * rows) + (GAP * (rows - 1));
+        
+        if (totalWidth <= availableWidth && totalHeight <= availableHeight) {
+            // 如果这个尺寸比之前找到的更大，就更新最佳值
+            if (size > bestSize) {
+                bestSize = size;
+                bestRows = rows;
+                bestCols = cols;
+            }
+        }
+    }
+    
+    return { 
+        rows: bestRows, 
+        cols: bestCols, 
+        size: bestSize 
+    };
+}
+
+/**
  * 更新节点上的图片预览区域。
  * @param {object} node - LiteGraph节点实例。
  * @param {string[]} paths - 图片的相对路径数组。
  */
 function updateImagePreviews(node, paths) {
     const PREVIEW_WIDGET_NAME = "image_previews";
+    const GAP = 2; // 图片间的间距
+    const PADDING = 5; // 容器的内边距
 
     // 每次更新前，先尝试移除旧的小部件
     const existingPreview = node.widgets.find(w => w.name === PREVIEW_WIDGET_NAME);
     if (existingPreview) {
-        // 直接从widgets数组中移除
         node.widgets.splice(node.widgets.indexOf(existingPreview), 1);
     }
     
-    // 如果路径为空或无效，则不创建新的小部件，并确保图形刷新
     if (!paths || paths.length === 0 || (paths.length === 1 && !paths[0])) {
         node.computeSize();
         app.graph.setDirtyCanvas(true, true);
@@ -78,38 +135,126 @@ function updateImagePreviews(node, paths) {
 
     const previewContainer = document.createElement("div");
     Object.assign(previewContainer.style, {
-        display: "flex", flexWrap: "wrap", gap: "5px",
-        padding: "5px", /*maxHeight: "250px",*/ overflowY: "auto",
+        display: "flex",
+        flexDirection: "column",
+        padding: `${PADDING}px`,
+        width: "calc(100% - ${PADDING * 2}px)",
+        height: "calc(100% - ${PADDING * 2}px)",
+        boxSizing: "border-box",
+        overflow: "hidden"
     });
 
-    paths.forEach(path => {
-        if (!path.trim()) return;
+    // 创建图片网格容器
+    const gridContainer = document.createElement("div");
+    Object.assign(gridContainer.style, {
+        display: "flex",
+        flexDirection: "column",
+        gap: `${GAP}px`,
+        width: "100%",
+        height: "100%"
+    });
+
+    // 初始化图片加载
+    const validPaths = paths.filter(path => path.trim());
+    const imageElements = validPaths.map(path => {
         const imageUrl = api.apiURL(`/view?filename=${encodeURIComponent(path)}&type=input`);
-        
         const thumb = document.createElement("img");
         thumb.src = imageUrl;
-        Object.assign(thumb.style, {
-            // 改为flex布局，使其能自适应容器宽度
-            flex: "1 1 70px", // flex-grow, flex-shrink, flex-basis
-            maxWidth: "150px", // 限制最大尺寸
-            height: "auto", // 高度自动，以保持正确的宽高比
-            aspectRatio: "1 / 1", // 保持1:1的方形宽高比
-            objectFit: "contain", // 改为contain，确保图片完整显示并保持宽高比
-            cursor: "pointer", 
-            border: "1px solid #444", 
-            borderRadius: "4px",
-        });
+        thumb.style.objectFit = "contain";
+        thumb.style.cursor = "pointer";
+        thumb.style.border = "1px solid #444";
+        thumb.style.borderRadius = "4px";
+        thumb.style.backgroundColor = "#1a1a1a";
         
         thumb.addEventListener("click", (e) => {
             e.stopPropagation();
             showLightbox(imageUrl);
         });
         
-        previewContainer.appendChild(thumb);
+        return thumb;
     });
 
+    // 更新布局的函数
+    const updateLayout = () => {
+        // 清空现有内容
+        gridContainer.innerHTML = "";
+        
+        // 获取容器尺寸
+        const containerWidth = previewContainer.clientWidth;
+        const containerHeight = previewContainer.clientHeight;
+        
+        // 计算最佳行列数和图片大小
+        const { rows, cols, size } = calculateOptimalGrid(
+            containerWidth, 
+            containerHeight, 
+            imageElements.length
+        );
+
+        // 创建行
+        for (let r = 0; r < rows; r++) {
+            const row = document.createElement("div");
+            Object.assign(row.style, {
+                display: "flex",
+                gap: `${GAP}px`,
+                justifyContent: "flex-start", // 左对齐
+                width: "100%",
+                height: `${size}px`, // 使用计算出的大小
+                minHeight: `${size}px` // 确保最小高度
+            });
+
+            // 填充每一行的图片
+            for (let c = 0; c < cols; c++) {
+                const index = r * cols + c;
+                if (index < imageElements.length) {
+                    const imgContainer = document.createElement("div");
+                    Object.assign(imgContainer.style, {
+                        width: `${size}px`,
+                        height: `${size}px`,
+                        minWidth: `${size}px`,
+                        minHeight: `${size}px`,
+                        display: "flex",
+                        justifyContent: "center",
+                        alignItems: "center"
+                    });
+                    
+                    const img = imageElements[index];
+                    Object.assign(img.style, {
+                        width: "100%",
+                        height: "100%"
+                    });
+                    
+                    imgContainer.appendChild(img);
+                    row.appendChild(imgContainer);
+                }
+            }
+            
+            gridContainer.appendChild(row);
+        }
+    };
+
+    previewContainer.appendChild(gridContainer);
+
+    // 创建并添加widget
     const widget = node.addDOMWidget(PREVIEW_WIDGET_NAME, "div", previewContainer);
-    widget.options.serialize = false; 
+    widget.options.serialize = false;
+
+    // 初始化布局
+    setTimeout(updateLayout, 0);
+
+    // 添加resize观察器
+    const resizeObserver = new ResizeObserver(entries => {
+        for (const entry of entries) {
+            if (entry.contentBoxSize) {
+                updateLayout();
+            }
+        }
+    });
+    resizeObserver.observe(previewContainer);
+
+    // 清理函数
+    widget.onRemoved = () => {
+        resizeObserver.disconnect();
+    };
 
     node.computeSize();
     app.graph.setDirtyCanvas(true, true);
