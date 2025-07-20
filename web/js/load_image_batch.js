@@ -121,11 +121,37 @@ function updateImagePreviews(node, paths) {
     const GAP = 2; // 图片间的间距
     const PADDING = 5; // 容器的内边距
 
-    // 每次更新前，先尝试移除旧的小部件
-    const existingPreview = node.widgets.find(w => w.name === PREVIEW_WIDGET_NAME);
-    if (existingPreview) {
-        node.widgets.splice(node.widgets.indexOf(existingPreview), 1);
+    // 清理所有旧的预览相关元素
+    function cleanupOldPreviews() {
+        // 1. 查找并移除所有相关的DOM元素
+        const oldElements = document.querySelectorAll(`[data-node-id="${node.id}"].image-preview-container`);
+        oldElements.forEach(el => {
+            if (el && el.parentNode) {
+                el.parentNode.removeChild(el);
+            }
+        });
+
+        // 2. 查找并清理所有相关的widget
+        const widgetsToRemove = node.widgets.filter(w => w.name === PREVIEW_WIDGET_NAME);
+        widgetsToRemove.forEach(widget => {
+            // 调用清理函数
+            if (widget.onRemoved) {
+                widget.onRemoved();
+            }
+            // 移除DOM元素
+            if (widget.inputEl && widget.inputEl.parentNode) {
+                widget.inputEl.parentNode.removeChild(widget.inputEl);
+            }
+            // 从widgets数组中移除
+            const index = node.widgets.indexOf(widget);
+            if (index !== -1) {
+                node.widgets.splice(index, 1);
+            }
+        });
     }
+
+    // 先清理所有旧的预览
+    cleanupOldPreviews();
     
     if (!paths || paths.length === 0 || (paths.length === 1 && !paths[0])) {
         node.computeSize();
@@ -134,6 +160,8 @@ function updateImagePreviews(node, paths) {
     }
 
     const previewContainer = document.createElement("div");
+    previewContainer.className = "image-preview-container";
+    previewContainer.dataset.nodeId = node.id;
     Object.assign(previewContainer.style, {
         display: "flex",
         flexDirection: "column",
@@ -154,6 +182,9 @@ function updateImagePreviews(node, paths) {
         height: "100%"
     });
 
+    // 清除旧的图片元素
+    gridContainer.innerHTML = '';
+    
     // 初始化图片加载
     const validPaths = paths.filter(path => path.trim());
     const imageElements = validPaths.map(path => {
@@ -317,6 +348,8 @@ app.registerExtension({
                             }
 
                             if (allPaths.length > 0) {
+                                // 先清除旧的预览
+                                updateImagePreviews(node, []);
                                 // 将所有成功上传的路径合并
                                 pathWidget.value = allPaths.join(',');
                                 triggerWidget.value = (triggerWidget.value || 0) + 1;
