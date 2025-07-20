@@ -79,7 +79,7 @@ function updateImagePreviews(node, paths) {
     const previewContainer = document.createElement("div");
     Object.assign(previewContainer.style, {
         display: "flex", flexWrap: "wrap", gap: "5px",
-        padding: "5px", maxHeight: "250px", overflowY: "auto",
+        padding: "5px", /*maxHeight: "250px",*/ overflowY: "auto",
     });
 
     paths.forEach(path => {
@@ -89,8 +89,15 @@ function updateImagePreviews(node, paths) {
         const thumb = document.createElement("img");
         thumb.src = imageUrl;
         Object.assign(thumb.style, {
-            width: "70px", height: "70px", objectFit: "cover",
-            cursor: "pointer", border: "1px solid #444", borderRadius: "4px",
+            // 改为flex布局，使其能自适应容器宽度
+            flex: "1 1 70px", // flex-grow, flex-shrink, flex-basis
+            maxWidth: "150px", // 限制最大尺寸
+            height: "auto", // 高度自动，以保持正确的宽高比
+            aspectRatio: "1 / 1", // 保持1:1的方形宽高比
+            objectFit: "contain", // 改为contain，确保图片完整显示并保持宽高比
+            cursor: "pointer", 
+            border: "1px solid #444", 
+            borderRadius: "4px",
         });
         
         thumb.addEventListener("click", (e) => {
@@ -183,6 +190,22 @@ app.registerExtension({
                 
                 const uploadWidget = node.addWidget("button", "选择图片", "select_files", () => fileInput.click());
                 uploadWidget.options.serialize = false;
+            });
+
+            // 当节点大小改变时，动态调整预览区域的高度
+            chainCallback(nodeType.prototype, "onResize", function(size) {
+                const previewWidget = this.widgets.find(w => w.name === "image_previews");
+                if (previewWidget && previewWidget.inputEl) {
+                    // 使用 offsetTop 动态计算预览区域上方所有元素占用的空间。
+                    // size[1] 是节点的总高度。
+                    const headerHeight = previewWidget.inputEl.offsetTop;
+                    
+                    // 从总高度中减去头部高度，并留出一些底部间距
+                    const newHeight = size[1] - headerHeight - 15; // 15px for bottom margin
+                    
+                    // 应用新高度，并设置一个最小高度防止其过小
+                    previewWidget.inputEl.style.maxHeight = `${Math.max(50, newHeight)}px`;
+                }
             });
             
             // 当工作流加载时，恢复预览
