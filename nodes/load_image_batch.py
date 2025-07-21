@@ -82,7 +82,7 @@ class LoadImageBatchAdvanced:
                 # 添加batch维度
                 image_list.append(image_tensor.unsqueeze(0))
                 mask_list.append(mask_tensor.unsqueeze(0))
-                path_list.append(path)  # 保存有效的路径
+                path_list.append(os.path.join(input_dir, path))  # 保存有效的路径
             except Exception as e:
                 print(f"错误: 加载文件失败 {image_path}, 原因: {e}")
         
