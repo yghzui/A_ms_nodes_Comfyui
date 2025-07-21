@@ -882,6 +882,7 @@ class AnalyzeMask:
     """
     一个用于分析遮罩（Mask）类型的节点。
     它可以判断遮罩是二值型（只包含0和1）还是范围型，并显示其值的范围。
+    支持批量分析多张遮罩。
     """
     @classmethod
     def INPUT_TYPES(s):
@@ -899,22 +900,34 @@ class AnalyzeMask:
     def analyze(self, mask):
         if mask is None or mask.numel() == 0:
             result_string = "空遮罩或无效遮罩"
-        else:
+            return {"ui": {"text": [result_string]}, "result": result_string}
+
+        # 确保mask是3D张量 (n,h,w)
+        if len(mask.shape) == 2:
+            mask = mask.unsqueeze(0)  # 添加batch维度
+
+        results = []
+        for i in range(mask.shape[0]):
+            single_mask = mask[i]
+            
             # 获取最小值和最大值
-            min_val = mask.min().item()
-            max_val = mask.max().item()
+            min_val = single_mask.min().item()
+            max_val = single_mask.max().item()
 
             # 获取所有唯一值以进行判断
-            unique_vals = torch.unique(mask)
+            unique_vals = torch.unique(single_mask)
 
             # 使用一个小的容差来判断是否接近0或1
             is_binary_like = all(torch.isclose(v, torch.tensor(0.0, device=mask.device)) or 
                              torch.isclose(v, torch.tensor(1.0, device=mask.device)) for v in unique_vals)
 
             if is_binary_like:
-                result_string = f"二值型遮罩. 范围: ({min_val:.4f}, {max_val:.4f})"
+                result = f"遮罩 #{i+1}: 二值型遮罩. 范围: ({min_val:.4f}, {max_val:.4f})"
             else:
-                result_string = f"范围型遮罩. 范围: [{min_val:.4f}, {max_val:.4f}]"
+                result = f"遮罩 #{i+1}: 范围型遮罩. 范围: [{min_val:.4f}, {max_val:.4f}]"
+            
+            results.append(result)
 
-        print(f"mask_analyze_result: {result_string}")
-        return {"ui": {"text": [result_string]}}
+        # 将所有结果用换行符连接
+        final_result = "\n".join(results)
+        return {"ui": {"text": [final_result]}, "result": final_result}
