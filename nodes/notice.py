@@ -10,7 +10,7 @@ import hashlib
 class NoticeSound:
     @classmethod
     def INPUT_TYPES(cls):
-        return {
+         return {
             "required": {
                 "repeat_times": ("INT", {"default": 1, "min": 1, "max": 10, "step": 1}),
                 "check_mute": ("BOOLEAN", {"default": False}),
@@ -20,41 +20,16 @@ class NoticeSound:
                 "image": ("IMAGE",),
                 'mask': ('MASK',),
                 "Filenames": ("VHS_FILENAMES",),
+                "text": ("STRING",),
               
             }
         }
-
-    RETURN_TYPES = tuple(["IMAGE", "MASK", "VHS_FILENAMES"])
-    RETURN_NAMES = tuple(["image", "mask", "Filenames"])
+    OUTPUT_NODE = True
+    RETURN_TYPES = tuple(["IMAGE", "MASK", "VHS_FILENAMES", "STRING"])
+    RETURN_NAMES = tuple(["image", "mask", "Filenames", "text"])
     FUNCTION = "play_notice_sound"
     CATEGORY = "My_node/通知"
 
-    # @classmethod
-    # def IS_CHANGED(s, repeat_times, check_mute, max_volume, **kwargs):
-    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
-    #     m = hashlib.sha256()
-        
-    #     # 将参数加入哈希计算
-    #     m.update(str(repeat_times).encode())
-    #     m.update(str(check_mute).encode())
-    #     m.update(str(max_volume).encode())
-        
-    #     # 对可选参数进行哈希
-    #     if 'image' in kwargs and kwargs['image'] is not None:
-    #         image_flat = kwargs['image'].reshape(-1).numpy().tobytes()
-    #         m.update(image_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
-            
-    #     if 'mask' in kwargs and kwargs['mask'] is not None:
-    #         mask_flat = kwargs['mask'].reshape(-1).numpy().tobytes()
-    #         m.update(mask_flat[:1024])
-            
-    #     if 'Filenames' in kwargs and kwargs['Filenames'] is not None:
-    #         m.update(str(kwargs['Filenames']).encode())
-            
-    #     # 额外添加随机性，确保每次都会执行
-    #     m.update(str(time.time()).encode())
-        
-    #     return m.digest().hex()
 
     def get_volume_control(self):
         """获取系统音量控制接口"""
@@ -154,12 +129,3 @@ class NoticeSound:
         
         return tuple(return_values)
 
-# 这个节点可以用于导出
-NODE_CLASS_MAPPINGS = {
-    "NoticeSound": NoticeSound
-}
-
-# 类别描述
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "NoticeSound": "铃声提醒"
-}
