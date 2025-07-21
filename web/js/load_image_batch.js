@@ -209,8 +209,9 @@ function updateImagePreviews(node, paths) {
         display: "flex",
         flexDirection: "column",
         gap: `${GAP}px`,
-        width: "100%",
-        height: "100%"
+        width: "fit-content", // 让容器宽度适应内容
+        height: "100%",
+        margin: "0 auto" // 使用 margin auto 实现水平居中
     });
 
     // 清除旧的图片元素
@@ -258,8 +259,8 @@ function updateImagePreviews(node, paths) {
             Object.assign(row.style, {
                 display: "flex",
                 gap: `${GAP}px`,
-                justifyContent: "flex-start", // 左对齐
-                width: "100%",
+                justifyContent: "flex-start", // 改回左对齐
+                width: "fit-content", // 宽度自适应内容
                 height: `${size}px`, // 使用计算出的大小
                 minHeight: `${size}px` // 确保最小高度
             });
