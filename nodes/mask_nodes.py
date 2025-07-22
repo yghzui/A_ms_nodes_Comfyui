@@ -822,14 +822,15 @@ class AdjustMaskValues:
 class NormalizeMask:
     """
     一个用于归一化遮罩（Mask）的节点。
-    可以将遮罩的值进行二值化（0和1）或范围归一化（0到1），并可选择输出的数据精度。
+    可以将遮罩的值进行二值化（0和1或0和255）或范围归一化（0到1或0到255），并可选择输出的数据精度。
     """
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
                 "mask": ("MASK",),
-                "normalization": (["To 0 and 1", "To 0-1 range"], {"default": "To 0-1 range", "tooltip": "选择归一化方法"}),
+                "normalization": (["To 0 and 1", "To 0-1 range", "To 0 and 255", "To 0-255 range"], 
+                                 {"default": "To 0-1 range", "tooltip": "选择归一化方法"}),
                 "precision": (["float32", "float16", "bfloat16"], {"default": "float32", "tooltip": "选择输出精度"}),
             }
         }
@@ -853,6 +854,9 @@ class NormalizeMask:
         if normalization == "To 0 and 1":
             # 二值化处理：将所有非零值设为1，零值保持为0
             normalized_mask = (mask > 0).to(device=device, dtype=target_dtype)
+        elif normalization == "To 0 and 255":
+            # 二值化处理：将所有非零值设为255，零值保持为0
+            normalized_mask = (mask > 0).to(device=device, dtype=target_dtype) * 255.0
         elif normalization == "To 0-1 range":
             # 范围归一化：将每个mask的值缩放到[0, 1]范围
             # 在同一设备上创建
@@ -870,7 +874,22 @@ class NormalizeMask:
                     normalized_mask[i] = (single_mask > 0).float()
 
             normalized_mask = normalized_mask.to(device=device, dtype=target_dtype)
+        elif normalization == "To 0-255 range":
+            # 范围归一化：将每个mask的值缩放到[0, 255]范围
+            normalized_mask = torch.zeros_like(mask, device=device)
+            for i in range(mask.shape[0]):
+                single_mask = mask[i]
+                min_val = single_mask.min()
+                max_val = single_mask.max()
 
+                if max_val > min_val:
+                    # 执行归一化 (x - min) / (max - min) * 255
+                    normalized_mask[i] = (single_mask - min_val) / (max_val - min_val) * 255.0
+                else:
+                    # 如果所有像素值都相同，则进行二值化处理
+                    normalized_mask[i] = (single_mask > 0).float() * 255.0
+
+            normalized_mask = normalized_mask.to(device=device, dtype=target_dtype)
         else:
             # 默认情况，不应发生
             normalized_mask = mask.to(device=device, dtype=target_dtype)
@@ -881,7 +900,7 @@ class NormalizeMask:
 class AnalyzeMask:
     """
     一个用于分析遮罩（Mask）类型的节点。
-    它可以判断遮罩是二值型（只包含0和1）还是范围型，并显示其值的范围。
+    它可以判断遮罩是二值型（只包含0和1或0和255）还是范围型，并显示其值的范围。
     支持批量分析多张遮罩。
     """
     @classmethod
@@ -917,14 +936,24 @@ class AnalyzeMask:
             # 获取所有唯一值以进行判断
             unique_vals = torch.unique(single_mask)
 
-            # 使用一个小的容差来判断是否接近0或1
-            is_binary_like = all(torch.isclose(v, torch.tensor(0.0, device=mask.device)) or 
-                             torch.isclose(v, torch.tensor(1.0, device=mask.device)) for v in unique_vals)
+            # 检查是否为0-1二值型
+            is_binary_01 = all(torch.isclose(v, torch.tensor(0.0, device=mask.device)) or 
+                            torch.isclose(v, torch.tensor(1.0, device=mask.device)) for v in unique_vals)
+            
+            # 检查是否为0-255二值型
+            is_binary_0255 = all(torch.isclose(v, torch.tensor(0.0, device=mask.device)) or 
+                              torch.isclose(v, torch.tensor(255.0, device=mask.device)) for v in unique_vals)
 
-            if is_binary_like:
-                result = f"遮罩 #{i+1}: 二值型遮罩. 范围: ({min_val:.4f}, {max_val:.4f})"
+            if is_binary_01:
+                result = f"遮罩 #{i+1}: 二值型遮罩 (0-1). 范围: ({min_val:.4f}, {max_val:.4f})"
+            elif is_binary_0255:
+                result = f"遮罩 #{i+1}: 二值型遮罩 (0-255). 范围: ({min_val:.4f}, {max_val:.4f})"
+            elif 0 <= min_val <= 1 and 0 <= max_val <= 1:
+                result = f"遮罩 #{i+1}: 范围型遮罩 (0-1). 范围: [{min_val:.4f}, {max_val:.4f}]"
+            elif 0 <= min_val <= 255 and 0 <= max_val <= 255:
+                result = f"遮罩 #{i+1}: 范围型遮罩 (0-255). 范围: [{min_val:.4f}, {max_val:.4f}]"
             else:
-                result = f"遮罩 #{i+1}: 范围型遮罩. 范围: [{min_val:.4f}, {max_val:.4f}]"
+                result = f"遮罩 #{i+1}: 未知范围型遮罩. 范围: [{min_val:.4f}, {max_val:.4f}]"
             
             results.append(result)
 
