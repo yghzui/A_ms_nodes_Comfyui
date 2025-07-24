@@ -17,7 +17,8 @@ from .nodes.face_flip import FaceFlip
 from .nodes.create_color_image_mask import CreateColorImageAndMask
 # 导入新的批量加载节点
 from .nodes.load_image_batch import LoadImageBatchAdvanced
-from .nodes.image_mix import ImageMaskedColorFill,ImageBlackColorFill
+from .nodes.image_mix import ImageMaskedColorFill,ImageBlackColorFill,ImageLayerMix
+
 NODE_CLASS_MAPPINGS = {
     "LoadAndResizeImageMy": LoadAndResizeImageMy,
     "ResizeImagesAndMasks": ResizeImagesAndMasks,
@@ -53,6 +54,7 @@ NODE_CLASS_MAPPINGS = {
     "LoadImageBatchAdvanced": LoadImageBatchAdvanced,
     "ImageMaskedColorFill": ImageMaskedColorFill,
     "ImageBlackColorFill": ImageBlackColorFill,
+    "ImageLayerMix": ImageLayerMix,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by My",
@@ -90,6 +92,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadImageBatchAdvanced": "Load Image Batch (Advanced) 批量加载 by my",
     "ImageMaskedColorFill": "ImageMaskedColorFill 图像颜色填充 by My",
     "ImageBlackColorFill": "ImageBlackColorFill 图像黑色填充 by My",
+    "ImageLayerMix": "ImageLayerMix 图层混合 by My",
 }
 
 WEB_DIRECTORY = "./web/js"

@@ -181,3 +181,83 @@ class ImageBlackColorFill:
 
         return (image_out,)
 
+
+class ImageLayerMix:
+    """
+    一个ComfyUI节点，用于根据遮罩将图层图像覆盖到背景图像上。
+    接收背景图像、图层图像和遮罩，根据遮罩将图层图像覆盖到背景图像上。
+    """
+    @classmethod
+    def INPUT_TYPES(s):
+        """
+        定义节点的输入参数。
+        """
+        return {
+            "required": {
+                "background": ("IMAGE",),
+                "layer": ("IMAGE",),
+                "mask": ("MASK",),
+                "invert_mask": ("BOOLEAN", {"default": False, "tooltip": "是否反转遮罩，True表示反转。"}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "mix_images"
+    CATEGORY = "A_my_nodes/Image"
+
+    def mix_images(self, background: torch.Tensor, layer: torch.Tensor, mask: torch.Tensor, invert_mask: bool = False):
+        """
+        执行节点功能的核心方法。
+        
+        Args:
+            background (torch.Tensor): 背景图像张量，形状为 (n, h, w, c)。
+            layer (torch.Tensor): 图层图像张量，形状为 (n, h, w, 3)。
+            mask (torch.Tensor): 遮罩张量，形状为 (n, h, w)。
+            invert_mask (bool): 是否反转遮罩。
+        
+        Returns:
+            tuple[torch.Tensor]: 返回一个包含处理后的图像的元组。
+        """
+        # 确保背景和图层的批次数、高度和宽度相同
+        if background.shape[0] != layer.shape[0] or background.shape[1] != layer.shape[1] or background.shape[2] != layer.shape[2]:
+            print(f"错误：背景图像形状 {background.shape} 与图层图像形状 {layer.shape} 不兼容。")
+            return (background,)
+        
+        # 确保遮罩的形状与图像匹配
+        if mask.shape[0] != background.shape[0] or mask.shape[1] != background.shape[1] or mask.shape[2] != background.shape[2]:
+            print(f"错误：遮罩形状 {mask.shape} 与图像形状 {background.shape[:3]} 不匹配。")
+            return (background,)
+        
+        # 复制背景图像以避免修改原始张量
+        result = background.clone()
+        
+        # 处理图层图像，确保是3通道RGB
+        if layer.shape[-1] > 3:
+            layer = layer[..., :3]
+        
+        # 如果需要反转遮罩
+        if invert_mask:
+            mask = 1.0 - mask
+        
+        # 扩展遮罩维度以匹配图像通道数
+        expanded_mask = mask.unsqueeze(-1)
+        
+        # 根据通道数处理
+        if background.shape[-1] == 3:
+            # 对于RGB图像，直接使用扩展的遮罩
+            expanded_mask = expanded_mask.expand(-1, -1, -1, 3)
+        elif background.shape[-1] == 4:
+            # 对于RGBA图像，扩展遮罩到4通道
+            expanded_mask = expanded_mask.expand(-1, -1, -1, 4)
+            # 如果图层是3通道，需要扩展为4通道
+            if layer.shape[-1] == 3:
+                # 创建一个新的4通道图层，Alpha通道设为1
+                layer_rgba = torch.ones_like(background)
+                layer_rgba[..., :3] = layer
+                layer = layer_rgba
+        
+        # 混合图像：result = background * (1 - mask) + layer * mask
+        result = background * (1.0 - expanded_mask) + layer * expanded_mask
+        
+        return (result,)
+
