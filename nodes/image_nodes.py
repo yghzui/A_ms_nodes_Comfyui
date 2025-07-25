@@ -1147,37 +1147,24 @@ class CropFaceMyDetailed:
                              "output_size": ("INT", {"default": 512, "min": 256, "max": 1024, "step": 2}),
                              "face_indices": ("STRING", {"default": "-1", "tooltip": "选择要处理的人脸索引，-1表示所有人脸，多个索引用逗号分隔，如'0,1'"}),
                              "only_max_score": ("BOOLEAN", {"default": False, "tooltip": "是否只输出检测分数最高的人脸"}),
-                             }}
+                             },
+                "optional": {
+                             "input_mask": ("MASK", {"default": None, "tooltip": "可选的输入遮罩，将与图像使用相同的裁剪逻辑"}),
+                             "empty_mask_mode": (["black", "white", "original"], {"default": "original", "tooltip": "当裁剪区域内的mask全黑时: black=保持黑色, white=使用全白mask, original=使用原始图像区域作为mask"})
+                             }
+                }
 
-    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "MASK", "STRING", "STRING", "IMAGE", "IMAGE")
-    RETURN_NAMES = ("image", "mask", "squares_info", "individual_masks", "original_eye_points", "cropped_eye_points", "original_image_with_points", "cropped_image_with_points")
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "MASK", "STRING", "STRING", "IMAGE", "IMAGE", "MASK")
+    RETURN_NAMES = ("image", "mask", "squares_info", "individual_masks", "original_eye_points", "cropped_eye_points", "original_image_with_points", "cropped_image_with_points", "crop_mask")
 
     FUNCTION = "crop_face"
 
     CATEGORY = "My_node/image"
 
-    # @classmethod
-    # def IS_CHANGED(s, image, det_thresh, scale_factor, device, det_size, output_size):
-    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
-    #     m = hashlib.sha256()
-        
-    #     # 对图像进行哈希
-    #     images_flat = image.reshape(-1).numpy().tobytes()
-    #     m.update(images_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
-        
-    #     # 将其他参数也加入哈希计算
-    #     m.update(str(det_thresh).encode())
-    #     m.update(str(scale_factor).encode())
-    #     m.update(str(device).encode())
-    #     m.update(str(det_size).encode())
-    #     m.update(str(output_size).encode())
-        
-    #     return m.digest().hex()
-
     def __init__(self):
         self.face_helper = None
 
-    def crop_face(self, image, det_thresh, scale_factor, device, det_size, output_size, face_indices, only_max_score):
+    def crop_face(self, image, det_thresh, scale_factor, device, det_size, output_size, face_indices, only_max_score, input_mask=None, empty_mask_mode="original"):
         if device < 0:
             provider = "CPU"
         else:
@@ -1191,6 +1178,7 @@ class CropFaceMyDetailed:
 
         total_images = image_np.shape[0]
         out_images = []
+        out_masks = []  # 用于存储裁剪后的输入mask
 
         # 获取输入样本的宽高
         height, width = image.shape[1:3]  # 形状为 (2, 960, 720, 3)，获取宽高
@@ -1209,6 +1197,22 @@ class CropFaceMyDetailed:
         # 创建用于绘制关键点的图像副本
         original_images_with_points = []
         cropped_images_with_points = []
+        
+        # 检查是否有输入mask
+        has_input_mask = input_mask is not None
+        if has_input_mask:
+            # 转换为numpy数组以便处理
+            input_mask_np = input_mask.cpu().numpy()
+            # 确保mask是2D的 (batch, height, width)
+            if len(input_mask_np.shape) == 4 and input_mask_np.shape[3] == 1:
+                # 如果是 (batch, height, width, 1)，转换为 (batch, height, width)
+                input_mask_np = input_mask_np.squeeze(3)
+            print(f"输入mask整体形状: {input_mask_np.shape}")
+            print(f"输入mask整体值范围: 最小={np.min(input_mask_np)}, 最大={np.max(input_mask_np)}")
+            
+            # 如果mask值都很小（接近0），可能需要放大
+            if np.max(input_mask_np) <= 0.01:
+                print("警告: mask值非常小，可能导致裁剪后全黑")
         
         image_np_new = image_np.copy()
         for i in range(total_images):
@@ -1316,6 +1320,99 @@ class CropFaceMyDetailed:
                 # 裁剪正方形面部
                 cropped_face_1 = cur_image_np[square_y:int(square_y + square_size),
                                  square_x:int(square_x + square_size)]
+                
+                # 如果有输入mask，也对其进行相同的裁剪
+                if has_input_mask:
+                    # 确保索引有效
+                    if i < input_mask_np.shape[0]:
+                        # 裁剪输入mask
+                        try:
+                            # 打印mask的形状和值范围，帮助调试
+                            print(f"输入mask形状: {input_mask_np.shape}")
+                            print(f"输入mask值范围: 最小={np.min(input_mask_np[i])}, 最大={np.max(input_mask_np[i])}")
+                            
+                            # 确保裁剪区域有效
+                            y_start = max(0, square_y)
+                            y_end = min(input_mask_np.shape[1], int(square_y + square_size))
+                            x_start = max(0, square_x)
+                            x_end = min(input_mask_np.shape[2], int(square_x + square_size))
+                            
+                            print(f"裁剪区域: y={y_start}:{y_end}, x={x_start}:{x_end}")
+                            
+                            # 检查裁剪区域是否有效
+                            if y_end > y_start and x_end > x_start:
+                                cropped_mask = input_mask_np[i, y_start:y_end, x_start:x_end]
+                                
+                                # 打印裁剪后mask的形状和值范围
+                                print(f"裁剪后mask形状: {cropped_mask.shape}")
+                                print(f"裁剪后mask值范围: 最小={np.min(cropped_mask)}, 最大={np.max(cropped_mask)}")
+                                
+                                # 检查裁剪后的mask是否为空
+                                if cropped_mask.size > 0:
+                                    # 检查mask是否全为0
+                                    if np.max(cropped_mask) == 0:
+                                        print("警告: 裁剪区域内的mask全为0，尝试查看更大区域")
+                                        # 尝试扩大裁剪区域，看是否能找到非零值
+                                        expanded_y_start = max(0, y_start - 50)
+                                        expanded_y_end = min(input_mask_np.shape[1], y_end + 50)
+                                        expanded_x_start = max(0, x_start - 50)
+                                        expanded_x_end = min(input_mask_np.shape[2], x_end + 50)
+                                        
+                                        expanded_mask = input_mask_np[i, expanded_y_start:expanded_y_end, expanded_x_start:expanded_x_end]
+                                        print(f"扩大区域后mask值范围: 最小={np.min(expanded_mask)}, 最大={np.max(expanded_mask)}")
+                                        
+                                        # 如果扩大区域后仍全为0，可能整个mask就是空的
+                                        if np.max(expanded_mask) == 0:
+                                            print("扩大区域后mask仍全为0，可能整个mask都是空的")
+                                    
+                                    # 调整大小与输出尺寸一致，使用INTER_LINEAR而不是INTER_NEAREST以获得更好的结果
+                                    resized_mask = cv2.resize(cropped_mask, (output_size, output_size), 
+                                                            interpolation=cv2.INTER_LINEAR)
+                                    
+                                    # 打印调整大小后mask的形状和值范围
+                                    print(f"调整大小后mask形状: {resized_mask.shape}")
+                                    print(f"调整大小后mask值范围: 最小={np.min(resized_mask)}, 最大={np.max(resized_mask)}")
+                                    
+                                    # 确保mask值在0-1范围内
+                                    if np.max(resized_mask) > 1.0:
+                                        resized_mask = resized_mask / 255.0 if np.max(resized_mask) > 1.0 else resized_mask
+                                        print(f"归一化后mask值范围: 最小={np.min(resized_mask)}, 最大={np.max(resized_mask)}")
+                                    
+                                    # 如果mask全是0，但原始图像区域不是全黑，可能是mask和图像不匹配
+                                    if np.max(resized_mask) == 0:
+                                        print(f"警告: 调整大小后的mask全为0，使用 {empty_mask_mode} 模式处理")
+                                        
+                                        if empty_mask_mode == "white":
+                                            # 创建一个全白的mask作为替代，确保能看到裁剪的人脸
+                                            print("创建全白mask作为替代")
+                                            resized_mask = np.ones((output_size, output_size), dtype=np.float32)
+                                        elif empty_mask_mode == "original":
+                                            # 使用原始图像区域的亮度作为mask
+                                            print("使用原始图像区域的亮度作为mask")
+                                            # 将RGB转为灰度
+                                            gray_face = cv2.cvtColor(resized_face, cv2.COLOR_RGB2GRAY)
+                                            # 归一化到[0,1]范围
+                                            resized_mask = gray_face.astype(np.float32) / 255.0
+                                            print(f"使用亮度作为mask后值范围: 最小={np.min(resized_mask)}, 最大={np.max(resized_mask)}")
+                                        # 如果是"black"模式，保持全黑mask，不做任何改变
+                                    
+                                    out_masks.append(resized_mask)
+                                else:
+                                    # 裁剪区域为空，创建全黑mask
+                                    print("裁剪区域为空，创建全黑mask")
+                                    out_masks.append(np.zeros((output_size, output_size), dtype=np.float32))
+                            else:
+                                # 裁剪区域无效，创建全黑mask
+                                print("裁剪区域无效，创建全黑mask")
+                                out_masks.append(np.zeros((output_size, output_size), dtype=np.float32))
+                        except Exception as e:
+                            print(f"处理mask时出错: {e}")
+                            # 出错时创建全黑mask
+                            out_masks.append(np.zeros((output_size, output_size), dtype=np.float32))
+                    else:
+                        # 如果索引无效，添加一个全黑的mask
+                        print("索引无效，创建全黑mask")
+                        out_masks.append(np.zeros((output_size, output_size), dtype=np.float32))
 
                 # 检查裁剪的面部图像是否为空
                 if cropped_face_1 is None or cropped_face_1.size == 0:
@@ -1391,10 +1488,46 @@ class CropFaceMyDetailed:
             # 如果没有找到人脸，创建一个空张量
             cropped_images_tensor = torch.zeros((1, output_size, output_size, 3), dtype=torch.float32)
 
-        # 返回所有需要的数据
+        # 处理裁剪后的输入mask
+        if has_input_mask and out_masks:
+            try:
+                print(f"处理裁剪后的mask，共 {len(out_masks)} 个")
+                # 检查第一个mask的值范围
+                if len(out_masks) > 0:
+                    print(f"第一个裁剪后mask值范围: 最小={np.min(out_masks[0])}, 最大={np.max(out_masks[0])}")
+                
+                # 将mask列表转换为numpy数组
+                cropped_mask_np = np.array(out_masks).astype(np.float32)
+                print(f"裁剪后mask数组形状: {cropped_mask_np.shape}")
+                print(f"裁剪后mask数组值范围: 最小={np.min(cropped_mask_np)}, 最大={np.max(cropped_mask_np)}")
+                
+                # 如果mask全是0（全黑），尝试检查原始输入mask是否有内容
+                if np.max(cropped_mask_np) == 0:
+                    print("警告: 裁剪后的mask全是黑色，检查原始mask和裁剪区域是否匹配")
+                
+                # 转换为PyTorch张量
+                cropped_mask_tensor = torch.from_numpy(cropped_mask_np)
+                if cropped_mask_tensor.ndim == 2:
+                    cropped_mask_tensor = cropped_mask_tensor.unsqueeze(0)
+            except Exception as e:
+                print(f"处理裁剪后mask时出错: {e}")
+                # 出错时创建一个全黑的mask
+                if cropped_face_7.shape[0] > 0:
+                    cropped_mask_tensor = torch.zeros((cropped_face_7.shape[0], output_size, output_size), dtype=torch.float32)
+                else:
+                    cropped_mask_tensor = torch.zeros((1, output_size, output_size), dtype=torch.float32)
+        else:
+            # 如果没有输入mask或没有找到人脸，创建一个全黑的mask
+            print("没有输入mask或没有找到人脸，创建全黑mask")
+            if cropped_face_7.shape[0] > 0:
+                cropped_mask_tensor = torch.zeros((cropped_face_7.shape[0], output_size, output_size), dtype=torch.float32)
+            else:
+                cropped_mask_tensor = torch.zeros((1, output_size, output_size), dtype=torch.float32)
+
+        # 返回所有需要的数据，包括裁剪后的输入mask
         return (cropped_face_7, mask, str(squares_info), stacked_masks, 
                 str(original_eye_points_list), str(cropped_eye_points_list),
-                original_images_tensor, cropped_images_tensor)  # 返回张量、总mask、正方形信息、各个人脸遮罩和眼睛关键点信息
+                original_images_tensor, cropped_images_tensor, cropped_mask_tensor)
 
 
 class PasteFacesAdvanced:
