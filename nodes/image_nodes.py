@@ -1526,6 +1526,9 @@ class PasteFacesAdvanced:
                 "scale_adjustment": ("FLOAT", {"default": 1.0, "min": 0.5, "max": 2.0, "step": 0.01, "tooltip": "缩放调整系数，控制替换人脸的大小"}),
                 "debug_mode": ("BOOLEAN", {"default": True, "tooltip": "是否打印详细调试信息"}),
                 "preserve_face": ("BOOLEAN", {"default": True, "tooltip": "是否保持人脸原始比例，避免变形"}),
+            },
+            "optional": {
+                "background_mask": ("MASK", {"default": None, "tooltip": "背景图像的mask，只在mask不为0的区域粘贴人脸"})
             }
         }
 
@@ -1563,7 +1566,7 @@ class PasteFacesAdvanced:
 
     def paste_faces(self, background_image, face_image, original_eye_points, cropped_eye_points, 
                    background_face_indices, paste_face_indices, enable_rotation, blend_alpha, scale_adjustment, debug_mode,
-                   preserve_face=True):
+                   preserve_face=True, background_mask=None):
         """
         高级人脸粘贴函数，根据眼睛关键点对齐和融合人脸
         
@@ -1579,6 +1582,7 @@ class PasteFacesAdvanced:
             scale_adjustment: 缩放调整系数
             debug_mode: 是否打印详细调试信息
             preserve_face: 是否保持人脸原始比例，避免变形
+            background_mask: 背景图像的mask，只在mask不为0的区域粘贴人脸
         """
         import cv2
         import numpy as np
@@ -1595,6 +1599,18 @@ class PasteFacesAdvanced:
         debug_print(f"人脸图像形状: {face_image.shape}, 类型: {face_image.dtype}")
         debug_print(f"保持人脸比例模式: {preserve_face}")
         
+        # 检查是否提供了背景mask
+        has_background_mask = background_mask is not None
+        if has_background_mask:
+            debug_print(f"背景mask形状: {background_mask.shape}, 类型: {background_mask.dtype}")
+            # 确保背景mask与背景图像形状匹配
+            if background_mask.shape[0] != background_image.shape[0]:
+                debug_print(f"警告: 背景mask的批次大小({background_mask.shape[0]})与背景图像({background_image.shape[0]})不匹配")
+                # 如果只有一个mask但有多个背景图像，则复制mask
+                if background_mask.shape[0] == 1 and background_image.shape[0] > 1:
+                    background_mask = background_mask.repeat(background_image.shape[0], 1, 1)
+                    debug_print(f"已将背景mask复制到匹配背景图像批次大小: {background_mask.shape}")
+        
         # 转换眼睛坐标字符串为Python对象
         original_eyes = eval(original_eye_points)
         cropped_eyes = eval(cropped_eye_points)
@@ -1605,6 +1621,15 @@ class PasteFacesAdvanced:
         # 转换背景和人脸图像为numpy数组 (复制以避免修改原始数据)
         background_np = background_image.cpu().numpy().copy()
         face_np = face_image.cpu().numpy().copy()
+        
+        # 如果有背景mask，转换为numpy数组
+        if has_background_mask:
+            bg_mask_np = background_mask.cpu().numpy().copy()
+            # 确保mask是2D的 (batch, height, width)
+            if len(bg_mask_np.shape) == 4 and bg_mask_np.shape[3] == 1:
+                # 如果是 (batch, height, width, 1)，转换为 (batch, height, width)
+                bg_mask_np = bg_mask_np.squeeze(3)
+            debug_print(f"背景mask值范围: 最小={np.min(bg_mask_np)}, 最大={np.max(bg_mask_np)}")
         
         # 创建一个与背景图像相同大小的全局遮罩，用于记录所有粘贴区域
         combined_mask = np.zeros_like(background_np[:, :, :, 0], dtype=np.float32)
@@ -1849,6 +1874,19 @@ class PasteFacesAdvanced:
                         gray_face = cv2.cvtColor(warped_face[:, :, :3], cv2.COLOR_RGB2GRAY)
                         _, mask_binary = cv2.threshold(gray_face, 1, 255, cv2.THRESH_BINARY)
                         mask = mask_binary.astype(np.float32) / 255.0 * blend_alpha
+                
+                # 如果有背景mask，将其与当前mask相乘，这样只在背景mask不为0的区域粘贴
+                if has_background_mask:
+                    # 确保背景mask索引有效
+                    if bg_img_idx < bg_mask_np.shape[0]:
+                        # 将背景mask与当前mask相乘
+                        bg_mask_current = bg_mask_np[bg_img_idx]
+                        # 将背景mask归一化到[0,1]范围
+                        if np.max(bg_mask_current) > 1.0:
+                            bg_mask_current = bg_mask_current / 255.0
+                        # 相乘得到最终mask
+                        mask = mask * bg_mask_current
+                        debug_print(f"应用背景mask后的mask值范围: 最小={np.min(mask)}, 最大={np.max(mask)}")
                 
                 # 更新全局遮罩，记录所有粘贴区域
                 combined_mask[bg_img_idx] = np.maximum(combined_mask[bg_img_idx], mask)
