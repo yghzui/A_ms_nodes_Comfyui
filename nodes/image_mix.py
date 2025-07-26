@@ -268,6 +268,8 @@ class ImageDualMaskColorFill:
     接收一个图像和两个遮罩，找出两个遮罩中不为零且互相不重叠的区域，
     然后在图像中对该区域填充指定颜色。
     同时输出不重叠区域的遮罩。
+    
+    如果只有一个遮罩有效（另一个为空或全零），则非重叠遮罩就是该有效遮罩。
     """
     @classmethod
     def INPUT_TYPES(s):
@@ -278,7 +280,6 @@ class ImageDualMaskColorFill:
             "required": {
                 "image": ("IMAGE",),
                 "mask_1": ("MASK",),
-                "mask_2": ("MASK",),
                 "color": ("STRING", {
                     "default": "#FF0000",
                     "tooltip": "要填充的颜色，可以是HEX格式（例如'#FF0000'）或RGB格式（例如'255,0,0'）。"
@@ -290,6 +291,9 @@ class ImageDualMaskColorFill:
                     "step": 0.01,
                     "tooltip": "遮罩阈值，大于此值的像素被认为是遮罩区域。"
                 }),
+            },
+            "optional": {
+                "mask_2": ("MASK",),
             }
         }
 
@@ -298,25 +302,42 @@ class ImageDualMaskColorFill:
     FUNCTION = "fill_non_overlapping"
     CATEGORY = "A_my_nodes/Image"
 
-    def fill_non_overlapping(self, image: torch.Tensor, mask_1: torch.Tensor, mask_2: torch.Tensor, color: str, threshold: float = 0.5):
+    def fill_non_overlapping(self, image: torch.Tensor, mask_1: torch.Tensor, mask_2: torch.Tensor = None, color: str = "#FF0000", threshold: float = 0.5):
         """
         执行节点功能的核心方法。
         
         Args:
             image (torch.Tensor): 输入图像张量，形状为 (n, h, w, c)。
             mask_1 (torch.Tensor): 第一个遮罩张量，形状为 (n, h, w)。
-            mask_2 (torch.Tensor): 第二个遮罩张量，形状为 (n, h, w)。
+            mask_2 (torch.Tensor, optional): 第二个遮罩张量，形状为 (n, h, w)。如果为None，则只使用mask_1。
             color (str): 用户输入的颜色字符串。
             threshold (float): 遮罩阈值，大于此值的像素被认为是遮罩区域。
         
         Returns:
             tuple: 返回处理后的图像和不重叠区域的遮罩。
         """
-        # 确保遮罩的形状与图像匹配
-        if (mask_1.shape[0] != image.shape[0] or mask_1.shape[1] != image.shape[1] or mask_1.shape[2] != image.shape[2] or
-            mask_2.shape[0] != image.shape[0] or mask_2.shape[1] != image.shape[1] or mask_2.shape[2] != image.shape[2]):
-            print(f"错误：遮罩形状与图像形状不匹配。")
-            print(f"图像形状: {image.shape[:3]}, 遮罩1形状: {mask_1.shape}, 遮罩2形状: {mask_2.shape}")
+        # 检查mask_1是否有效
+        if mask_1 is None:
+            print("错误：至少需要一个有效的遮罩。")
+            return (image, torch.zeros_like(image[:, :, :, 0]))
+        
+        # 确保mask_1的形状与图像匹配
+        if mask_1.shape[0] != image.shape[0] or mask_1.shape[1] != image.shape[1] or mask_1.shape[2] != image.shape[2]:
+            print(f"错误：遮罩1形状 {mask_1.shape} 与图像形状 {image.shape[:3]} 不匹配。")
+            return (image, torch.zeros_like(mask_1))
+        
+        # 检查是否只有一个有效遮罩
+        only_mask_1 = False
+        if mask_2 is None:
+            # 如果mask_2为None，则创建一个全零遮罩
+            only_mask_1 = True
+            mask_2 = torch.zeros_like(mask_1)
+        elif torch.all(mask_2 < threshold):  # 检查mask_2是否全部小于阈值（即全零遮罩）
+            only_mask_1 = True
+        
+        # 检查mask_2的形状是否与图像匹配
+        if not only_mask_1 and (mask_2.shape[0] != image.shape[0] or mask_2.shape[1] != image.shape[1] or mask_2.shape[2] != image.shape[2]):
+            print(f"错误：遮罩2形状 {mask_2.shape} 与图像形状 {image.shape[:3]} 不匹配。")
             return (image, torch.zeros_like(mask_1))
         
         try:
@@ -331,16 +352,28 @@ class ImageDualMaskColorFill:
         
         # 二值化遮罩
         mask_1_binary = mask_1 > threshold
-        mask_2_binary = mask_2 > threshold
         
-        # 找出两个遮罩中不为零且互相不重叠的区域
-        # mask_1有效区域 = mask_1为1且mask_2为0的区域
-        mask_1_only = mask_1_binary & (~mask_2_binary)
-        # mask_2有效区域 = mask_2为1且mask_1为0的区域
-        mask_2_only = mask_2_binary & (~mask_1_binary)
-        
-        # 合并两个不重叠的区域
-        non_overlapping_mask = mask_1_only | mask_2_only
+        # 如果只有一个有效遮罩，直接使用该遮罩
+        if only_mask_1:
+            non_overlapping_mask = mask_1_binary
+            print("只检测到一个有效遮罩，将直接使用该遮罩。")
+        else:
+            # 二值化第二个遮罩
+            mask_2_binary = mask_2 > threshold
+            
+            # 检查mask_1是否全部小于阈值（即全零遮罩）
+            if torch.all(mask_1 < threshold):
+                non_overlapping_mask = mask_2_binary
+                print("遮罩1为空，将只使用遮罩2。")
+            else:
+                # 找出两个遮罩中不为零且互相不重叠的区域
+                # mask_1有效区域 = mask_1为1且mask_2为0的区域
+                mask_1_only = mask_1_binary & (~mask_2_binary)
+                # mask_2有效区域 = mask_2为1且mask_1为0的区域
+                mask_2_only = mask_2_binary & (~mask_1_binary)
+                
+                # 合并两个不重叠的区域
+                non_overlapping_mask = mask_1_only | mask_2_only
         
         # 处理不同通道数的图像
         if image.shape[-1] == 3:
