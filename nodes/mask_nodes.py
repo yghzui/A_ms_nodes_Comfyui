@@ -925,9 +925,17 @@ class AnalyzeMask:
         if len(mask.shape) == 2:
             mask = mask.unsqueeze(0)  # 添加batch维度
 
-        results = []
+        # 获取整体形状信息
+        mask_shape = mask.shape
+        shape_info = f"遮罩整体形状: {mask_shape}"
+        
+        results = [shape_info]  # 添加形状信息作为第一行
+        
         for i in range(mask.shape[0]):
             single_mask = mask[i]
+            
+            # 获取单个遮罩的形状
+            single_shape = single_mask.shape
             
             # 获取最小值和最大值
             min_val = single_mask.min().item()
@@ -945,15 +953,15 @@ class AnalyzeMask:
                               torch.isclose(v, torch.tensor(255.0, device=mask.device)) for v in unique_vals)
 
             if is_binary_01:
-                result = f"遮罩 #{i+1}: 二值型遮罩 (0-1). 范围: ({min_val:.4f}, {max_val:.4f})"
+                result = f"遮罩 #{i+1}: 二值型遮罩 (0-1). \n形状: {single_shape}, 范围: ({min_val:.4f}, {max_val:.4f})"
             elif is_binary_0255:
-                result = f"遮罩 #{i+1}: 二值型遮罩 (0-255). 范围: ({min_val:.4f}, {max_val:.4f})"
+                result = f"遮罩 #{i+1}: 二值型遮罩 (0-255). \n形状: {single_shape}, 范围: ({min_val:.4f}, {max_val:.4f})"
             elif 0 <= min_val <= 1 and 0 <= max_val <= 1:
-                result = f"遮罩 #{i+1}: 范围型遮罩 (0-1). 范围: [{min_val:.4f}, {max_val:.4f}]"
+                result = f"遮罩 #{i+1}: 范围型遮罩 (0-1). \n形状: {single_shape}, 范围: [{min_val:.4f}, {max_val:.4f}]"
             elif 0 <= min_val <= 255 and 0 <= max_val <= 255:
-                result = f"遮罩 #{i+1}: 范围型遮罩 (0-255). 范围: [{min_val:.4f}, {max_val:.4f}]"
+                result = f"遮罩 #{i+1}: 范围型遮罩 (0-255). \n形状: {single_shape}, 范围: [{min_val:.4f}, {max_val:.4f}]"
             else:
-                result = f"遮罩 #{i+1}: 未知范围型遮罩. 范围: [{min_val:.4f}, {max_val:.4f}]"
+                result = f"遮罩 #{i+1}: 未知范围型遮罩. \n形状: {single_shape}, 范围: [{min_val:.4f}, {max_val:.4f}]"
             
             results.append(result)
 
