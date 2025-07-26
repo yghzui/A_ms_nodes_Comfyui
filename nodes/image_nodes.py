@@ -313,12 +313,11 @@ class ResizeImagesAndMasks:
         return {
             "required": {
                 "images": ("IMAGE",),  # 输入图像张量
-                "masks": ("MASK",),    # 输入遮罩张量
                 "resize": ("BOOLEAN", {"default": False}),
                 "width": ("INT", {"default": 512, "min": 0, "max": MAX_RESOLUTION, "step": 8}),
                 "height": ("INT", {"default": 512, "min": 0, "max": MAX_RESOLUTION, "step": 8}),
-                "scale_to_side": (scale_to_list,),
-                "scale_to_length": ("INT", {"default": 1024, "min": 4, "max": 999999, "step": 1}),
+                "scale_to_side": (scale_to_list,{"tooltip":"缩放模式"}),
+                "scale_to_length": ("INT", {"default": 1024, "min": 4, "max": 999999, "step": 1,"tooltip":"缩放长度"}),
                 "keep_proportion": ("BOOLEAN", {"default": False, "tooltip": "保持比例"}),
                 "divisible_by": ("INT", {
                     "default": 2,
@@ -327,45 +326,26 @@ class ResizeImagesAndMasks:
                     "step": 1,
                     "tooltip": "调整图像尺寸，使其可以被此数整除。"
                 }),
+            },
+            "optional": {
+                "masks": ("MASK", {"default": None, "tooltip": "可选的输入遮罩张量"})
             }
         }
 
     RETURN_TYPES = ("IMAGE", "MASK")
     FUNCTION = "resize_images_and_masks"
-    
-    # @classmethod
-    # def IS_CHANGED(s, images, masks, resize, width, height, scale_to_side, scale_to_length, keep_proportion, divisible_by):
-    #     image_path = folder_paths.get_annotated_filepath(images)
-    #     m = hashlib.sha256()
-    #     with open(image_path, 'rb') as f:
-    #         m.update(f.read())
-    #     # return m.digest().hex()
-        
-    #     # # 计算输入的哈希值，确保只有在输入变化时才重新计算
-    #     # m = hashlib.sha256()
-        
-    #     # # 对图像进行哈希
-    #     # images_flat = images.reshape(-1).numpy().tobytes()
-    #     # m.update(images_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
-        
-    #     # 对masks进行哈希
-    #     masks_flat = masks.reshape(-1).numpy().tobytes()
-    #     m.update(masks_flat[:1024])
-        
-    #     # 将其他参数也加入哈希计算
-    #     m.update(str(resize).encode())
-    #     m.update(str(width).encode())
-    #     m.update(str(height).encode())
-    #     m.update(str(scale_to_side).encode())
-    #     m.update(str(scale_to_length).encode())
-    #     m.update(str(keep_proportion).encode())
-    #     m.update(str(divisible_by).encode())
-        
-    #     return m.digest().hex()
 
-    def resize_images_and_masks(self, images, masks, resize, width, height, scale_to_side, scale_to_length, keep_proportion, divisible_by):
+    def resize_images_and_masks(self, images, resize, width, height, scale_to_side, scale_to_length, keep_proportion, divisible_by, masks=None):
         output_images = []
         output_masks = []
+        
+        has_masks = masks is not None
+        
+        # 如果没有提供masks，创建一个空的masks列表
+        if not has_masks:
+            # 创建与图像数量相同的空白mask
+            batch_size = images.shape[0]
+            masks = torch.zeros((batch_size, images.shape[1], images.shape[2]), dtype=torch.float32)
 
         for img, mask in zip(images, masks):
             img_np = img.cpu().numpy()
