@@ -261,3 +261,111 @@ class ImageLayerMix:
         
         return (result,)
 
+
+class ImageDualMaskColorFill:
+    """
+    一个ComfyUI节点，用于在两个遮罩不重叠的非零区域填充指定颜色。
+    接收一个图像和两个遮罩，找出两个遮罩中不为零且互相不重叠的区域，
+    然后在图像中对该区域填充指定颜色。
+    同时输出不重叠区域的遮罩。
+    """
+    @classmethod
+    def INPUT_TYPES(s):
+        """
+        定义节点的输入参数。
+        """
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "mask_1": ("MASK",),
+                "mask_2": ("MASK",),
+                "color": ("STRING", {
+                    "default": "#FF0000",
+                    "tooltip": "要填充的颜色，可以是HEX格式（例如'#FF0000'）或RGB格式（例如'255,0,0'）。"
+                }),
+                "threshold": ("FLOAT", {
+                    "default": 0.5,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.01,
+                    "tooltip": "遮罩阈值，大于此值的像素被认为是遮罩区域。"
+                }),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE", "MASK")
+    RETURN_NAMES = ("image", "non_overlapping_mask")
+    FUNCTION = "fill_non_overlapping"
+    CATEGORY = "A_my_nodes/Image"
+
+    def fill_non_overlapping(self, image: torch.Tensor, mask_1: torch.Tensor, mask_2: torch.Tensor, color: str, threshold: float = 0.5):
+        """
+        执行节点功能的核心方法。
+        
+        Args:
+            image (torch.Tensor): 输入图像张量，形状为 (n, h, w, c)。
+            mask_1 (torch.Tensor): 第一个遮罩张量，形状为 (n, h, w)。
+            mask_2 (torch.Tensor): 第二个遮罩张量，形状为 (n, h, w)。
+            color (str): 用户输入的颜色字符串。
+            threshold (float): 遮罩阈值，大于此值的像素被认为是遮罩区域。
+        
+        Returns:
+            tuple: 返回处理后的图像和不重叠区域的遮罩。
+        """
+        # 确保遮罩的形状与图像匹配
+        if (mask_1.shape[0] != image.shape[0] or mask_1.shape[1] != image.shape[1] or mask_1.shape[2] != image.shape[2] or
+            mask_2.shape[0] != image.shape[0] or mask_2.shape[1] != image.shape[1] or mask_2.shape[2] != image.shape[2]):
+            print(f"错误：遮罩形状与图像形状不匹配。")
+            print(f"图像形状: {image.shape[:3]}, 遮罩1形状: {mask_1.shape}, 遮罩2形状: {mask_2.shape}")
+            return (image, torch.zeros_like(mask_1))
+        
+        try:
+            # 解析并归一化颜色值
+            r, g, b = parse_color(color)
+        except ValueError as e:
+            print(f"错误：无效的颜色格式 - {e}。将返回原始图像。")
+            return (image, torch.zeros_like(mask_1))
+        
+        # 复制输入图像以避免修改原始张量
+        result = image.clone()
+        
+        # 二值化遮罩
+        mask_1_binary = mask_1 > threshold
+        mask_2_binary = mask_2 > threshold
+        
+        # 找出两个遮罩中不为零且互相不重叠的区域
+        # mask_1有效区域 = mask_1为1且mask_2为0的区域
+        mask_1_only = mask_1_binary & (~mask_2_binary)
+        # mask_2有效区域 = mask_2为1且mask_1为0的区域
+        mask_2_only = mask_2_binary & (~mask_1_binary)
+        
+        # 合并两个不重叠的区域
+        non_overlapping_mask = mask_1_only | mask_2_only
+        
+        # 处理不同通道数的图像
+        if image.shape[-1] == 3:
+            # 对于RGB图像
+            # 将不重叠区域的RGB通道设置为指定的颜色
+            result[..., 0][non_overlapping_mask] = r
+            result[..., 1][non_overlapping_mask] = g
+            result[..., 2][non_overlapping_mask] = b
+        elif image.shape[-1] == 4:
+            # 对于RGBA图像
+            # 将不重叠区域的RGB通道设置为指定的颜色，保留Alpha通道
+            result[..., 0][non_overlapping_mask] = r
+            result[..., 1][non_overlapping_mask] = g
+            result[..., 2][non_overlapping_mask] = b
+        else:
+            # 对于其他通道数的图像，只处理前3个通道
+            print(f"警告：输入图像通道数为 {image.shape[-1]}，将只处理前3个通道。")
+            if image.shape[-1] >= 3:
+                result[..., 0][non_overlapping_mask] = r
+                result[..., 1][non_overlapping_mask] = g
+                result[..., 2][non_overlapping_mask] = b
+        
+        # 将布尔遮罩转换为浮点遮罩
+        non_overlapping_mask_float = non_overlapping_mask.float()
+        
+        # 返回处理后的图像和不重叠区域的遮罩
+        return (result, non_overlapping_mask_float)
+
