@@ -18,7 +18,7 @@ from .nodes.create_color_image_mask import CreateColorImageAndMask
 # 导入新的批量加载节点
 from .nodes.load_image_batch import LoadImageBatchAdvanced
 from .nodes.image_mix import ImageMaskedColorFill,ImageBlackColorFill,ImageLayerMix, ImageDualMaskColorFill
-
+from .nodes.load_lora_batch import LoadLoraBatch
 NODE_CLASS_MAPPINGS = {
     "LoadAndResizeImageMy": LoadAndResizeImageMy,
     "ResizeImagesAndMasks": ResizeImagesAndMasks,
@@ -56,6 +56,7 @@ NODE_CLASS_MAPPINGS = {
     "ImageBlackColorFill": ImageBlackColorFill,
     "ImageLayerMix": ImageLayerMix,
     "ImageDualMaskColorFill": ImageDualMaskColorFill,
+    "LoadLoraBatch": LoadLoraBatch,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by My",
@@ -95,6 +96,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageBlackColorFill": "ImageBlackColorFill 图像黑色填充 by My",
     "ImageLayerMix": "ImageLayerMix 图层混合 by My",
     "ImageDualMaskColorFill": "ImageDualMaskColorFill 双遮罩不重叠区域颜色填充 by My",
+    "LoadLoraBatch": "LoadLoraBatch 批量加载LoRA by My",
 }
 
 WEB_DIRECTORY = "./web/js"
