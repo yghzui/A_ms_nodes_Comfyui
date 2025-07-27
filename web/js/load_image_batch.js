@@ -226,9 +226,13 @@ function showLightbox(urls, currentIndex) {
         lightbox.appendChild(nextButton);
     }
 
-    const resetButton = createButton("⭯", { top: "20px", right: "20px", borderRadius: "8px", width: "40px", height: "40px", fontSize: "20px" });
+    const resetButton = createButton("⭯", { top: "20px", right: "70px", borderRadius: "8px", width: "40px", height: "40px", fontSize: "20px" });
     resetButton.addEventListener("click", resetView);
     lightbox.appendChild(resetButton);
+
+    const closeButton = createButton("✕", { top: "20px", right: "20px", borderRadius: "8px", width: "40px", height: "40px", fontSize: "20px" });
+    closeButton.addEventListener("click", closeLightbox);
+    lightbox.appendChild(closeButton);
 
     // --- 启动 ---
     document.body.appendChild(lightbox);
