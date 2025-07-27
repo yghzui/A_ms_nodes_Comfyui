@@ -29,16 +29,20 @@ app.registerExtension({
             console.error("[LoadLoraBatch] 获取LoRA列表出错:", error);
         }
         
-        // 重写computeSize方法,确保节点大小正确
+        // 重写computeSize方法,确保节点宽度固定
         const computeSize = nodeType.prototype.computeSize;
         nodeType.prototype.computeSize = function() {
             if (computeSize) {
                 const size = computeSize.apply(this, arguments);
+                // 固定宽度,但高度根据控件数量动态调整
+                size[0] = 240; // 固定宽度
+                
                 // 确保节点有足够的高度显示所有控件
                 // 安全检查this.loraWidgets是否存在
                 const widgetsCount = this.loraWidgets ? this.loraWidgets.length : 0;
                 const minHeight = 100 + Math.ceil(widgetsCount / 3) * 40;
                 size[1] = Math.max(size[1], minHeight);
+                
                 return size;
             }
             return [240, 120];
@@ -117,8 +121,10 @@ app.registerExtension({
             // 记录这个LoRA选项
             this.loraWidgets.push(enabledWidget, nameWidget, strengthWidget);
             
-            // 更新节点大小
-            this.setSize(this.computeSize());
+            // 只调整高度,不调整宽度
+            const size = this.computeSize();
+            this.size[1] = size[1]; // 只更新高度
+            this.setDirtyCanvas(true, true);
         };
         
         // 清理未使用的LoRA
@@ -173,8 +179,10 @@ app.registerExtension({
                 }
             }
             
-            // 更新节点大小
-            this.setSize(this.computeSize());
+            // 只调整高度,不调整宽度
+            const size = this.computeSize();
+            this.size[1] = size[1]; // 只更新高度
+            this.setDirtyCanvas(true, true);
         };
         
         // 更新LoRA数据
