@@ -57,7 +57,7 @@ function showLightbox(url) {
     const img = document.createElement("img");
     img.src = url;
     Object.assign(img.style, {
-        maxWidth: "95%", maxHeight: "95%", objectFit: "contain",
+        maxWidth: "95vw", maxHeight: "90vh", objectFit: "contain",
     });
 
     const sizeInfo = document.createElement("div");
