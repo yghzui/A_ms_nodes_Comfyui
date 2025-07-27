@@ -317,13 +317,13 @@ def add_masks(dilation_erosion, *masks):
         # Check if result_mask and cv2_mask have the same shape
         if result_mask.shape == cv2_mask.shape:
             cv2_result_mask = cv2.add(np.array(result_mask) * 255, cv2_mask)
+            # 更新result_mask为相加后的结果
+            result_mask = torch.from_numpy(cv2_result_mask / 255.0).float()
             # Clamp the result after each addition
-            result_mask = torch.clamp(result_mask / 255.0, min=0, max=1)
+            result_mask = torch.clamp(result_mask, min=0, max=1)
         # else:
         #     # If shapes are incompatible, skip this mask
         #     continue
-
-    # result_mask = torch.clamp(result_mask / 255.0, min=0, max=1)
 
     # Convert to numpy for OpenCV operations
     cv2_result_mask = (result_mask.cpu().numpy() * 255)
@@ -408,8 +408,8 @@ def process_masks(dilation_erosion_1, fill_region_mask_1, dilation_erosion_2, fi
             # Check if sum_first_n and cv2_mask have the same shape
             if sum_first_n.shape == cv2_mask.shape:
                 cv2_sum_first_n = cv2.add(np.array(sum_first_n) * 255, cv2_mask)
-                sum_first_n = torch.from_numpy(cv2_sum_first_n)
-                sum_first_n = torch.clamp(sum_first_n / 255.0, min=0, max=1)
+                sum_first_n = torch.from_numpy(cv2_sum_first_n / 255.0).float()
+                sum_first_n = torch.clamp(sum_first_n, min=0, max=1)
 
     if dilation_erosion_1 != 0:
         # 对 sum_first_n 应用 dilation/erosion
@@ -439,8 +439,8 @@ def process_masks(dilation_erosion_1, fill_region_mask_1, dilation_erosion_2, fi
             # Check if sum_n_to_12 and cv2_mask have the same shape
             if sum_n_to_12.shape == cv2_mask.shape:
                 cv2_sum_n_to_12 = cv2.add(np.array(sum_n_to_12) * 255, cv2_mask)
-                sum_n_to_12 = torch.from_numpy(cv2_sum_n_to_12)
-                sum_n_to_12 = torch.clamp(sum_n_to_12 / 255.0, min=0, max=1)
+                sum_n_to_12 = torch.from_numpy(cv2_sum_n_to_12 / 255.0).float()
+                sum_n_to_12 = torch.clamp(sum_n_to_12, min=0, max=1)
 
     if dilation_erosion_2 != 0:
         # 对 sum_n_to_12 应用 dilation/erosion
