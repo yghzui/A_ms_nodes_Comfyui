@@ -325,24 +325,33 @@ def add_masks(dilation_erosion, *masks):
         #     # If shapes are incompatible, skip this mask
         #     continue
 
-    # Convert to numpy for OpenCV operations
-    cv2_result_mask = (result_mask.cpu().numpy() * 255)
-
-    # Ensure the mask is 2D
-    if cv2_result_mask.ndim > 2:
-        cv2_result_mask = cv2_result_mask.squeeze()
-
-    # Create a kernel for dilation/erosion
-    kernel_size = max(1, abs(dilation_erosion))  # Ensure kernel size is at least 1
+    # 保存原始形状
+    original_shape = result_mask.shape
+    
+    # 对每个样本单独应用dilation/erosion
+    processed_masks = []
+    
+    # 创建一个kernel用于dilation/erosion
+    kernel_size = max(1, abs(dilation_erosion))  # 确保kernel大小至少为1
     kernel = np.ones((kernel_size, kernel_size), np.uint8)
-
-    if dilation_erosion > 0:
-        cv2_result_mask = cv2.dilate(cv2_result_mask, kernel, iterations=1)
-    elif dilation_erosion < 0:
-        cv2_result_mask = cv2.erode(cv2_result_mask, kernel, iterations=1)
-
-    # Convert back to torch tensor
-    result_mask = torch.from_numpy(cv2_result_mask / 255.0).float()
+    
+    for i in range(original_shape[0]):
+        # 提取单个mask
+        single_mask = result_mask[i].cpu().numpy() * 255
+        
+        # 应用dilation/erosion
+        if dilation_erosion > 0:
+            processed_mask = cv2.dilate(single_mask, kernel, iterations=1)
+        elif dilation_erosion < 0:
+            processed_mask = cv2.erode(single_mask, kernel, iterations=1)
+        else:
+            processed_mask = single_mask
+            
+        # 转回为tensor并添加到结果列表
+        processed_masks.append(torch.from_numpy(processed_mask / 255.0).float())
+    
+    # 将所有处理后的mask堆叠回原始形状
+    result_mask = torch.stack(processed_masks, dim=0)
 
     return result_mask
 
