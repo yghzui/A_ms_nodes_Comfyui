@@ -352,38 +352,23 @@ class MaskAdd:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "mask_count": ("INT", {"default": 1, "min": 1, "max": 10, "step": 1}),
                 "dilation_erosion": ("INT", {"default": 0, "min": -50, "max": 50, "step": 1}),
             },
             "optional": {
-                **{f"mask_{i}": ("MASK",) for i in range(1, 11)},
+                "mask_1": ("MASK",),
             }
         }
 
     CATEGORY = "My_node/mask"
     RETURN_TYPES = ("MASK",)
     FUNCTION = "add_multiple_masks"
-    
-    # @classmethod
-    # def IS_CHANGED(s, mask_count, dilation_erosion, **kwargs):
-    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
-    #     m = hashlib.sha256()
-        
-    #     # 将参数加入哈希计算
-    #     m.update(str(mask_count).encode())
-    #     m.update(str(dilation_erosion).encode())
-        
-    #     # 对每个mask进行哈希
-    #     for i in range(1, mask_count + 1):
-    #         mask = kwargs.get(f"mask_{i}")
-    #         if mask is not None:
-    #             mask_flat = mask.reshape(-1).numpy().tobytes()
-    #             m.update(mask_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
-        
-    #     return m.digest().hex()
 
-    def add_multiple_masks(self, mask_count, dilation_erosion, **kwargs):
-        masks = [kwargs.get(f"mask_{i}") for i in range(1, mask_count + 1) if kwargs.get(f"mask_{i}") is not None]
+    def add_multiple_masks(self, dilation_erosion, **kwargs):
+        # 收集所有非空的 mask 输入
+        masks = [kwargs.get(f"mask_{i}") for i in range(1, 21) if kwargs.get(f"mask_{i}") is not None]
+        if not masks:
+            # 如果没有提供任何遮罩，返回一个空遮罩
+            return (torch.zeros((1, 64, 64), dtype=torch.float32),)
         result_mask = add_masks(dilation_erosion, *masks)
         return (result_mask,)
 
