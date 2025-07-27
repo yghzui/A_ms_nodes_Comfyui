@@ -211,7 +211,7 @@ function showLightbox(urls, currentIndex) {
             ...styles
         });
         button.addEventListener("dblclick", (e) => e.stopPropagation());
-        button.addEventListener("mouseenter", () => button.style.backgroundColor = "rgba(0, 0, 0, 0.8)");
+        button.addEventListener("mouseenter", () => button.style.backgroundColor = "rgba(255, 255, 255, 0.2)");
         button.addEventListener("mouseleave", () => button.style.backgroundColor = "rgba(0, 0, 0, 0.5)");
         return button;
     };
