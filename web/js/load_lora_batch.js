@@ -69,6 +69,8 @@ app.registerExtension({
             // 恢复保存的数据(如果有)
             setTimeout(() => {
                 this.loadSavedData();
+                // 立即更新一次LoRA数据,确保选择的LoRA生效
+                this.updateLoraData();
             }, 100);
         };
         
@@ -193,9 +195,9 @@ app.registerExtension({
                 return;
             }
             
-            // 按索引分组
+            // 按索引分组并收集所有控件数据
             const groups = {};
-            for (const widget of this.loraWidgets) {
+            for (const widget of this.widgets) {  // 改用this.widgets而不是this.loraWidgets
                 const match = widget.name.match(/^(enabled|lora_name|strength_model)_(\d+)$/);
                 if (match) {
                     const type = match[1];
@@ -212,11 +214,14 @@ app.registerExtension({
             for (const index in groups) {
                 const group = groups[index];
                 if (group.enabled && group.lora_name && group.strength_model) {
-                    loraData.push({
-                        enabled: group.enabled.value,
-                        lora_name: group.lora_name.value,
-                        strength_model: parseFloat(group.strength_model.value)
-                    });
+                    // 只收集非None的LoRA数据
+                    if (group.lora_name.value !== "None") {
+                        loraData.push({
+                            enabled: group.enabled.value,
+                            lora_name: group.lora_name.value,
+                            strength_model: parseFloat(group.strength_model.value)
+                        });
+                    }
                 }
             }
             

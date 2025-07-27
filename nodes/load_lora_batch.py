@@ -35,14 +35,14 @@ class LoadLoraBatch:
     FUNCTION = "load_loras"
     CATEGORY = "A_my_nodes/loaders"
 
-    def load_loras(self, model, lora_json="[]", lora_name_0="None", strength_model_0=1.0, enabled_0=True, **kwargs):
+    def load_loras(self, model, lora_json="[]", **kwargs):
         """应用所有LoRA到模型"""
         current_model = model
         
-        # 首先应用索引0的LoRA(如果启用且不为"None")
-        if enabled_0 and lora_name_0 != "None":
-            print(f"[LoadLoraBatch] 应用LoRA(索引0): {lora_name_0}, 强度: {strength_model_0}")
-            current_model, _ = self.lora_loader.load_lora(current_model, None, lora_name_0, strength_model_0, 0)
+        # # 首先应用索引0的LoRA(如果启用且不为"None")
+        # if enabled_0 and lora_name_0 != "None":
+        #     print(f"[LoadLoraBatch] 应用LoRA(索引0): {lora_name_0}, 强度: {strength_model_0}")
+        #     current_model, _ = self.lora_loader.load_lora(current_model, None, lora_name_0, strength_model_0, 0)
         
         try:
             # 解析LoRA配置
