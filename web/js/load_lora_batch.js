@@ -190,6 +190,14 @@ class LoadLoraBatchNode extends LGraphNode {
                         removeArrayItem(this.widgets, widget);
                     },
                 },
+                {
+                    content: `🗑️ 清空所有LoRA`,
+                    callback: () => {
+                        // 移除所有LoRA控件
+                        this.widgets = this.widgets.filter(widget => !widget.name || !widget.name.startsWith("lora_"));
+                        this.setDirtyCanvas(true, true);
+                    },
+                },
             ];
             
             new LiteGraph.ContextMenu(menuItems, {
@@ -207,31 +215,8 @@ class LoadLoraBatchNode extends LGraphNode {
 
     // 添加全局右键菜单
     getExtraMenuOptions(canvas, options) {
-        const menuItems = [
-            {
-                content: "➕ 添加LoRA",
-                callback: () => {
-                    showLoraChooser(rgthree.lastCanvasMouseEvent, (value) => {
-                        if (typeof value === "string" && value !== "NONE") {
-                            this.addNewLoraWidget(value);
-                            const computed = this.computeSize();
-                            this.size[1] = Math.max(this.size[1] || 15, computed[1]);
-                            this.setDirtyCanvas(true, true);
-                        }
-                    }, null, null);
-                },
-            },
-            {
-                content: "🗑️ 清空所有LoRA",
-                callback: () => {
-                    // 移除所有LoRA控件
-                    this.widgets = this.widgets.filter(widget => !widget.name || !widget.name.startsWith("lora_"));
-                    this.setDirtyCanvas(true, true);
-                },
-            },
-        ];
-        
-        return menuItems;
+        // 移除右键菜单中的添加和清空LoRA选项
+        return [];
     }
 }
 
@@ -400,7 +385,6 @@ app.registerExtension({
             this.getSlotMenuOptions = loraNode.getSlotMenuOptions.bind(this);
             this.hasLoraWidgets = loraNode.hasLoraWidgets.bind(this);
             this.configure = loraNode.configure.bind(this);
-            this.getExtraMenuOptions = loraNode.getExtraMenuOptions.bind(this);
             
             // 初始化
             this.loraWidgetsCounter = 0;
