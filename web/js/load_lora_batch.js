@@ -3,6 +3,9 @@ import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, 
 import { RgthreeBaseWidget, RgthreeBetterButtonWidget, RgthreeDividerWidget, } from "./utils_widgets.js";
 import { rgthreeApi } from "./rgthree_api.js";
 import { moveArrayItem, removeArrayItem } from "./shared_utils.js";
+import { LORA_INFO_SERVICE } from "./lora_info_service.js";
+import { LoraInfoDialog } from "./lora_info_dialog.js";
+import { rgthree } from "./rgthree.js";
 
 console.log("Patching node: load_lora_batch.js");
 console.log("Loaded load_lora_batch.js");
@@ -125,7 +128,7 @@ class LoadLoraBatchNode extends LGraphNode {
         
         // 添加增加LoRA按钮
         this.addCustomWidget(new RgthreeBetterButtonWidget("➕ 增加LoRA", (event, pos, node) => {
-            showLoraChooser(event, (value) => {
+            showLoraChooser(rgthree.lastCanvasMouseEvent || event, (value) => {
                 if (typeof value === "string") {
                     if (value !== "NONE") {
                         this.addNewLoraWidget(value);
@@ -164,6 +167,13 @@ class LoadLoraBatchNode extends LGraphNode {
             
             const menuItems = [
                 {
+                    content: `ℹ️ 显示信息`,
+                    callback: () => {
+                        widget.showLoraInfoDialog();
+                    },
+                },
+                null, // 分隔线
+                {
                     content: `${widget.value.on ? "⚫" : "🟢"} 切换 ${widget.value.on ? "关闭" : "开启"}`,
                     callback: () => {
                         widget.value.on = !widget.value.on;
@@ -193,7 +203,7 @@ class LoadLoraBatchNode extends LGraphNode {
             
             new LiteGraph.ContextMenu(menuItems, {
                 title: "LORA WIDGET",
-                event: app.lastCanvasMouseEvent,
+                event: rgthree.lastCanvasMouseEvent,
             });
             return undefined;
         }
@@ -202,6 +212,35 @@ class LoadLoraBatchNode extends LGraphNode {
 
     hasLoraWidgets() {
         return !!this.widgets.find((w) => w.name && w.name.startsWith("lora_"));
+    }
+
+    // 添加全局右键菜单
+    getExtraMenuOptions(canvas, options) {
+        const menuItems = [
+            {
+                content: "➕ 添加LoRA",
+                callback: () => {
+                    showLoraChooser(rgthree.lastCanvasMouseEvent, (value) => {
+                        if (typeof value === "string" && value !== "NONE") {
+                            this.addNewLoraWidget(value);
+                            const computed = this.computeSize();
+                            this.size[1] = Math.max(this.size[1] || 15, computed[1]);
+                            this.setDirtyCanvas(true, true);
+                        }
+                    }, null, null);
+                },
+            },
+            {
+                content: "🗑️ 清空所有LoRA",
+                callback: () => {
+                    // 移除所有LoRA控件
+                    this.widgets = this.widgets.filter(widget => !widget.name || !widget.name.startsWith("lora_"));
+                    this.setDirtyCanvas(true, true);
+                },
+            },
+        ];
+        
+        return menuItems;
     }
 }
 
@@ -233,6 +272,7 @@ class LoadLoraBatchWidget extends RgthreeBaseWidget {
         if (typeof this._value !== "object") {
             this._value = { on: true, lora: null, strength: 1 };
         }
+        this.getLoraInfo();
     }
 
     get value() {
@@ -241,6 +281,7 @@ class LoadLoraBatchWidget extends RgthreeBaseWidget {
 
     setLora(lora) {
         this._value.lora = lora;
+        this.getLoraInfo();
     }
 
     draw(ctx, node, w, posY, height) {
@@ -267,13 +308,21 @@ class LoadLoraBatchWidget extends RgthreeBaseWidget {
         ctx.fillStyle = LiteGraph.WIDGET_TEXT_COLOR;
         let rposX = node.size[0] - margin - innerMargin - innerMargin;
         
+        // 检查强度值是否超出范围
+        let textColor = undefined;
+        if (this.loraInfo?.strengthMax != null && this.value.strength > this.loraInfo.strengthMax) {
+            textColor = "#c66";
+        } else if (this.loraInfo?.strengthMin != null && this.value.strength < this.loraInfo.strengthMin) {
+            textColor = "#c66";
+        }
+        
         const [leftArrow, text, rightArrow] = drawNumberWidgetPart(ctx, {
             posX: node.size[0] - margin - innerMargin - innerMargin,
             posY,
             height,
             value: this.value.strength || 1,
             direction: -1,
-            textColor: undefined,
+            textColor,
         });
         
         this.hitAreas.strengthDec.bounds = leftArrow;
@@ -305,12 +354,14 @@ class LoadLoraBatchWidget extends RgthreeBaseWidget {
     }
 
     onLoraClick(event, pos, node) {
-        showLoraChooser(event, (value) => {
+        showLoraChooser(rgthree.lastCanvasMouseEvent || event, (value) => {
             if (typeof value === "string") {
                 this.value.lora = value;
+                this.loraInfo = null;
+                this.getLoraInfo();
             }
             node.setDirtyCanvas(true, true);
-        }, null, null); // 传入null让showLoraChooser自动获取loras
+        }, null, null);
         this.cancelMouseDown();
     }
 
@@ -346,6 +397,31 @@ class LoadLoraBatchWidget extends RgthreeBaseWidget {
         let strength = (this.value.strength || 1) + step * direction;
         this.value.strength = Math.round(strength * 100) / 100;
     }
+
+    showLoraInfoDialog() {
+        if (!this.value.lora || this.value.lora === "None") {
+            return;
+        }
+        const infoDialog = new LoraInfoDialog(this.value.lora).show();
+        infoDialog.addEventListener("close", (e) => {
+            if (e.detail.dirty) {
+                this.getLoraInfo(true);
+            }
+        });
+    }
+
+    getLoraInfo(force = false) {
+        if (!this.loraInfoPromise || force === true) {
+            let promise;
+            if (this.value.lora && this.value.lora != "None") {
+                promise = LORA_INFO_SERVICE.getInfo(this.value.lora, force, true);
+            } else {
+                promise = Promise.resolve(null);
+            }
+            this.loraInfoPromise = promise.then((v) => (this.loraInfo = v));
+        }
+        return this.loraInfoPromise;
+    }
 }
 
 // 注册扩展
@@ -371,6 +447,7 @@ app.registerExtension({
             this.getSlotMenuOptions = loraNode.getSlotMenuOptions.bind(this);
             this.hasLoraWidgets = loraNode.hasLoraWidgets.bind(this);
             this.configure = loraNode.configure.bind(this);
+            this.getExtraMenuOptions = loraNode.getExtraMenuOptions.bind(this);
             
             // 初始化
             this.loraWidgetsCounter = 0;
