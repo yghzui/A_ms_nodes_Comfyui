@@ -60,6 +60,7 @@ class WanVideoLoraBatchNode extends LGraphNode {
 
     configure(info) {
         console.log("[WanVideoLoraBatch] 配置节点", info);
+        console.log("[WanVideoLoraBatch] widgets_values:", info.widgets_values);
         
         // 清除现有的widgets
         if (this.widgets) {
@@ -102,7 +103,7 @@ class WanVideoLoraBatchNode extends LGraphNode {
 
     addNewLoraWidget(lora) {
         this.loraWidgetsCounter++;
-        const widget = this.addCustomWidget(new WanVideoLoraBatchWidget("lora_" + this.loraWidgetsCounter));
+        const widget = this.addCustomWidget(new WanVideoLoraBatchWidget("LORA_" + this.loraWidgetsCounter));
         if (lora) {
             widget.setLora(lora);
         }
@@ -150,18 +151,18 @@ class WanVideoLoraBatchNode extends LGraphNode {
             }
             break;
         }
-        if (lastWidget && lastWidget.name && lastWidget.name.startsWith("lora_")) {
+        if (lastWidget && lastWidget.name && lastWidget.name.startsWith("LORA_")) {
             return { widget: lastWidget, output: { type: "LORA WIDGET" } };
         }
         return null;
     }
 
     getSlotMenuOptions(slot) {
-        if (slot && slot.widget && slot.widget.name && slot.widget.name.startsWith("lora_")) {
+        if (slot && slot.widget && slot.widget.name && slot.widget.name.startsWith("LORA_")) {
             const widget = slot.widget;
             const index = this.widgets.indexOf(widget);
-            const canMoveUp = !!(this.widgets[index - 1]?.name?.startsWith("lora_"));
-            const canMoveDown = !!(this.widgets[index + 1]?.name?.startsWith("lora_"));
+            const canMoveUp = !!(this.widgets[index - 1]?.name?.startsWith("LORA_"));
+            const canMoveDown = !!(this.widgets[index + 1]?.name?.startsWith("LORA_"));
             
             const menuItems = [
                 {
@@ -194,7 +195,7 @@ class WanVideoLoraBatchNode extends LGraphNode {
                     content: `🗑️ 清空所有LoRA`,
                     callback: () => {
                         // 移除所有LoRA控件
-                        this.widgets = this.widgets.filter(widget => !widget.name || !widget.name.startsWith("lora_"));
+                        this.widgets = this.widgets.filter(widget => !widget.name || !widget.name.startsWith("LORA_"));
                         this.setDirtyCanvas(true, true);
                     },
                 },
@@ -210,7 +211,7 @@ class WanVideoLoraBatchNode extends LGraphNode {
     }
 
     hasLoraWidgets() {
-        return !!this.widgets.find((w) => w.name && w.name.startsWith("lora_"));
+        return !!this.widgets.find((w) => w.name && w.name.startsWith("LORA_"));
     }
 
     // 添加全局右键菜单
@@ -307,6 +308,7 @@ class WanVideoLoraBatchWidget extends RgthreeBaseWidget {
     }
 
     serializeValue(node, index) {
+        console.log(`[WanVideoLoraBatch] 序列化widget: ${this.name}, 值:`, this.value);
         return { ...this.value };
     }
 
