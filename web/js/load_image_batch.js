@@ -378,6 +378,11 @@ function updateImagePreviews(node, paths) {
     // 初始化图片加载
     const validPaths = paths.filter(path => path.trim());
     const imageUrls = validPaths.map(path => api.apiURL(`/view?filename=${encodeURIComponent(path)}&type=input`));
+    // 多选状态管理
+    let selectedImages = new Set();
+    let isCtrlPressed = false;
+    let updateBatchDeleteButton = null; // 将在后面定义
+    
     const imageElements = validPaths.map((path, index) => {
         // 创建图片容器
         const imgContainer = document.createElement("div");
@@ -388,7 +393,8 @@ function updateImagePreviews(node, paths) {
             alignItems: "center",
             width: "100%",
             height: "100%",
-            overflow: "hidden" // 确保内容不会超出容器
+            overflow: "hidden", // 确保内容不会超出容器
+            cursor: "pointer"
         });
         
         const thumb = document.createElement("img");
@@ -399,12 +405,33 @@ function updateImagePreviews(node, paths) {
             border: "1px solid #444",
             borderRadius: "4px",
             backgroundColor: "#1a1a1a",
-            transition: "border-color 0.2s ease",
+            transition: "all 0.2s ease",
             width: "100%",
             height: "100%",
             maxWidth: "100%",
             maxHeight: "100%"
         });
+        
+        // 创建选择指示器
+        const selectionIndicator = document.createElement("div");
+        Object.assign(selectionIndicator.style, {
+            position: "absolute",
+            top: "2px",
+            left: "2px",
+            width: "16px",
+            height: "16px",
+            backgroundColor: "rgba(0, 150, 255, 0.8)",
+            color: "white",
+            borderRadius: "50%",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            fontSize: "10px",
+            opacity: "0",
+            transition: "all 0.2s ease",
+            zIndex: "5"
+        });
+        selectionIndicator.textContent = "✓";
         
         // 创建删除图标
         const deleteIcon = document.createElement("div");
@@ -440,21 +467,56 @@ function updateImagePreviews(node, paths) {
             deleteIcon.style.transform = "scale(1)";
         });
         
+        // 选择状态更新函数
+        const updateSelectionVisual = () => {
+            const isSelected = selectedImages.has(index);
+            if (isSelected) {
+                thumb.style.borderColor = "#0096ff";
+                thumb.style.borderWidth = "2px";
+                selectionIndicator.style.opacity = "1";
+            } else {
+                thumb.style.borderColor = "#444";
+                thumb.style.borderWidth = "1px";
+                selectionIndicator.style.opacity = "0";
+            }
+            
+            // 更新批量删除按钮状态
+            if (updateBatchDeleteButton) {
+                updateBatchDeleteButton();
+            }
+        };
+        
         // 悬停效果
         imgContainer.addEventListener("mouseenter", () => {
-            thumb.style.borderColor = "#666";
+            if (!selectedImages.has(index)) {
+                thumb.style.borderColor = "#666";
+            }
             deleteIcon.style.opacity = "1";
         });
         
         imgContainer.addEventListener("mouseleave", () => {
-            thumb.style.borderColor = "#444";
+            if (!selectedImages.has(index)) {
+                thumb.style.borderColor = "#444";
+            }
             deleteIcon.style.opacity = "0";
         });
         
-        // 左键点击预览
-        thumb.addEventListener("click", (e) => {
+        // 左键点击选择或预览
+        imgContainer.addEventListener("click", (e) => {
             e.stopPropagation();
-            showLightbox(imageUrls, index);
+            
+            if (isCtrlPressed) {
+                // Ctrl+点击进行多选
+                if (selectedImages.has(index)) {
+                    selectedImages.delete(index);
+                } else {
+                    selectedImages.add(index);
+                }
+                updateSelectionVisual();
+            } else {
+                // 普通点击预览
+                showLightbox(imageUrls, index);
+            }
         });
         
         // 删除图标点击删除
@@ -519,9 +581,56 @@ function updateImagePreviews(node, paths) {
         // 组装容器
         imgContainer.appendChild(thumb);
         imgContainer.appendChild(deleteIcon);
+        imgContainer.appendChild(selectionIndicator);
         
         return imgContainer;
     });
+    
+    // 批量删除函数
+    const batchDelete = () => {
+        if (selectedImages.size === 0) return;
+        
+        const pathWidget = node.widgets.find(w => w.name === "image_paths");
+        const triggerWidget = node.widgets.find(w => w.name === "trigger");
+        
+        if (pathWidget) {
+            const currentPaths = pathWidget.value.split(',').filter(p => p.trim());
+            const updatedPaths = currentPaths.filter((_, i) => !selectedImages.has(i));
+            pathWidget.value = updatedPaths.join(',');
+            
+            // 更新触发器
+            if (triggerWidget) {
+                triggerWidget.value = (triggerWidget.value || 0) + 1;
+            }
+            
+            // 重新更新预览
+            updateImagePreviews(node, updatedPaths);
+        }
+    };
+    
+
+    
+    // 键盘事件监听
+    const handleKeyDown = (e) => {
+        if (e.key === 'Control' || e.key === 'Meta') {
+            isCtrlPressed = true;
+        } else if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (selectedImages.size > 0) {
+                e.preventDefault();
+                batchDelete();
+            }
+        }
+    };
+    
+    const handleKeyUp = (e) => {
+        if (e.key === 'Control' || e.key === 'Meta') {
+            isCtrlPressed = false;
+        }
+    };
+    
+    // 添加键盘事件监听
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keyup', handleKeyUp);
 
     // 更新布局的函数
     const updateLayout = () => {
@@ -593,18 +702,82 @@ function updateImagePreviews(node, paths) {
     const widget = node.addDOMWidget(PREVIEW_WIDGET_NAME, "div", previewContainer);
     widget.options.serialize = false;
     
-    // 添加删除提示
+    // 添加删除提示和批量删除按钮
     if (validPaths.length > 0) {
+        const hintContainer = document.createElement("div");
+        Object.assign(hintContainer.style, {
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginTop: "5px",
+            fontSize: "11px"
+        });
+        
         const deleteHint = document.createElement("div");
         Object.assign(deleteHint.style, {
-            fontSize: "11px",
             color: "#888",
-            textAlign: "center",
-            marginTop: "5px",
             fontStyle: "italic"
         });
-        deleteHint.textContent = "提示: 悬停图片显示删除按钮（直接删除），或右键点击删除（需确认）";
-        previewContainer.appendChild(deleteHint);
+        deleteHint.textContent = "提示: Ctrl+点击多选，Delete键批量删除，悬停显示删除按钮，右键删除需确认";
+        
+        const batchDeleteBtn = document.createElement("button");
+        Object.assign(batchDeleteBtn.style, {
+            backgroundColor: "rgba(255, 0, 0, 0.8)",
+            color: "white",
+            border: "none",
+            borderRadius: "4px",
+            padding: "2px 8px",
+            fontSize: "10px",
+            cursor: "pointer",
+            opacity: "0.7",
+            transition: "opacity 0.2s ease"
+        });
+        batchDeleteBtn.textContent = "批量删除";
+        batchDeleteBtn.title = "删除选中的图片";
+        
+        batchDeleteBtn.addEventListener("mouseenter", () => {
+            batchDeleteBtn.style.opacity = "1";
+        });
+        
+        batchDeleteBtn.addEventListener("mouseleave", () => {
+            batchDeleteBtn.style.opacity = "0.7";
+        });
+        
+        batchDeleteBtn.addEventListener("click", () => {
+            if (selectedImages.size > 0) {
+                const pathWidget = node.widgets.find(w => w.name === "image_paths");
+                const triggerWidget = node.widgets.find(w => w.name === "trigger");
+                
+                if (pathWidget) {
+                    const currentPaths = pathWidget.value.split(',').filter(p => p.trim());
+                    const updatedPaths = currentPaths.filter((_, i) => !selectedImages.has(i));
+                    pathWidget.value = updatedPaths.join(',');
+                    
+                    // 更新触发器
+                    if (triggerWidget) {
+                        triggerWidget.value = (triggerWidget.value || 0) + 1;
+                    }
+                    
+                    // 重新更新预览
+                    updateImagePreviews(node, updatedPaths);
+                }
+            }
+        });
+        
+        // 更新批量删除按钮状态
+        updateBatchDeleteButton = () => {
+            if (selectedImages.size > 0) {
+                batchDeleteBtn.textContent = `批量删除(${selectedImages.size})`;
+                batchDeleteBtn.style.opacity = "1";
+            } else {
+                batchDeleteBtn.textContent = "批量删除";
+                batchDeleteBtn.style.opacity = "0.7";
+            }
+        };
+        
+        hintContainer.appendChild(deleteHint);
+        hintContainer.appendChild(batchDeleteBtn);
+        previewContainer.appendChild(hintContainer);
     }
 
     // 初始化布局
@@ -623,6 +796,8 @@ function updateImagePreviews(node, paths) {
     // 清理函数
     widget.onRemoved = () => {
         resizeObserver.disconnect();
+        document.removeEventListener('keydown', handleKeyDown);
+        document.removeEventListener('keyup', handleKeyUp);
     };
 
     node.computeSize();
