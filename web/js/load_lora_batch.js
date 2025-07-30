@@ -162,8 +162,8 @@ class LoadLoraBatchNode extends LGraphNode {
         if (slot && slot.widget && slot.widget.name && slot.widget.name.startsWith("lora_")) {
             const widget = slot.widget;
             const index = this.widgets.indexOf(widget);
-            const canMoveUp = index > 2; // 跳过分隔线和按钮
-            const canMoveDown = index < this.widgets.length - 1;
+            const canMoveUp = !!(this.widgets[index - 1]?.name?.startsWith("lora_"));
+            const canMoveDown = !!(this.widgets[index + 1]?.name?.startsWith("lora_"));
             
             const menuItems = [
                 {
