@@ -39,8 +39,7 @@ class WanVideoLoraBatch:
             "optional": FlexibleOptionalInputType(type=any_type, data={
                 "prev_lora": ("WANVIDLORA", {"default": None, "tooltip": "For loading multiple LoRAs"}),
                 "blocks": ("SELECTEDBLOCKS",),
-                "low_mem_load": ("BOOLEAN", {"default": False, "tooltip": "Load the LORA model with less VRAM usage, slower loading. No effect if merge_loras is False"}),
-                "merge_loras": ("BOOLEAN", {"default": True, "tooltip": "Merge LoRAs into the model, otherwise they are loaded on the fly. Always enabled for GGUF and scaled fp8 models. This affects ALL LoRAs, not just the current one"}),
+                # low_mem_load和merge_loras现在由前端控件管理
                 # 这里的key由前端动态生成，如LORA_1, LORA_2...
                 # 每个value是dict: {"on": bool, "lora": str, "strength": float}
             }),
@@ -53,10 +52,14 @@ class WanVideoLoraBatch:
     CATEGORY = "WanVideoWrapper"
     DESCRIPTION = "批量收集多个WanVideo LoRA，参考LoadLoraBatch的UI但使用WanVideo格式"
 
-    def collect_loras(self, blocks={}, prev_lora=None, low_mem_load=False, merge_loras=True, **kwargs):
+    def collect_loras(self, blocks={}, prev_lora=None, **kwargs):
         """
         遍历所有LORA_x参数，收集LoRA列表。
         """
+        # 从kwargs中获取low_mem_load和merge_loras的值
+        low_mem_load = kwargs.get("low_mem_load", False)
+        merge_loras = kwargs.get("merge_loras", True)
+        
         print(f"low_mem_load: {low_mem_load}")
         print(f"merge_loras: {merge_loras}")
         print(f"[WanVideoLoraBatch] 开始收集LoRA，参数数量: {len(kwargs)}")

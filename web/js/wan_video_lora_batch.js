@@ -31,6 +31,63 @@ async function showLoraChooser(event, callback, parentMenu, loras) {
     });
 }
 
+// WanVideoLoraBatchToggleWidget控件类 - 用于low_mem_load和merge_loras
+class WanVideoLoraBatchToggleWidget extends RgthreeBaseWidget {
+    constructor(name, label, defaultValue) {
+        super(name);
+        this.type = "custom";
+        this.label = label;
+        this.hitAreas = {
+            toggle: { bounds: [0, 0], onDown: this.onToggleDown.bind(this) },
+        };
+        this._value = defaultValue;
+    }
+
+    set value(v) {
+        this._value = v;
+    }
+
+    get value() {
+        return this._value;
+    }
+
+    draw(ctx, node, w, posY, height) {
+        ctx.save();
+        const margin = 10;
+        const innerMargin = margin * 0.33;
+        const lowQuality = isLowQuality();
+        const midY = posY + height * 0.5;
+        let posX = margin;
+        
+        drawRoundedRectangle(ctx, { pos: [posX, posY], size: [node.size[0] - margin * 2, height] });
+        this.hitAreas.toggle.bounds = drawTogglePart(ctx, { posX, posY, height, value: this.value });
+        posX += this.hitAreas.toggle.bounds[1] + innerMargin;
+        
+        if (lowQuality) {
+            ctx.restore();
+            return;
+        }
+        
+        ctx.fillStyle = LiteGraph.WIDGET_TEXT_COLOR;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillText(this.label, posX, midY);
+        
+        ctx.restore();
+    }
+
+    serializeValue(node, index) {
+        console.log(`[WanVideoLoraBatch] 序列化toggle widget: ${this.name}, 值:`, this.value);
+        return this.value;
+    }
+
+    onToggleDown(event, pos, node) {
+        this.value = !this.value;
+        this.cancelMouseDown();
+        return true;
+    }
+}
+
 // WanVideoLoraBatch节点类
 class WanVideoLoraBatchNode extends LGraphNode {
     constructor(title = "WanVideoLoraBatch") {
@@ -118,6 +175,12 @@ class WanVideoLoraBatchNode extends LGraphNode {
         if (!this.widgets) {
             this.widgets = [];
         }
+        
+        // 添加low_mem_load控件
+        this.addCustomWidget(new WanVideoLoraBatchToggleWidget("low_mem_load", "低内存加载", false));
+        
+        // 添加merge_loras控件
+        this.addCustomWidget(new WanVideoLoraBatchToggleWidget("merge_loras", "合并LoRA", true));
         
         // 添加分隔线
         const divider1 = this.addCustomWidget(new RgthreeDividerWidget({ marginTop: 4, marginBottom: 0, thickness: 0 }));
