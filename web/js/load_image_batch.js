@@ -366,9 +366,10 @@ function updateImagePreviews(node, paths) {
         display: "flex",
         flexDirection: "column",
         gap: `${GAP}px`,
-        width: "fit-content", // 让容器宽度适应内容
+        width: "100%", // 使用100%宽度确保能正确计算可用空间
         height: "100%",
-        margin: "0 auto" // 使用 margin auto 实现水平居中
+        margin: "0 auto", // 使用 margin auto 实现水平居中
+        overflow: "hidden" // 确保内容不会超出容器
     });
 
     // 清除旧的图片元素
@@ -377,21 +378,149 @@ function updateImagePreviews(node, paths) {
     // 初始化图片加载
     const validPaths = paths.filter(path => path.trim());
     const imageUrls = validPaths.map(path => api.apiURL(`/view?filename=${encodeURIComponent(path)}&type=input`));
-    const imageElements = imageUrls.map((imageUrl, index) => {
-        const thumb = document.createElement("img");
-        thumb.src = imageUrl;
-        thumb.style.objectFit = "contain";
-        thumb.style.cursor = "pointer";
-        thumb.style.border = "1px solid #444";
-        thumb.style.borderRadius = "4px";
-        thumb.style.backgroundColor = "#1a1a1a";
+    const imageElements = validPaths.map((path, index) => {
+        // 创建图片容器
+        const imgContainer = document.createElement("div");
+        Object.assign(imgContainer.style, {
+            position: "relative",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            width: "100%",
+            height: "100%",
+            overflow: "hidden" // 确保内容不会超出容器
+        });
         
+        const thumb = document.createElement("img");
+        thumb.src = imageUrls[index];
+        Object.assign(thumb.style, {
+            objectFit: "contain",
+            cursor: "pointer",
+            border: "1px solid #444",
+            borderRadius: "4px",
+            backgroundColor: "#1a1a1a",
+            transition: "border-color 0.2s ease",
+            width: "100%",
+            height: "100%",
+            maxWidth: "100%",
+            maxHeight: "100%"
+        });
+        
+        // 创建删除图标
+        const deleteIcon = document.createElement("div");
+        Object.assign(deleteIcon.style, {
+            position: "absolute",
+            top: "2px",
+            right: "2px",
+            width: "16px",
+            height: "16px",
+            backgroundColor: "rgba(255, 0, 0, 0.8)",
+            color: "white",
+            borderRadius: "50%",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            fontSize: "10px",
+            cursor: "pointer",
+            opacity: "0",
+            transition: "all 0.2s ease",
+            zIndex: "10"
+        });
+        deleteIcon.textContent = "×";
+        deleteIcon.title = "删除此图片";
+        
+        // 删除图标的悬停效果
+        deleteIcon.addEventListener("mouseenter", () => {
+            deleteIcon.style.backgroundColor = "rgba(255, 0, 0, 1)";
+            deleteIcon.style.transform = "scale(1.1)";
+        });
+        
+        deleteIcon.addEventListener("mouseleave", () => {
+            deleteIcon.style.backgroundColor = "rgba(255, 0, 0, 0.8)";
+            deleteIcon.style.transform = "scale(1)";
+        });
+        
+        // 悬停效果
+        imgContainer.addEventListener("mouseenter", () => {
+            thumb.style.borderColor = "#666";
+            deleteIcon.style.opacity = "1";
+        });
+        
+        imgContainer.addEventListener("mouseleave", () => {
+            thumb.style.borderColor = "#444";
+            deleteIcon.style.opacity = "0";
+        });
+        
+        // 左键点击预览
         thumb.addEventListener("click", (e) => {
             e.stopPropagation();
             showLightbox(imageUrls, index);
         });
         
-        return thumb;
+        // 删除图标点击删除
+        deleteIcon.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // 直接删除，不需要确认
+            const pathWidget = node.widgets.find(w => w.name === "image_paths");
+            const triggerWidget = node.widgets.find(w => w.name === "trigger");
+            
+            if (pathWidget) {
+                const currentPaths = pathWidget.value.split(',').filter(p => p.trim());
+                // 找到当前路径在数组中的实际索引
+                const currentIndex = currentPaths.findIndex(p => p === path);
+                if (currentIndex !== -1) {
+                    const updatedPaths = currentPaths.filter((_, i) => i !== currentIndex);
+                    pathWidget.value = updatedPaths.join(',');
+                    
+                    // 更新触发器
+                    if (triggerWidget) {
+                        triggerWidget.value = (triggerWidget.value || 0) + 1;
+                    }
+                    
+                    // 重新更新预览
+                    updateImagePreviews(node, updatedPaths);
+                }
+            }
+        });
+        
+        // 右键删除功能
+        thumb.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // 确认删除
+            if (confirm(`确定要删除图片 "${path}" 吗？`)) {
+                // 从路径数组中移除
+                const pathWidget = node.widgets.find(w => w.name === "image_paths");
+                const triggerWidget = node.widgets.find(w => w.name === "trigger");
+                
+                if (pathWidget) {
+                    const currentPaths = pathWidget.value.split(',').filter(p => p.trim());
+                    // 找到当前路径在数组中的实际索引
+                    const currentIndex = currentPaths.findIndex(p => p === path);
+                    if (currentIndex !== -1) {
+                        const updatedPaths = currentPaths.filter((_, i) => i !== currentIndex);
+                        pathWidget.value = updatedPaths.join(',');
+                        
+                        // 更新触发器
+                        if (triggerWidget) {
+                            triggerWidget.value = (triggerWidget.value || 0) + 1;
+                        }
+                        
+                        // 重新更新预览
+                        updateImagePreviews(node, updatedPaths);
+                    }
+                }
+            }
+        });
+        
+        // 组装容器
+        imgContainer.appendChild(thumb);
+        imgContainer.appendChild(deleteIcon);
+        
+        return imgContainer;
     });
 
     // 更新布局的函数
@@ -417,34 +546,40 @@ function updateImagePreviews(node, paths) {
                 display: "flex",
                 gap: `${GAP}px`,
                 justifyContent: "flex-start", // 改回左对齐
-                width: "fit-content", // 宽度自适应内容
+                width: "100%", // 使用100%宽度确保能正确计算可用空间
                 height: `${size}px`, // 使用计算出的大小
-                minHeight: `${size}px` // 确保最小高度
+                minHeight: `${size}px`, // 确保最小高度
+                overflow: "hidden" // 确保内容不会超出容器
             });
 
             // 填充每一行的图片
             for (let c = 0; c < cols; c++) {
                 const index = r * cols + c;
                 if (index < imageElements.length) {
-                    const imgContainer = document.createElement("div");
-                    Object.assign(imgContainer.style, {
+                    const container = document.createElement("div");
+                    Object.assign(container.style, {
                         width: `${size}px`,
                         height: `${size}px`,
                         minWidth: `${size}px`,
                         minHeight: `${size}px`,
                         display: "flex",
                         justifyContent: "center",
+                        alignItems: "center",
+                        overflow: "hidden" // 确保图片不会超出容器
+                    });
+                    
+                    const imgElement = imageElements[index];
+                    // 设置图片容器（包含图片和删除按钮）的样式
+                    Object.assign(imgElement.style, {
+                        width: "100%",
+                        height: "100%",
+                        display: "flex",
+                        justifyContent: "center",
                         alignItems: "center"
                     });
                     
-                    const img = imageElements[index];
-                    Object.assign(img.style, {
-                        width: "100%",
-                        height: "100%"
-                    });
-                    
-                    imgContainer.appendChild(img);
-                    row.appendChild(imgContainer);
+                    container.appendChild(imgElement);
+                    row.appendChild(container);
                 }
             }
             
@@ -457,6 +592,20 @@ function updateImagePreviews(node, paths) {
     // 创建并添加widget
     const widget = node.addDOMWidget(PREVIEW_WIDGET_NAME, "div", previewContainer);
     widget.options.serialize = false;
+    
+    // 添加删除提示
+    if (validPaths.length > 0) {
+        const deleteHint = document.createElement("div");
+        Object.assign(deleteHint.style, {
+            fontSize: "11px",
+            color: "#888",
+            textAlign: "center",
+            marginTop: "5px",
+            fontStyle: "italic"
+        });
+        deleteHint.textContent = "提示: 悬停图片显示删除按钮（直接删除），或右键点击删除（需确认）";
+        previewContainer.appendChild(deleteHint);
+    }
 
     // 初始化布局
     setTimeout(updateLayout, 0);
