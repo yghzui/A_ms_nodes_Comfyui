@@ -1,310 +1,352 @@
 import { app } from "../../../scripts/app.js";
+import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, isLowQuality, } from "./utils_canvas.js";
+import { RgthreeBaseWidget, RgthreeBetterButtonWidget, RgthreeDividerWidget, } from "./utils_widgets.js";
+import { rgthreeApi } from "./rgthree_api.js";
+import { moveArrayItem, removeArrayItem } from "./shared_utils.js";
 
-/**
- * LoadLoraBatch节点的前端扩展
- * 实现在节点上直接添加LoRA控件,使用与模板相同的原理
- */
-app.registerExtension({
-    name: "A_my_nodes.LoadLoraBatch.UI",
-	async beforeRegisterNodeDef(nodeType, nodeData) {
-        if (nodeData.name !== "LoadLoraBatch") return;
-        
-        console.log("[LoadLoraBatch] 初始化节点UI");
-        
-        // 获取所有可用的LoRA列表
-        let loras = ["None"];
-        try {
-            // 从节点定义中获取LoRA列表
-            if (nodeData.input && nodeData.input.optional && nodeData.input.optional.lora_name_0) {
-                loras = nodeData.input.optional.lora_name_0[0];
-                console.log("[LoadLoraBatch] 从模板获取到LoRA列表,数量:", loras.length);
-            } else if (app.canvas && folder_paths && folder_paths.loras) {
-                // 备用方案:尝试从folder_paths获取LoRA列表
-                loras = ["None", ...folder_paths.loras];
-                console.log("[LoadLoraBatch] 从folder_paths获取到LoRA列表,数量:", loras.length);
-            } else {
-                console.warn("[LoadLoraBatch] 无法获取LoRA列表,使用默认值");
-            }
-        } catch (error) {
-            console.error("[LoadLoraBatch] 获取LoRA列表出错:", error);
+console.log("Patching node: load_lora_batch.js");
+console.log("Loaded load_lora_batch.js");
+
+// 改进的LoRA选择器，支持搜索功能
+async function showLoraChooser(event, callback, parentMenu, loras) {
+    const canvas = app.canvas;
+    if (!loras) {
+        loras = ["None", ...(await rgthreeApi.getLoras().then((loras) => loras.map((l) => l.file)))];
+    }
+    
+    // 转换为LiteGraph.ContextMenu需要的格式
+    const menuItems = loras.map(lora => ({
+        content: lora,
+        callback: () => callback(lora)
+    }));
+    
+    new LiteGraph.ContextMenu(menuItems, {
+        event: event,
+        parentMenu: parentMenu || undefined,
+        title: "选择LoRA",
+        scale: Math.max(1, canvas.ds?.scale || 1),
+        className: "dark",
+        callback,
+    });
+}
+
+// LoadLoraBatch节点类
+class LoadLoraBatchNode extends LGraphNode {
+    constructor(title = "LoadLoraBatch") {
+        super(title);
+        this.serialize_widgets = true;
+        this.loraWidgetsCounter = 0;
+        this.widgetButtonSpacer = null;
+        this.widgets = this.widgets || [];
+        this.properties = this.properties || {};
+        rgthreeApi.getLoras();
+    }
+
+    addCustomWidget(widget) {
+        this.widgets.push(widget);
+        return widget;
+    }
+
+    setDirtyCanvas(flag, flag2) {
+        if (app.canvas) {
+            app.canvas.setDirty(flag, flag2);
+        }
+    }
+
+    computeSize() {
+        return [240, 120];
+    }
+
+    onNodeCreated() {
+        this.addNonLoraWidgets();
+        const computed = this.computeSize();
+        this.size = this.size || [0, 0];
+        this.size[0] = Math.max(this.size[0], computed[0]);
+        this.size[1] = Math.max(this.size[1], computed[1]);
+        this.setDirtyCanvas(true, true);
+    }
+
+    addNewLoraWidget(lora) {
+        this.loraWidgetsCounter++;
+        const widget = this.addCustomWidget(new LoadLoraBatchWidget("lora_" + this.loraWidgetsCounter));
+        if (lora) {
+            widget.setLora(lora);
+        }
+        if (this.widgetButtonSpacer && this.widgets.indexOf(this.widgetButtonSpacer) !== -1) {
+            moveArrayItem(this.widgets, widget, this.widgets.indexOf(this.widgetButtonSpacer));
+        }
+        return widget;
+    }
+
+    addNonLoraWidgets() {
+        // 确保widgets数组存在
+        if (!this.widgets) {
+            this.widgets = [];
         }
         
-        // 重写computeSize方法,确保节点宽度固定
-        const computeSize = nodeType.prototype.computeSize;
-        nodeType.prototype.computeSize = function() {
-            if (computeSize) {
-                const size = computeSize.apply(this, arguments);
-                // 固定宽度,但高度根据控件数量动态调整
-                size[0] = 240; // 固定宽度
-                
-                // 确保节点有足够的高度显示所有控件
-                // 安全检查this.loraWidgets是否存在
-                const widgetsCount = this.loraWidgets ? this.loraWidgets.length : 0;
-                const minHeight = 100 + Math.ceil(widgetsCount / 3) * 40;
-                size[1] = Math.max(size[1], minHeight);
-                
-                return size;
-            }
-            return [240, 120];
-        };
+        // 添加分隔线
+        const divider1 = this.addCustomWidget(new RgthreeDividerWidget({ marginTop: 4, marginBottom: 0, thickness: 0 }));
         
-        // 当节点创建时初始化UI
-        const onNodeCreated = nodeType.prototype.onNodeCreated;
+        // 添加按钮分隔线
+        this.widgetButtonSpacer = this.addCustomWidget(new RgthreeDividerWidget({ marginTop: 4, marginBottom: 0, thickness: 0 }));
+        
+        // 添加增加LoRA按钮
+        this.addCustomWidget(new RgthreeBetterButtonWidget("➕ 增加LoRA", (event, pos, node) => {
+            showLoraChooser(event, (value) => {
+                if (typeof value === "string") {
+                    if (value !== "NONE") {
+                        this.addNewLoraWidget(value);
+                        const computed = this.computeSize();
+                        this.size[1] = Math.max(this.size[1] || 15, computed[1]);
+                        this.setDirtyCanvas(true, true);
+                    }
+                }
+            }, null, null); // 传入null让showLoraChooser自动获取loras
+            return true;
+        }));
+    }
+
+    getSlotInPosition(canvasX, canvasY) {
+        let lastWidget = null;
+        for (const widget of this.widgets) {
+            if (!widget.last_y) return;
+            if (canvasY > this.pos[1] + widget.last_y) {
+                lastWidget = widget;
+                continue;
+            }
+            break;
+        }
+        if (lastWidget && lastWidget.name && lastWidget.name.startsWith("lora_")) {
+            return { widget: lastWidget, output: { type: "LORA WIDGET" } };
+        }
+        return null;
+    }
+
+    getSlotMenuOptions(slot) {
+        if (slot && slot.widget && slot.widget.name && slot.widget.name.startsWith("lora_")) {
+            const widget = slot.widget;
+            const index = this.widgets.indexOf(widget);
+            const canMoveUp = index > 2; // 跳过分隔线和按钮
+            const canMoveDown = index < this.widgets.length - 1;
+            
+            const menuItems = [
+                {
+                    content: `${widget.value.on ? "⚫" : "🟢"} 切换 ${widget.value.on ? "关闭" : "开启"}`,
+                    callback: () => {
+                        widget.value.on = !widget.value.on;
+                    },
+                },
+                {
+                    content: `⬆️ 上移`,
+                    disabled: !canMoveUp,
+                    callback: () => {
+                        moveArrayItem(this.widgets, widget, index - 1);
+                    },
+                },
+                {
+                    content: `⬇️ 下移`,
+                    disabled: !canMoveDown,
+                    callback: () => {
+                        moveArrayItem(this.widgets, widget, index + 1);
+                    },
+                },
+                {
+                    content: `🗑️ 删除`,
+                    callback: () => {
+                        removeArrayItem(this.widgets, widget);
+                    },
+                },
+            ];
+            
+            new LiteGraph.ContextMenu(menuItems, {
+                title: "LORA WIDGET",
+                event: app.lastCanvasMouseEvent,
+            });
+            return undefined;
+        }
+        return null;
+    }
+
+    hasLoraWidgets() {
+        return !!this.widgets.find((w) => w.name && w.name.startsWith("lora_"));
+    }
+}
+
+// LoadLoraBatch控件类
+class LoadLoraBatchWidget extends RgthreeBaseWidget {
+    constructor(name) {
+        super(name);
+        this.type = "custom";
+        this.haveMouseMovedStrength = false;
+        this.loraInfoPromise = null;
+        this.loraInfo = null;
+        this.hitAreas = {
+            toggle: { bounds: [0, 0], onDown: this.onToggleDown.bind(this) },
+            lora: { bounds: [0, 0], onClick: this.onLoraClick.bind(this) },
+            strengthDec: { bounds: [0, 0], onClick: this.onStrengthDecDown.bind(this) },
+            strengthVal: { bounds: [0, 0], onClick: this.onStrengthValUp.bind(this) },
+            strengthInc: { bounds: [0, 0], onClick: this.onStrengthIncDown.bind(this) },
+            strengthAny: { bounds: [0, 0], onMove: this.onStrengthAnyMove.bind(this) },
+        };
+        this._value = {
+            on: true,
+            lora: null,
+            strength: 1,
+        };
+    }
+
+    set value(v) {
+        this._value = v;
+        if (typeof this._value !== "object") {
+            this._value = { on: true, lora: null, strength: 1 };
+        }
+    }
+
+    get value() {
+        return this._value;
+    }
+
+    setLora(lora) {
+        this._value.lora = lora;
+    }
+
+    draw(ctx, node, w, posY, height) {
+        ctx.save();
+        const margin = 10;
+        const innerMargin = margin * 0.33;
+        const lowQuality = isLowQuality();
+        const midY = posY + height * 0.5;
+        let posX = margin;
+        
+        drawRoundedRectangle(ctx, { pos: [posX, posY], size: [node.size[0] - margin * 2, height] });
+        this.hitAreas.toggle.bounds = drawTogglePart(ctx, { posX, posY, height, value: this.value.on });
+        posX += this.hitAreas.toggle.bounds[1] + innerMargin;
+        
+        if (lowQuality) {
+            ctx.restore();
+            return;
+        }
+        
+        if (!this.value.on) {
+            ctx.globalAlpha = app.canvas.editor_alpha * 0.4;
+        }
+        
+        ctx.fillStyle = LiteGraph.WIDGET_TEXT_COLOR;
+        let rposX = node.size[0] - margin - innerMargin - innerMargin;
+        
+        const [leftArrow, text, rightArrow] = drawNumberWidgetPart(ctx, {
+            posX: node.size[0] - margin - innerMargin - innerMargin,
+            posY,
+            height,
+            value: this.value.strength || 1,
+            direction: -1,
+            textColor: undefined,
+        });
+        
+        this.hitAreas.strengthDec.bounds = leftArrow;
+        this.hitAreas.strengthVal.bounds = text;
+        this.hitAreas.strengthInc.bounds = rightArrow;
+        this.hitAreas.strengthAny.bounds = [leftArrow[0], rightArrow[0] + rightArrow[1] - leftArrow[0]];
+        rposX = leftArrow[0] - innerMargin;
+        
+        const loraWidth = rposX - posX;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        const loraLabel = String(this.value.lora || "None");
+        ctx.fillText(fitString(ctx, loraLabel, loraWidth), posX, midY);
+        this.hitAreas.lora.bounds = [posX, loraWidth];
+        posX += loraWidth + innerMargin;
+        
+        ctx.globalAlpha = app.canvas.editor_alpha;
+        ctx.restore();
+    }
+
+    serializeValue(node, index) {
+        return { ...this.value };
+    }
+
+    onToggleDown(event, pos, node) {
+        this.value.on = !this.value.on;
+        this.cancelMouseDown();
+        return true;
+    }
+
+    onLoraClick(event, pos, node) {
+        showLoraChooser(event, (value) => {
+            if (typeof value === "string") {
+                this.value.lora = value;
+            }
+            node.setDirtyCanvas(true, true);
+        }, null, null); // 传入null让showLoraChooser自动获取loras
+        this.cancelMouseDown();
+    }
+
+    onStrengthDecDown(event, pos, node) {
+        this.stepStrength(-1);
+    }
+
+    onStrengthIncDown(event, pos, node) {
+        this.stepStrength(1);
+    }
+
+    onStrengthAnyMove(event, pos, node) {
+        if (event.deltaX) {
+            this.haveMouseMovedStrength = true;
+            this.value.strength = (this.value.strength || 1) + event.deltaX * 0.05;
+        }
+    }
+
+    onStrengthValUp(event, pos, node) {
+        if (this.haveMouseMovedStrength) {
+            this.haveMouseMovedStrength = false;
+            return;
+        }
+        
+        const canvas = app.canvas;
+        canvas.prompt("强度值", this.value.strength || 1, (v) => {
+            this.value.strength = Number(v);
+        }, event);
+    }
+
+    stepStrength(direction) {
+        let step = 0.05;
+        let strength = (this.value.strength || 1) + step * direction;
+        this.value.strength = Math.round(strength * 100) / 100;
+    }
+}
+
+// 注册扩展
+app.registerExtension({
+    name: "A_my_nodes.LoadLoraBatch.UI",
+    async beforeRegisterNodeDef(nodeType, nodeData) {
+        if (nodeData.name !== "LoadLoraBatch") return;
+        console.log("[LoadLoraBatch] UI扩展注册, 节点名:", nodeData.name);
+
+        // 覆盖节点类
+        const origOnNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function() {
-            if (onNodeCreated) {
-                onNodeCreated.apply(this, arguments);
-            }
+            console.log("[LoadLoraBatch] 节点UI初始化", this);
+            if (origOnNodeCreated) origOnNodeCreated.apply(this, arguments);
             
-            // 初始化节点
-            this.loraWidgets = [];
-            this.nextIndex = 1; // 从1开始命名
-            this.serialize_widgets = true; // 确保控件值能被保存
+            // 创建LoadLoraBatchNode实例并复制方法
+            const loraNode = new LoadLoraBatchNode();
+            this.addNewLoraWidget = loraNode.addNewLoraWidget.bind(this);
+            this.addNonLoraWidgets = loraNode.addNonLoraWidgets.bind(this);
+            this.getSlotInPosition = loraNode.getSlotInPosition.bind(this);
+            this.getSlotMenuOptions = loraNode.getSlotMenuOptions.bind(this);
+            this.hasLoraWidgets = loraNode.hasLoraWidgets.bind(this);
             
-            // 添加控制按钮
-            this.addControlButtons();
+            // 初始化
+            this.loraWidgetsCounter = 0;
+            this.widgetButtonSpacer = null;
+            this.serialize_widgets = true;
             
-            // 添加第一个LoRA选项
-            this.addLoraOption(1);
-            
-            // 恢复保存的数据(如果有)
-            setTimeout(() => {
-                this.loadSavedData();
-                // 立即更新一次LoRA数据,确保选择的LoRA生效
-                this.updateLoraData();
-            }, 100);
-        };
-        
-        // 添加控制按钮
-        nodeType.prototype.addControlButtons = function() {
-            const addButton = this.addWidget("button", "➕ 增加LoRA", null, () => {
-                // 查找最小可用索引
-                let usedIndices = new Set();
-                if (this.loraWidgets && this.loraWidgets.length > 0) {
-                    this.loraWidgets.forEach(widget => {
-                        const match = widget.name.match(/_(\d+)$/);
-                        if (match) {
-                            usedIndices.add(parseInt(match[1]));
-                        }
-                    });
-                }
-                
-                // 从1开始查找第一个未使用的索引
-                let newIndex = 1;
-                while (usedIndices.has(newIndex)) {
-                    newIndex++;
-                }
-                
-                // 添加新的LoRA选项
-                this.addLoraOption(newIndex);
-                this.updateLoraData();
-            });
-            
-            const cleanButton = this.addWidget("button", "清除多余", null, () => {
-                this.cleanUnusedLoras();
-                this.updateLoraData();
-            });
-        };
-        
-        // 添加一个LoRA选项
-        nodeType.prototype.addLoraOption = function(index) {
-            // 确保loraWidgets已初始化
-            if (!this.loraWidgets) {
-                this.loraWidgets = [];
-            }
-            
-            // 创建启用开关
-            const enabledWidget = this.addWidget("toggle", `enabled_${index}`, true, () => {
-                this.updateLoraData();
-            }, { on: "启用", off: "禁用" });
-            
-            // 创建LoRA选择下拉框
-            const nameWidget = this.addWidget("combo", `lora_name_${index}`, "None", () => {
-                this.updateLoraData();
-            }, { values: loras });
-            
-            // 创建强度输入框
-            const strengthWidget = this.addWidget("number", `strength_model_${index}`, 1.0, () => {
-                this.updateLoraData();
-            }, { min: -10.0, max: 10.0, step: 0.01, precision: 2 });
-            
-            // 记录这个LoRA选项
-            this.loraWidgets.push(enabledWidget, nameWidget, strengthWidget);
-            
-            // 只调整高度,不调整宽度
-            const size = this.computeSize();
-            this.size[1] = size[1]; // 只更新高度
+            this.addNonLoraWidgets();
+            const computed = this.computeSize();
+            this.size = this.size || [0, 0];
+            this.size[0] = Math.max(this.size[0], computed[0]);
+            this.size[1] = Math.max(this.size[1], computed[1]);
             this.setDirtyCanvas(true, true);
-        };
-        
-        // 清理未使用的LoRA
-        nodeType.prototype.cleanUnusedLoras = function() {
-            // 确保loraWidgets已初始化
-            if (!this.loraWidgets) {
-                this.loraWidgets = [];
-                return;
-            }
-            
-            // 按索引分组
-            const groups = {};
-            for (const widget of this.loraWidgets) {
-                const match = widget.name.match(/^(enabled|lora_name|strength_model)_(\d+)$/);
-                if (match) {
-                    const type = match[1];
-                    const index = match[2];
-                    if (!groups[index]) {
-                        groups[index] = {};
-                    }
-                    groups[index][type] = widget;
-                }
-            }
-            
-            // 找出所有值为"None"的LoRA
-            const toRemove = [];
-            for (const index in groups) {
-                const group = groups[index];
-                if (group.lora_name && group.lora_name.value === "None") {
-                    toRemove.push(index);
-                }
-            }
-            
-            // 如果所有LoRA都是"None",至少保留一个
-            if (toRemove.length === Object.keys(groups).length && toRemove.length > 0) {
-                toRemove.pop();
-            }
-            
-            // 移除未使用的LoRA控件
-            for (const index of toRemove) {
-                const group = groups[index];
-                for (const type in group) {
-                    const widget = group[type];
-                    const widgetIndex = this.widgets.indexOf(widget);
-                    if (widgetIndex !== -1) {
-                        this.widgets.splice(widgetIndex, 1);
-                        const loraWidgetIndex = this.loraWidgets.indexOf(widget);
-                        if (loraWidgetIndex !== -1) {
-                            this.loraWidgets.splice(loraWidgetIndex, 1);
-                        }
-                    }
-                }
-            }
-            
-            // 只调整高度,不调整宽度
-            const size = this.computeSize();
-            this.size[1] = size[1]; // 只更新高度
-            this.setDirtyCanvas(true, true);
-        };
-        
-        // 更新LoRA数据
-        nodeType.prototype.updateLoraData = function() {
-            // 确保loraWidgets已初始化
-            if (!this.loraWidgets) {
-                this.loraWidgets = [];
-                return;
-            }
-            
-            // 按索引分组并收集所有控件数据
-            const groups = {};
-            for (const widget of this.widgets) {  // 改用this.widgets而不是this.loraWidgets
-                const match = widget.name.match(/^(enabled|lora_name|strength_model)_(\d+)$/);
-                if (match) {
-                    const type = match[1];
-                    const index = match[2];
-                    if (!groups[index]) {
-                        groups[index] = {};
-                    }
-                    groups[index][type] = widget;
-                }
-            }
-            
-            // 收集所有LoRA的数据
-            const loraData = [];
-            for (const index in groups) {
-                const group = groups[index];
-                if (group.enabled && group.lora_name && group.strength_model) {
-                    // 只收集非None的LoRA数据
-                    if (group.lora_name.value !== "None") {
-                        loraData.push({
-                            enabled: group.enabled.value,
-                            lora_name: group.lora_name.value,
-                            strength_model: parseFloat(group.strength_model.value)
-                        });
-                    }
-                }
-            }
-            
-            // 更新隐藏输入
-            const loraJson = JSON.stringify(loraData);
-            let jsonWidget = this.widgets.find(w => w.name === "lora_json");
-            if (!jsonWidget) {
-                jsonWidget = this.addWidget("text", "lora_json", loraJson, () => {}, { multiline: true });
-                jsonWidget.inputEl.style.display = "none"; // 隐藏输入框
-            } else {
-                jsonWidget.value = loraJson;
-            }
-            
-            // 触发画布更新
-            app.graph.setDirtyCanvas(true);
-        };
-        
-        // 加载保存的数据
-        nodeType.prototype.loadSavedData = function() {
-            // 确保loraWidgets已初始化
-            if (!this.loraWidgets) {
-                this.loraWidgets = [];
-            }
-            
-            // 查找保存的数据
-            const jsonWidget = this.widgets.find(w => w.name === "lora_json");
-            if (!jsonWidget || !jsonWidget.value) {
-                return;
-            }
-            
-            try {
-                // 解析保存的数据
-                const savedData = JSON.parse(jsonWidget.value);
-                if (!Array.isArray(savedData)) {
-                    throw new Error("无效的数据格式");
-                }
-                
-                // 清除默认添加的第一个LoRA选项
-                while (this.loraWidgets.length > 0) {
-                    const widget = this.loraWidgets[0];
-                    const widgetIndex = this.widgets.indexOf(widget);
-                    if (widgetIndex !== -1) {
-                        this.widgets.splice(widgetIndex, 1);
-                    }
-                    this.loraWidgets.shift();
-                }
-                
-                // 恢复所有LoRA
-                for (let i = 0; i < savedData.length; i++) {
-                    const data = savedData[i];
-                    const index = i + 1; // 从索引1开始
-                    
-                    // 添加控件
-                    this.addLoraOption(index);
-                    
-                    // 设置值
-                    const enabledWidget = this.widgets.find(w => w.name === `enabled_${index}`);
-                    const nameWidget = this.widgets.find(w => w.name === `lora_name_${index}`);
-                    const strengthWidget = this.widgets.find(w => w.name === `strength_model_${index}`);
-                    
-                    if (enabledWidget) enabledWidget.value = data.enabled !== undefined ? data.enabled : true;
-                    if (nameWidget) nameWidget.value = data.lora_name || "None";
-                    if (strengthWidget) strengthWidget.value = data.strength_model !== undefined ? data.strength_model : 1.0;
-                }
-                
-                // 如果没有数据,添加一个默认的LoRA
-                if (savedData.length === 0) {
-                    this.addLoraOption(1);
-                }
-                
-            } catch (error) {
-                console.error("[LoadLoraBatch] 加载保存数据失败:", error);
-            }
-            
-            // 更新LoRA数据
-            this.updateLoraData();
         };
     }
 }); 
