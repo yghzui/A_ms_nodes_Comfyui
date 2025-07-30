@@ -57,8 +57,15 @@ class WanVideoLoraBatch:
         遍历所有LORA_x参数，收集LoRA列表。
         """
         # 从kwargs中获取low_mem_load和merge_loras的值
-        low_mem_load = kwargs.get("low_mem_load", False)
-        merge_loras = kwargs.get("merge_loras", True)
+        # 检查是否有settings控件的数据
+        settings_data = kwargs.get("settings", {})
+        if isinstance(settings_data, dict):
+            low_mem_load = settings_data.get("value1", False)
+            merge_loras = settings_data.get("value2", True)
+        else:
+            # 兼容旧格式
+            low_mem_load = kwargs.get("low_mem_load", False)
+            merge_loras = kwargs.get("merge_loras", True)
         
         print(f"low_mem_load: {low_mem_load}")
         print(f"merge_loras: {merge_loras}")

@@ -31,6 +31,89 @@ async function showLoraChooser(event, callback, parentMenu, loras) {
     });
 }
 
+// WanVideoLoraBatchDualToggleWidget控件类 - 用于在同一行显示两个开关
+class WanVideoLoraBatchDualToggleWidget extends RgthreeBaseWidget {
+    constructor(name, label1, label2, defaultValue1, defaultValue2) {
+        super(name);
+        this.type = "custom";
+        this.label1 = label1;
+        this.label2 = label2;
+        this.hitAreas = {
+            toggle1: { bounds: [0, 0], onDown: this.onToggle1Down.bind(this) },
+            toggle2: { bounds: [0, 0], onDown: this.onToggle2Down.bind(this) },
+        };
+        this._value1 = defaultValue1;
+        this._value2 = defaultValue2;
+    }
+
+    set value(v) {
+        if (typeof v === 'object' && v !== null) {
+            this._value1 = v.value1 !== undefined ? v.value1 : this._value1;
+            this._value2 = v.value2 !== undefined ? v.value2 : this._value2;
+        }
+    }
+
+    get value() {
+        return {
+            value1: this._value1,
+            value2: this._value2
+        };
+    }
+
+    draw(ctx, node, w, posY, height) {
+        ctx.save();
+        const margin = 10;
+        const innerMargin = margin * 0.33;
+        const lowQuality = isLowQuality();
+        const midY = posY + height * 0.5;
+        let posX = margin;
+        
+        drawRoundedRectangle(ctx, { pos: [posX, posY], size: [node.size[0] - margin * 2, height] });
+        
+        // 第一个开关
+        this.hitAreas.toggle1.bounds = drawTogglePart(ctx, { posX, posY, height, value: this._value1 });
+        posX += this.hitAreas.toggle1.bounds[1] + innerMargin;
+        
+        if (lowQuality) {
+            ctx.restore();
+            return;
+        }
+        
+        // 第一个标签
+        ctx.fillStyle = LiteGraph.WIDGET_TEXT_COLOR;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillText(this.label1, posX, midY);
+        posX += ctx.measureText(this.label1).width + innerMargin * 2;
+        
+        // 第二个开关
+        this.hitAreas.toggle2.bounds = drawTogglePart(ctx, { posX, posY, height, value: this._value2 });
+        posX += this.hitAreas.toggle2.bounds[1] + innerMargin;
+        
+        // 第二个标签
+        ctx.fillText(this.label2, posX, midY);
+        
+        ctx.restore();
+    }
+
+    serializeValue(node, index) {
+        console.log(`[WanVideoLoraBatch] 序列化dual toggle widget: ${this.name}, 值:`, this.value);
+        return this.value;
+    }
+
+    onToggle1Down(event, pos, node) {
+        this._value1 = !this._value1;
+        this.cancelMouseDown();
+        return true;
+    }
+
+    onToggle2Down(event, pos, node) {
+        this._value2 = !this._value2;
+        this.cancelMouseDown();
+        return true;
+    }
+}
+
 // WanVideoLoraBatchToggleWidget控件类 - 用于low_mem_load和merge_loras
 class WanVideoLoraBatchToggleWidget extends RgthreeBaseWidget {
     constructor(name, label, defaultValue) {
@@ -132,6 +215,9 @@ class WanVideoLoraBatchNode extends LGraphNode {
         this._tempWidth = this.size[0];
         this._tempHeight = this.size[1];
         
+        // 先添加非LoRA控件（设置控件等）
+        this.addNonLoraWidgets();
+        
         // 恢复LoRA控件
         for (const widgetValue of info.widgets_values || []) {
             if (widgetValue && typeof widgetValue === 'object' && widgetValue.lora !== undefined) {
@@ -141,8 +227,15 @@ class WanVideoLoraBatchNode extends LGraphNode {
             }
         }
         
-        // 添加非LoRA控件
-        this.addNonLoraWidgets();
+        // 恢复设置控件的值
+        const settingsWidget = this.widgets.find(w => w.name === "settings");
+        if (settingsWidget) {
+            const settingsValue = info.widgets_values?.find(w => w && typeof w === 'object' && w.value1 !== undefined && w.value2 !== undefined);
+            if (settingsValue) {
+                console.log("[WanVideoLoraBatch] 恢复设置控件:", settingsValue);
+                settingsWidget.value = settingsValue;
+            }
+        }
         
         // 恢复尺寸
         this.size[0] = this._tempWidth;
@@ -164,9 +257,14 @@ class WanVideoLoraBatchNode extends LGraphNode {
         if (lora) {
             widget.setLora(lora);
         }
-        if (this.widgetButtonSpacer && this.widgets.indexOf(this.widgetButtonSpacer) !== -1) {
-            moveArrayItem(this.widgets, widget, this.widgets.indexOf(this.widgetButtonSpacer));
+        
+        // 找到设置控件的位置，将新LoRA插入到设置控件之后
+        const settingsWidgetIndex = this.widgets.findIndex(w => w.name === "settings");
+        if (settingsWidgetIndex !== -1) {
+            // 将新LoRA移动到设置控件之后
+            moveArrayItem(this.widgets, widget, settingsWidgetIndex + 1);
         }
+        
         return widget;
     }
 
@@ -176,11 +274,8 @@ class WanVideoLoraBatchNode extends LGraphNode {
             this.widgets = [];
         }
         
-        // 添加low_mem_load控件
-        this.addCustomWidget(new WanVideoLoraBatchToggleWidget("low_mem_load", "低内存加载", false));
-        
-        // 添加merge_loras控件
-        this.addCustomWidget(new WanVideoLoraBatchToggleWidget("merge_loras", "合并LoRA", true));
+        // 添加双开关控件（low_mem_load和merge_loras）
+        this.addCustomWidget(new WanVideoLoraBatchDualToggleWidget("settings", "低内存加载", "合并LoRA", false, true));
         
         // 添加分隔线
         const divider1 = this.addCustomWidget(new RgthreeDividerWidget({ marginTop: 4, marginBottom: 0, thickness: 0 }));
