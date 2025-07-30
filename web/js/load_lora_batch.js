@@ -57,6 +57,39 @@ class LoadLoraBatchNode extends LGraphNode {
         return [240, 120];
     }
 
+    configure(info) {
+        console.log("[LoadLoraBatch] 配置节点", info);
+        
+        // 清除现有的widgets
+        if (this.widgets) {
+            this.widgets.length = 0;
+        }
+        this.widgetButtonSpacer = null;
+        
+        // 调用父类的configure
+        super.configure(info);
+        
+        // 保存临时尺寸
+        this._tempWidth = this.size[0];
+        this._tempHeight = this.size[1];
+        
+        // 恢复LoRA控件
+        for (const widgetValue of info.widgets_values || []) {
+            if (widgetValue && typeof widgetValue === 'object' && widgetValue.lora !== undefined) {
+                console.log("[LoadLoraBatch] 恢复LoRA控件:", widgetValue);
+                const widget = this.addNewLoraWidget();
+                widget.value = { ...widgetValue };
+            }
+        }
+        
+        // 添加非LoRA控件
+        this.addNonLoraWidgets();
+        
+        // 恢复尺寸
+        this.size[0] = this._tempWidth;
+        this.size[1] = Math.max(this._tempHeight, this.computeSize()[1]);
+    }
+
     onNodeCreated() {
         this.addNonLoraWidgets();
         const computed = this.computeSize();
@@ -324,6 +357,8 @@ app.registerExtension({
 
         // 覆盖节点类
         const origOnNodeCreated = nodeType.prototype.onNodeCreated;
+        const origConfigure = nodeType.prototype.configure;
+        
         nodeType.prototype.onNodeCreated = function() {
             console.log("[LoadLoraBatch] 节点UI初始化", this);
             if (origOnNodeCreated) origOnNodeCreated.apply(this, arguments);
@@ -335,6 +370,7 @@ app.registerExtension({
             this.getSlotInPosition = loraNode.getSlotInPosition.bind(this);
             this.getSlotMenuOptions = loraNode.getSlotMenuOptions.bind(this);
             this.hasLoraWidgets = loraNode.hasLoraWidgets.bind(this);
+            this.configure = loraNode.configure.bind(this);
             
             // 初始化
             this.loraWidgetsCounter = 0;
