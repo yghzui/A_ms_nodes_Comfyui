@@ -76,19 +76,26 @@ app.registerExtension({
         
         // 添加控制按钮
         nodeType.prototype.addControlButtons = function() {
-            const addButton = this.addWidget("button", "增加LoRA", null, () => {
-                // 查找最后一个LoRA选项的索引,并加1
-                let lastIndex = 0;
+            const addButton = this.addWidget("button", "➕ 增加LoRA", null, () => {
+                // 查找最小可用索引
+                let usedIndices = new Set();
                 if (this.loraWidgets && this.loraWidgets.length > 0) {
-                    const lastWidget = this.loraWidgets[this.loraWidgets.length - 1];
-                    const match = lastWidget.name.match(/_(\d+)$/);
-                    if (match) {
-                        lastIndex = parseInt(match[1]);
-                    }
+                    this.loraWidgets.forEach(widget => {
+                        const match = widget.name.match(/_(\d+)$/);
+                        if (match) {
+                            usedIndices.add(parseInt(match[1]));
+                        }
+                    });
+                }
+                
+                // 从1开始查找第一个未使用的索引
+                let newIndex = 1;
+                while (usedIndices.has(newIndex)) {
+                    newIndex++;
                 }
                 
                 // 添加新的LoRA选项
-                this.addLoraOption(lastIndex + 1);
+                this.addLoraOption(newIndex);
                 this.updateLoraData();
             });
             
