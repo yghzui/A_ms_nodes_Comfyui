@@ -300,510 +300,209 @@ function calculateOptimalGrid(containerWidth, containerHeight, imageCount) {
 }
 
 /**
+ * 图片数据缓存管理器
+ */
+class ImageCache {
+    constructor() {
+        this.cache = new Map();
+        this.loadingPromises = new Map();
+    }
+
+    /**
+     * 加载图片并缓存
+     * @param {string} url - 图片URL
+     * @returns {Promise<HTMLImageElement>} 加载完成的图片元素
+     */
+    async loadImage(url) {
+        // 如果已经在缓存中，直接返回
+        if (this.cache.has(url)) {
+            return this.cache.get(url);
+        }
+
+        // 如果正在加载中，返回现有的Promise
+        if (this.loadingPromises.has(url)) {
+            return this.loadingPromises.get(url);
+        }
+
+        // 创建新的加载Promise
+        const loadPromise = new Promise((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            img.onload = () => {
+                this.cache.set(url, img);
+                this.loadingPromises.delete(url);
+                resolve(img);
+            };
+            img.onerror = () => {
+                this.loadingPromises.delete(url);
+                reject(new Error(`Failed to load image: ${url}`));
+            };
+            img.src = url;
+        });
+
+        this.loadingPromises.set(url, loadPromise);
+        return loadPromise;
+    }
+
+    /**
+     * 清除缓存
+     */
+    clear() {
+        this.cache.clear();
+        this.loadingPromises.clear();
+    }
+}
+
+// 全局图片缓存实例
+const imageCache = new ImageCache();
+
+
+
+/**
+ * 显示图片的核心实现
+ * @param {object} node - LiteGraph节点实例
+ * @param {string[]} paths - 图片路径数组
+ */
+function showImages(node, paths) {
+    if (!paths || paths.length === 0) {
+        node.imgs = [];
+        node.imageRects = [];
+        return [];
+    }
+    
+    const validPaths = paths.filter(path => path.trim());
+    node.imgs = [];
+    
+    validPaths.forEach((path) => {
+        const img = new Image();
+        node.imgs.push(img);
+        img.onload = () => { 
+            app.graph.setDirtyCanvas(true); 
+        };
+        // 通过API获取图片URL
+        img.src = api.apiURL(`/view?filename=${encodeURIComponent(path)}&type=input`);
+    });
+    
+    // 计算图片布局
+    calculateImageLayout(node, validPaths.length);
+    
+    return node.imgs;
+}
+
+/**
+ * 计算图片在节点上的布局
+ * @param {object} node - LiteGraph节点实例
+ * @param {number} imageCount - 图片数量
+ */
+function calculateImageLayout(node, imageCount) {
+    if (imageCount === 0) {
+        node.imageRects = [];
+        return;
+    }
+    
+    // 获取节点尺寸
+    const nodeWidth = node.size[0];
+    const nodeHeight = node.size[1];
+    
+    // 计算图片网格布局
+    const { rows, cols, size } = calculateOptimalGrid(nodeWidth, nodeHeight, imageCount);
+    
+    const gap = 2;
+    const padding = 5;
+    
+    node.imageRects = [];
+    
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            const index = r * cols + c;
+            if (index >= imageCount) break;
+            
+            const x = padding + c * (size + gap);
+            const y = padding + r * (size + gap);
+            
+            node.imageRects.push([x, y, size, size]);
+        }
+    }
+}
+
+/**
+ * 在Canvas上绘制图片
+ * @param {object} node - LiteGraph节点实例
+ * @param {CanvasRenderingContext2D} ctx - Canvas上下文
+ */
+function drawNodeImages(node, ctx) {
+    if (!node.imgs || !node.imageRects) return;
+    
+    for (let i = 0; i < node.imgs.length; i++) {
+        const img = node.imgs[i];
+        const rect = node.imageRects[i];
+        
+        if (!img || !rect || !img.complete) continue;
+        
+        // 绘制背景
+        ctx.fillStyle = "#1a1a1a";
+        ctx.fillRect(...rect);
+        
+        // 绘制边框
+        ctx.strokeStyle = "#444";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(...rect);
+        
+        // 计算图片缩放和位置
+        const cellWidth = rect[2];
+        const cellHeight = rect[3];
+        
+        // 计算缩放比例，保持宽高比
+        const wratio = cellWidth / img.width;
+        const hratio = cellHeight / img.height;
+        const ratio = Math.min(wratio, hratio);
+        
+        const imgWidth = ratio * img.width;
+        const imgHeight = ratio * img.height;
+        
+        // 计算居中位置
+        const imgX = rect[0] + (cellWidth - imgWidth) / 2;
+        const imgY = rect[1] + (cellHeight - imgHeight) / 2;
+        const cellPadding = 2;
+        
+        // 绘制图片
+        ctx.drawImage(
+            img, 
+            imgX + cellPadding, 
+            imgY + cellPadding, 
+            imgWidth - cellPadding * 2, 
+            imgHeight - cellPadding * 2
+        );
+    }
+}
+
+/**
  * 更新节点上的图片预览区域。
  * @param {object} node - LiteGraph节点实例。
  * @param {string[]} paths - 图片的相对路径数组。
  */
 function updateImagePreviews(node, paths) {
-    const PREVIEW_WIDGET_NAME = "image_previews";
-    const GAP = 2; // 图片间的间距
-    const PADDING = 5; // 容器的内边距
-
-    // 清理所有旧的预览相关元素
-    function cleanupOldPreviews() {
-        // 1. 查找并移除所有相关的DOM元素
-        const oldElements = document.querySelectorAll(`[data-node-id="${node.id}"].image-preview-container`);
-        oldElements.forEach(el => {
-            if (el && el.parentNode) {
-                el.parentNode.removeChild(el);
-            }
-        });
-
-        // 2. 查找并清理所有相关的widget
-        const widgetsToRemove = node.widgets.filter(w => w.name === PREVIEW_WIDGET_NAME);
-        widgetsToRemove.forEach(widget => {
-            // 调用清理函数
-            if (widget.onRemoved) {
-                widget.onRemoved();
-            }
-            // 移除DOM元素
-            if (widget.inputEl && widget.inputEl.parentNode) {
-                widget.inputEl.parentNode.removeChild(widget.inputEl);
-            }
-            // 从widgets数组中移除
-            const index = node.widgets.indexOf(widget);
-            if (index !== -1) {
-                node.widgets.splice(index, 1);
-            }
-        });
+    // 清理旧的图片数据
+    if (node.imgs) {
+        node.imgs = [];
     }
-
-    // 先清理所有旧的预览
-    cleanupOldPreviews();
+    if (node.imageRects) {
+        node.imageRects = [];
+    }
     
     if (!paths || paths.length === 0 || (paths.length === 1 && !paths[0])) {
         node.computeSize();
         app.graph.setDirtyCanvas(true, true);
         return;
     }
-
-    const previewContainer = document.createElement("div");
-    previewContainer.className = "image-preview-container";
-    previewContainer.dataset.nodeId = node.id;
-    Object.assign(previewContainer.style, {
-        display: "flex",
-        flexDirection: "column",
-        padding: `${PADDING}px`,
-        width: "calc(100% - ${PADDING * 2}px)",
-        height: "calc(100% - ${PADDING * 2}px)",
-        boxSizing: "border-box",
-        overflow: "hidden"
-    });
-
-    // 创建图片网格容器
-    const gridContainer = document.createElement("div");
-    Object.assign(gridContainer.style, {
-        display: "flex",
-        flexDirection: "column",
-        gap: `${GAP}px`,
-        width: "100%", // 使用100%宽度确保能正确计算可用空间
-        height: "100%",
-        margin: "0 auto", // 使用 margin auto 实现水平居中
-        overflow: "hidden" // 确保内容不会超出容器
-    });
-
-    // 清除旧的图片元素
-    gridContainer.innerHTML = '';
     
-    // 初始化图片加载
-    const validPaths = paths.filter(path => path.trim());
-    const imageUrls = validPaths.map(path => api.apiURL(`/view?filename=${encodeURIComponent(path)}&type=input`));
-    // 多选状态管理
-    let selectedImages = new Set();
-    let isCtrlPressed = false;
-    let updateBatchDeleteButton = null; // 将在后面定义
+    // 加载图片
+    showImages(node, paths);
     
-    const imageElements = validPaths.map((path, index) => {
-        // 创建图片容器
-        const imgContainer = document.createElement("div");
-        Object.assign(imgContainer.style, {
-            position: "relative",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            width: "100%",
-            height: "100%",
-            overflow: "hidden", // 确保内容不会超出容器
-            cursor: "pointer"
-        });
-        
-        const thumb = document.createElement("img");
-        thumb.src = imageUrls[index];
-        Object.assign(thumb.style, {
-            objectFit: "contain",
-            cursor: "pointer",
-            border: "1px solid #444",
-            borderRadius: "4px",
-            backgroundColor: "#1a1a1a",
-            transition: "all 0.2s ease",
-            width: "100%",
-            height: "100%",
-            maxWidth: "100%",
-            maxHeight: "100%"
-        });
-        
-        // 创建选择指示器
-        const selectionIndicator = document.createElement("div");
-        Object.assign(selectionIndicator.style, {
-            position: "absolute",
-            top: "2px",
-            left: "2px",
-            width: "16px",
-            height: "16px",
-            backgroundColor: "rgba(0, 150, 255, 0.8)",
-            color: "white",
-            borderRadius: "50%",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            fontSize: "10px",
-            opacity: "0",
-            transition: "all 0.2s ease",
-            zIndex: "5"
-        });
-        selectionIndicator.textContent = "✓";
-        
-        // 创建删除图标
-        const deleteIcon = document.createElement("div");
-        Object.assign(deleteIcon.style, {
-            position: "absolute",
-            top: "2px",
-            right: "2px",
-            width: "16px",
-            height: "16px",
-            backgroundColor: "rgba(255, 0, 0, 0.8)",
-            color: "white",
-            borderRadius: "50%",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            fontSize: "10px",
-            cursor: "pointer",
-            opacity: "0",
-            transition: "all 0.2s ease",
-            zIndex: "10"
-        });
-        deleteIcon.textContent = "×";
-        deleteIcon.title = "删除此图片";
-        
-        // 删除图标的悬停效果
-        deleteIcon.addEventListener("mouseenter", () => {
-            deleteIcon.style.backgroundColor = "rgba(255, 0, 0, 1)";
-            deleteIcon.style.transform = "scale(1.1)";
-        });
-        
-        deleteIcon.addEventListener("mouseleave", () => {
-            deleteIcon.style.backgroundColor = "rgba(255, 0, 0, 0.8)";
-            deleteIcon.style.transform = "scale(1)";
-        });
-        
-        // 选择状态更新函数
-        const updateSelectionVisual = () => {
-            const isSelected = selectedImages.has(index);
-            if (isSelected) {
-                thumb.style.borderColor = "#0096ff";
-                thumb.style.borderWidth = "2px";
-                selectionIndicator.style.opacity = "1";
-            } else {
-                thumb.style.borderColor = "#444";
-                thumb.style.borderWidth = "1px";
-                selectionIndicator.style.opacity = "0";
-            }
-            
-            // 更新批量删除按钮状态
-            if (updateBatchDeleteButton) {
-                updateBatchDeleteButton();
-            }
-        };
-        
-        // 悬停效果
-        imgContainer.addEventListener("mouseenter", () => {
-            if (!selectedImages.has(index)) {
-                thumb.style.borderColor = "#666";
-            }
-            deleteIcon.style.opacity = "1";
-        });
-        
-        imgContainer.addEventListener("mouseleave", () => {
-            if (!selectedImages.has(index)) {
-                thumb.style.borderColor = "#444";
-            }
-            deleteIcon.style.opacity = "0";
-        });
-        
-        // 左键点击选择或预览
-        imgContainer.addEventListener("click", (e) => {
-            e.stopPropagation();
-            
-            if (isCtrlPressed) {
-                // Ctrl+点击进行多选
-                if (selectedImages.has(index)) {
-                    selectedImages.delete(index);
-                } else {
-                    selectedImages.add(index);
-                }
-                updateSelectionVisual();
-            } else {
-                // 普通点击预览
-                showLightbox(imageUrls, index);
-            }
-        });
-        
-        // 删除图标点击删除
-        deleteIcon.addEventListener("click", (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            // 直接删除，不需要确认
-            const pathWidget = node.widgets.find(w => w.name === "image_paths");
-            const triggerWidget = node.widgets.find(w => w.name === "trigger");
-            
-            if (pathWidget) {
-                const currentPaths = pathWidget.value.split(',').filter(p => p.trim());
-                // 找到当前路径在数组中的实际索引
-                const currentIndex = currentPaths.findIndex(p => p === path);
-                if (currentIndex !== -1) {
-                    const updatedPaths = currentPaths.filter((_, i) => i !== currentIndex);
-                    pathWidget.value = updatedPaths.join(',');
-                    
-                    // 更新触发器
-                    if (triggerWidget) {
-                        triggerWidget.value = (triggerWidget.value || 0) + 1;
-                    }
-                    
-                    // 重新更新预览
-                    updateImagePreviews(node, updatedPaths);
-                }
-            }
-        });
-        
-        // 右键删除功能
-        thumb.addEventListener("contextmenu", (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            // 确认删除
-            if (confirm(`确定要删除图片 "${path}" 吗？`)) {
-                // 从路径数组中移除
-                const pathWidget = node.widgets.find(w => w.name === "image_paths");
-                const triggerWidget = node.widgets.find(w => w.name === "trigger");
-                
-                if (pathWidget) {
-                    const currentPaths = pathWidget.value.split(',').filter(p => p.trim());
-                    // 找到当前路径在数组中的实际索引
-                    const currentIndex = currentPaths.findIndex(p => p === path);
-                    if (currentIndex !== -1) {
-                        const updatedPaths = currentPaths.filter((_, i) => i !== currentIndex);
-                        pathWidget.value = updatedPaths.join(',');
-                        
-                        // 更新触发器
-                        if (triggerWidget) {
-                            triggerWidget.value = (triggerWidget.value || 0) + 1;
-                        }
-                        
-                        // 重新更新预览
-                        updateImagePreviews(node, updatedPaths);
-                    }
-                }
-            }
-        });
-        
-        // 组装容器
-        imgContainer.appendChild(thumb);
-        imgContainer.appendChild(deleteIcon);
-        imgContainer.appendChild(selectionIndicator);
-        
-        return imgContainer;
-    });
-    
-    // 批量删除函数
-    const batchDelete = () => {
-        if (selectedImages.size === 0) return;
-        
-        const pathWidget = node.widgets.find(w => w.name === "image_paths");
-        const triggerWidget = node.widgets.find(w => w.name === "trigger");
-        
-        if (pathWidget) {
-            const currentPaths = pathWidget.value.split(',').filter(p => p.trim());
-            const updatedPaths = currentPaths.filter((_, i) => !selectedImages.has(i));
-            pathWidget.value = updatedPaths.join(',');
-            
-            // 更新触发器
-            if (triggerWidget) {
-                triggerWidget.value = (triggerWidget.value || 0) + 1;
-            }
-            
-            // 重新更新预览
-            updateImagePreviews(node, updatedPaths);
-        }
-    };
-    
-
-    
-    // 键盘事件监听
-    const handleKeyDown = (e) => {
-        if (e.key === 'Control' || e.key === 'Meta') {
-            isCtrlPressed = true;
-        } else if (e.key === 'Delete' || e.key === 'Backspace') {
-            if (selectedImages.size > 0) {
-                e.preventDefault();
-                batchDelete();
-            }
-        }
-    };
-    
-    const handleKeyUp = (e) => {
-        if (e.key === 'Control' || e.key === 'Meta') {
-            isCtrlPressed = false;
-        }
-    };
-    
-    // 添加键盘事件监听
-    document.addEventListener('keydown', handleKeyDown);
-    document.addEventListener('keyup', handleKeyUp);
-
-    // 更新布局的函数
-    const updateLayout = () => {
-        // 清空现有内容
-        gridContainer.innerHTML = "";
-        
-        // 获取容器尺寸
-        const containerWidth = previewContainer.clientWidth;
-        const containerHeight = previewContainer.clientHeight;
-        
-        // 计算最佳行列数和图片大小
-        const { rows, cols, size } = calculateOptimalGrid(
-            containerWidth, 
-            containerHeight, 
-            imageElements.length
-        );
-
-        // 创建行
-        for (let r = 0; r < rows; r++) {
-            const row = document.createElement("div");
-            Object.assign(row.style, {
-                display: "flex",
-                gap: `${GAP}px`,
-                justifyContent: "flex-start", // 改回左对齐
-                width: "100%", // 使用100%宽度确保能正确计算可用空间
-                height: `${size}px`, // 使用计算出的大小
-                minHeight: `${size}px`, // 确保最小高度
-                overflow: "hidden" // 确保内容不会超出容器
-            });
-
-            // 填充每一行的图片
-            for (let c = 0; c < cols; c++) {
-                const index = r * cols + c;
-                if (index < imageElements.length) {
-                    const container = document.createElement("div");
-                    Object.assign(container.style, {
-                        width: `${size}px`,
-                        height: `${size}px`,
-                        minWidth: `${size}px`,
-                        minHeight: `${size}px`,
-                        display: "flex",
-                        justifyContent: "center",
-                        alignItems: "center",
-                        overflow: "hidden" // 确保图片不会超出容器
-                    });
-                    
-                    const imgElement = imageElements[index];
-                    // 设置图片容器（包含图片和删除按钮）的样式
-                    Object.assign(imgElement.style, {
-                        width: "100%",
-                        height: "100%",
-                        display: "flex",
-                        justifyContent: "center",
-                        alignItems: "center"
-                    });
-                    
-                    container.appendChild(imgElement);
-                    row.appendChild(container);
-                }
-            }
-            
-            gridContainer.appendChild(row);
-        }
-    };
-
-    previewContainer.appendChild(gridContainer);
-
-    // 创建并添加widget
-    const widget = node.addDOMWidget(PREVIEW_WIDGET_NAME, "div", previewContainer);
-    widget.options.serialize = false;
-    
-    // 添加删除提示和批量删除按钮
-    if (validPaths.length > 0) {
-        const hintContainer = document.createElement("div");
-        Object.assign(hintContainer.style, {
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginTop: "5px",
-            fontSize: "11px"
-        });
-        
-        const deleteHint = document.createElement("div");
-        Object.assign(deleteHint.style, {
-            color: "#888",
-            fontStyle: "italic"
-        });
-        deleteHint.textContent = "提示: Ctrl+点击多选，Delete键批量删除，悬停显示删除按钮，右键删除需确认";
-        
-        const batchDeleteBtn = document.createElement("button");
-        Object.assign(batchDeleteBtn.style, {
-            backgroundColor: "rgba(255, 0, 0, 0.8)",
-            color: "white",
-            border: "none",
-            borderRadius: "4px",
-            padding: "2px 8px",
-            fontSize: "10px",
-            cursor: "pointer",
-            opacity: "0.7",
-            transition: "opacity 0.2s ease"
-        });
-        batchDeleteBtn.textContent = "批量删除";
-        batchDeleteBtn.title = "删除选中的图片";
-        
-        batchDeleteBtn.addEventListener("mouseenter", () => {
-            batchDeleteBtn.style.opacity = "1";
-        });
-        
-        batchDeleteBtn.addEventListener("mouseleave", () => {
-            batchDeleteBtn.style.opacity = "0.7";
-        });
-        
-        batchDeleteBtn.addEventListener("click", () => {
-            if (selectedImages.size > 0) {
-                const pathWidget = node.widgets.find(w => w.name === "image_paths");
-                const triggerWidget = node.widgets.find(w => w.name === "trigger");
-                
-                if (pathWidget) {
-                    const currentPaths = pathWidget.value.split(',').filter(p => p.trim());
-                    const updatedPaths = currentPaths.filter((_, i) => !selectedImages.has(i));
-                    pathWidget.value = updatedPaths.join(',');
-                    
-                    // 更新触发器
-                    if (triggerWidget) {
-                        triggerWidget.value = (triggerWidget.value || 0) + 1;
-                    }
-                    
-                    // 重新更新预览
-                    updateImagePreviews(node, updatedPaths);
-                }
-            }
-        });
-        
-        // 更新批量删除按钮状态
-        updateBatchDeleteButton = () => {
-            if (selectedImages.size > 0) {
-                batchDeleteBtn.textContent = `批量删除(${selectedImages.size})`;
-                batchDeleteBtn.style.opacity = "1";
-            } else {
-                batchDeleteBtn.textContent = "批量删除";
-                batchDeleteBtn.style.opacity = "0.7";
-            }
-        };
-        
-        hintContainer.appendChild(deleteHint);
-        hintContainer.appendChild(batchDeleteBtn);
-        previewContainer.appendChild(hintContainer);
-    }
-
-    // 初始化布局
-    setTimeout(updateLayout, 0);
-
-    // 添加resize观察器
-    const resizeObserver = new ResizeObserver(entries => {
-        for (const entry of entries) {
-            if (entry.contentBoxSize) {
-                updateLayout();
-            }
-        }
-    });
-    resizeObserver.observe(previewContainer);
-
-    // 清理函数
-    widget.onRemoved = () => {
-        resizeObserver.disconnect();
-        document.removeEventListener('keydown', handleKeyDown);
-        document.removeEventListener('keyup', handleKeyUp);
-    };
-
+    // 更新节点大小
     node.computeSize();
     app.graph.setDirtyCanvas(true, true);
 }
-
 
 // --- ComfyUI 节点扩展 ---
 app.registerExtension({
@@ -883,19 +582,19 @@ app.registerExtension({
                 uploadWidget.options.serialize = false;
             });
 
-            // 当节点大小改变时，动态调整预览区域的高度
+            // 添加Canvas绘制钩子，在节点背景上绘制图片
+            chainCallback(nodeType.prototype, "drawBackground", function(ctx) {
+                // 调用原有的绘制函数
+                if (this.imgs && this.imageRects) {
+                    drawNodeImages(this, ctx);
+                }
+            });
+            
+            // 当节点大小改变时，重新计算图片布局
             chainCallback(nodeType.prototype, "onResize", function(size) {
-                const previewWidget = this.widgets.find(w => w.name === "image_previews");
-                if (previewWidget && previewWidget.inputEl) {
-                    // 使用 offsetTop 动态计算预览区域上方所有元素占用的空间。
-                    // size[1] 是节点的总高度。
-                    const headerHeight = previewWidget.inputEl.offsetTop;
-                    
-                    // 从总高度中减去头部高度，并留出一些底部间距
-                    const newHeight = size[1] - headerHeight - 15; // 15px for bottom margin
-                    
-                    // 应用新高度，并设置一个最小高度防止其过小
-                    previewWidget.inputEl.style.maxHeight = `${Math.max(50, newHeight)}px`;
+                if (this.imgs && this.imageRects) {
+                    calculateImageLayout(this, this.imgs.length);
+                    app.graph.setDirtyCanvas(true, true);
                 }
             });
             
