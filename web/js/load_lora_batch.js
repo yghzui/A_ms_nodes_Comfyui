@@ -126,7 +126,7 @@ class LoadLoraBatchNode extends LGraphNode {
         this.widgetButtonSpacer = this.addCustomWidget(new RgthreeDividerWidget({ marginTop: 4, marginBottom: 0, thickness: 0 }));
         
         // 添加增加LoRA按钮
-        this.addCustomWidget(new RgthreeBetterButtonWidget("➕ 增加LoRA", (event, pos, node) => {
+        const addButton = new RgthreeBetterButtonWidget("➕ 增加LoRA", (event, pos, node) => {
             showLoraChooser(rgthree.lastCanvasMouseEvent || event, (value) => {
                 if (typeof value === "string") {
                     if (value !== "NONE") {
@@ -138,7 +138,9 @@ class LoadLoraBatchNode extends LGraphNode {
                 }
             }, null, null); // 传入null让showLoraChooser自动获取loras
             return true;
-        }));
+        });
+        addButton.serializeValue = () => undefined; // 阻止按钮被序列化
+        this.addCustomWidget(addButton);
     }
 
     getSlotInPosition(canvasX, canvasY) {
