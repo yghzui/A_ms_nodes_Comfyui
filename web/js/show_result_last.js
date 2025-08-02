@@ -298,21 +298,43 @@ app.registerExtension({
                 ctx.fillStyle = '#fff';
                 ctx.fillText(fileName, rect.x + rect.width / 2, rect.y + 15);
                 
-                // 绘制播放状态指示器
-                if (video.paused) {
-                    // 绘制暂停图标
-                    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-                    ctx.fillRect(rect.x + rect.width / 2 - 15, rect.y + rect.height / 2 - 15, 8, 30);
-                    ctx.fillRect(rect.x + rect.width / 2 + 7, rect.y + rect.height / 2 - 15, 8, 30);
-                } else {
-                    // 绘制播放图标
-                    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-                    ctx.beginPath();
-                    ctx.moveTo(rect.x + rect.width / 2 - 10, rect.y + rect.height / 2 - 15);
-                    ctx.lineTo(rect.x + rect.width / 2 - 10, rect.y + rect.height / 2 + 15);
-                    ctx.lineTo(rect.x + rect.width / 2 + 15, rect.y + rect.height / 2);
-                    ctx.closePath();
-                    ctx.fill();
+                // 绘制播放状态指示器 - 只在鼠标悬浮时显示
+                const centerX = rect.x + rect.width / 2;
+                const centerY = rect.y + rect.height / 2;
+                
+                // 检查鼠标是否在视频区域内 - 使用node参数而不是this
+                if (node.mouseX !== undefined && node.mouseY !== undefined) {
+                    const mouseInVideo = node.mouseX >= rect.x && node.mouseX <= rect.x + rect.width &&
+                                       node.mouseY >= rect.y && node.mouseY <= rect.y + rect.height;
+                    
+                    if (mouseInVideo) {
+                        // 绘制半透明背景圆形
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                        ctx.beginPath();
+                        ctx.arc(centerX, centerY, 18, 0, 2 * Math.PI);
+                        ctx.fill();
+                        
+                        // 绘制边框
+                        ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+                        ctx.lineWidth = 1.5;
+                        ctx.stroke();
+                        
+                        if (video.paused) {
+                            // 绘制播放图标
+                            ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+                            ctx.beginPath();
+                            ctx.moveTo(centerX - 6, centerY - 10);
+                            ctx.lineTo(centerX - 6, centerY + 10);
+                            ctx.lineTo(centerX + 10, centerY);
+                            ctx.closePath();
+                            ctx.fill();
+                        } else {
+                            // 绘制暂停图标
+                            ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+                            ctx.fillRect(centerX - 6, centerY - 10, 3, 20);
+                            ctx.fillRect(centerX + 3, centerY - 10, 3, 20);
+                        }
+                    }
                 }
             }
             
@@ -356,6 +378,37 @@ app.registerExtension({
             
             // 添加鼠标事件处理
             const originalOnMouseDown = this.onMouseDown;
+            const originalOnMouseMove = this.onMouseMove;
+            
+            // 跟踪鼠标位置
+            this.onMouseMove = function(e) {
+                if (originalOnMouseMove) {
+                    originalOnMouseMove.call(this, e);
+                }
+                
+                // 保存鼠标位置用于悬浮检测
+                this.mouseX = e.canvasX;
+                this.mouseY = e.canvasY;
+                
+                // 触发重绘以更新悬浮状态
+                app.graph.setDirtyCanvas(true, false);
+            };
+            
+            // 鼠标离开时清除位置
+            const originalOnMouseLeave = this.onMouseLeave;
+            this.onMouseLeave = function(e) {
+                if (originalOnMouseLeave) {
+                    originalOnMouseLeave.call(this, e);
+                }
+                
+                // 清除鼠标位置
+                this.mouseX = undefined;
+                this.mouseY = undefined;
+                
+                // 触发重绘以隐藏指示器
+                app.graph.setDirtyCanvas(true, false);
+            };
+            
             this.onMouseDown = function(e) {
                 if (originalOnMouseDown) {
                     originalOnMouseDown.call(this, e);
@@ -368,52 +421,72 @@ app.registerExtension({
                         if (e.canvasX >= rect.x && e.canvasX <= rect.x + rect.width &&
                             e.canvasY >= rect.y && e.canvasY <= rect.y + rect.height) {
                             
-                            // 切换视频播放/暂停状态
-                            if (this.videos && this.videos[i]) {
-                                const video = this.videos[i];
-                                if (video.paused) {
-                                    video.play().catch(e => {
-                                        console.warn(`播放视频失败: ${e.message}`);
-                                    });
-                                } else {
-                                    video.pause();
-                                }
-                            }
+                            // 检查是否点击在播放状态指示器区域（中心区域）
+                            const centerX = rect.x + rect.width / 2;
+                            const centerY = rect.y + rect.height / 2;
+                            const indicatorSize = 25; // 指示器的大小
                             
-                            // 显示相对路径的tooltip
-                            if (this.videoPaths && this.videoPaths[i]) {
-                                const tooltip = document.createElement('div');
-                                tooltip.style.cssText = `
-                                    position: fixed;
-                                    background: rgba(0, 0, 0, 0.9);
-                                    color: white;
-                                    padding: 8px 12px;
-                                    border-radius: 4px;
-                                    font-size: 12px;
-                                    max-width: 400px;
-                                    word-wrap: break-word;
-                                    z-index: 10000;
-                                    pointer-events: none;
-                                `;
-                                // 获取视频的原始尺寸信息
-                                const video = this.videos[i];
-                                let sizeInfo = '';
-                                if (video && video.videoWidth && video.videoHeight) {
-                                    sizeInfo = ` (${video.videoWidth}x${video.videoHeight})`;
+                            const inCenter = e.canvasX >= centerX - indicatorSize/2 && 
+                                           e.canvasX <= centerX + indicatorSize/2 &&
+                                           e.canvasY >= centerY - indicatorSize/2 && 
+                                           e.canvasY <= centerY + indicatorSize/2;
+                            
+                            if (inCenter) {
+                                // 点击在播放状态指示器上，切换播放/暂停
+                                if (this.videos && this.videos[i]) {
+                                    const video = this.videos[i];
+                                    console.log(`点击播放状态指示器，当前状态: ${video.paused ? '暂停' : '播放'}`);
+                                    
+                                    // 使用setTimeout确保事件处理完成
+                                    setTimeout(() => {
+                                        if (video.paused) {
+                                            video.play().catch(e => {
+                                                console.warn(`播放视频失败: ${e.message}`);
+                                            });
+                                        } else {
+                                            video.pause();
+                                        }
+                                    }, 10);
                                 }
-                                tooltip.textContent = `相对路径: ${this.videoPaths[i]}${sizeInfo}`;
-                                document.body.appendChild(tooltip);
+                            } else {
+                                // 点击在视频其他区域，显示tooltip
+                                console.log(`点击视频区域: ${i}`);
                                 
-                                // 设置tooltip位置
-                                tooltip.style.left = (e.clientX + 10) + 'px';
-                                tooltip.style.top = (e.clientY - 30) + 'px';
-                                
-                                // 3秒后移除tooltip
-                                setTimeout(() => {
-                                    if (tooltip.parentNode) {
-                                        tooltip.parentNode.removeChild(tooltip);
+                                // 显示相对路径的tooltip
+                                if (this.videoPaths && this.videoPaths[i]) {
+                                    const tooltip = document.createElement('div');
+                                    tooltip.style.cssText = `
+                                        position: fixed;
+                                        background: rgba(0, 0, 0, 0.9);
+                                        color: white;
+                                        padding: 8px 12px;
+                                        border-radius: 4px;
+                                        font-size: 12px;
+                                        max-width: 400px;
+                                        word-wrap: break-word;
+                                        z-index: 10000;
+                                        pointer-events: none;
+                                    `;
+                                    // 获取视频的原始尺寸信息
+                                    const video = this.videos[i];
+                                    let sizeInfo = '';
+                                    if (video && video.videoWidth && video.videoHeight) {
+                                        sizeInfo = ` (${video.videoWidth}x${video.videoHeight})`;
                                     }
-                                }, 3000);
+                                    tooltip.textContent = `相对路径: ${this.videoPaths[i]}${sizeInfo}`;
+                                    document.body.appendChild(tooltip);
+                                    
+                                    // 设置tooltip位置
+                                    tooltip.style.left = (e.clientX + 10) + 'px';
+                                    tooltip.style.top = (e.clientY - 30) + 'px';
+                                    
+                                    // 3秒后移除tooltip
+                                    setTimeout(() => {
+                                        if (tooltip.parentNode) {
+                                            tooltip.parentNode.removeChild(tooltip);
+                                        }
+                                    }, 3000);
+                                }
                             }
                             break;
                         }
