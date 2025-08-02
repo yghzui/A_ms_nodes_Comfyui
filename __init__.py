@@ -4,7 +4,6 @@
 # File   : __init__.py
 # Description :
 from .nodes.image_nodes import *
-
 from .nodes.mask_nodes import *
 from .nodes.text_nodes import *
 from .nodes.notice import NoticeSound
@@ -21,6 +20,26 @@ from .nodes.image_mix import ImageMaskedColorFill,ImageBlackColorFill,ImageLayer
 from .nodes.load_lora_batch import LoadLoraBatch
 from .nodes.wan_video_lora_batch import WanVideoLoraBatch
 from .nodes.show_result_last import ShowResultLast
+
+# 导入路由模块
+from . import routes
+
+# 延迟注册路由 - 确保在ComfyUI完全初始化后注册
+def register_custom_routes():
+    """延迟注册自定义路由"""
+    try:
+        # 检查是否已经注册过
+        if hasattr(routes, '_routes_registered') and routes._routes_registered:
+            print("⚠️ 路由已经注册过了，跳过重复注册")
+            return
+            
+        routes.register_routes()
+    except Exception as e:
+        print(f"❌ 自定义路由注册失败: {e}")
+
+# 使用延迟注册机制，确保在PromptServer初始化后注册
+routes.delayed_register_routes()
+
 NODE_CLASS_MAPPINGS = {
     "LoadAndResizeImageMy": LoadAndResizeImageMy,
     "ResizeImagesAndMasks": ResizeImagesAndMasks,
@@ -107,9 +126,3 @@ NODE_DISPLAY_NAME_MAPPINGS = {
 
 WEB_DIRECTORY = "./web/js"
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS']
-"""
- "APersonFaceLandmarkMaskGeneratorAddNose": APersonFaceLandmarkMaskGeneratorAddNose,
-    "APersonFaceLandmarkMaskGeneratorByMy": APersonFaceLandmarkMaskGenerator,
- "APersonFaceLandmarkMaskGeneratorAddNose": "APersonFaceLandmarkMaskGeneratorAddNoseOld 生成面部遮罩 by My",
-    "APersonFaceLandmarkMaskGeneratorByMy": "APersonFaceLandmarkMaskGeneratorByMyNew 生成面部遮罩 by My",
-"""
