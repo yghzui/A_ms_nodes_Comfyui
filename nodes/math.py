@@ -56,7 +56,7 @@ class I2VConfigureNode:
             }
         }
 
-    RETURN_TYPES = ("INT", "INT", "INT", "INT", "INT", "INT", "INT")
+    RETURN_TYPES = ("INT", "INT", "INT", "INT", "INT", "INT", "FLOAT")
     RETURN_NAMES = ("width", "height", "length", "steps", "batch_size", "seconds", "fps")
     FUNCTION = "adjust_i2v_config"
     CATEGORY = "A_my_nodes/math"
@@ -70,7 +70,7 @@ class I2VConfigureNode:
         _, input_height, input_width, _ = images.shape
         
         if not enable_ratio_adjustment:
-            return (output_width, output_height, length, steps, batch_size, seconds, fps)
+            return (output_width, output_height, length, steps, batch_size, seconds, float(fps))
         
         # 计算输入和输出的宽高比
         input_ratio = input_width / input_height
@@ -82,5 +82,5 @@ class I2VConfigureNode:
             # 交换输出的宽和高
             output_width, output_height = output_height, output_width
             
-        return (output_width, output_height, length, steps, batch_size, seconds, fps)
+        return (output_width, output_height, length, steps, batch_size, seconds, float(fps))
 
