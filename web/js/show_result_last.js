@@ -78,12 +78,7 @@ app.registerExtension({
                 node.size[0] = newSize[0];
                 node.size[1] = newSize[1];
                 
-                // 调用resize方法
-                if (node.onResize) {
-                    node.onResize(newSize);
-                }
-                
-                // 标记需要重绘
+                // 标记需要重绘，但不调用onResize避免递归
                 node.setDirtyCanvas(true, false);
                 app.graph.setDirtyCanvas(true, false);
             }
@@ -184,9 +179,17 @@ app.registerExtension({
                 }
                 console.log("节点大小改变，重新计算布局:", size);
                 
-                // 重新计算视频布局
+                // 重新计算视频布局，但不调整节点大小
                 if (this.videoPaths && this.videoPaths.length > 0) {
+                    // 临时保存当前大小
+                    const currentSize = [this.size[0], this.size[1]];
+                    
+                    // 计算布局但不调整大小
                     calculateVideoLayout(this, this.videoPaths.length);
+                    
+                    // 恢复原始大小，避免递归
+                    this.size[0] = currentSize[0];
+                    this.size[1] = currentSize[1];
                 }
             };
             
