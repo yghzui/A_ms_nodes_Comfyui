@@ -12,14 +12,33 @@ from PIL import Image, ImageDraw, ImageFont
 import insightface
 from insightface.app import FaceAnalysis
 
-# 初始化 InsightFace
-try:
-    face_analyzer = FaceAnalysis(providers=['CPUExecutionProvider'])
-    face_analyzer.prepare(ctx_id=0, det_size=(640, 640))
-    print("[FaceFlip] InsightFace 初始化成功")
-except Exception as e:
-    print(f"[FaceFlip] InsightFace 初始化失败: {e}")
-    face_analyzer = None
+# 将 face_analyzer 初始化为 None，实现懒加载
+face_analyzer = None
+
+def get_face_analyzer():
+    """
+    获取 InsightFace 分析器实例，如果未初始化则进行初始化。
+    这是一个单例模式的实现，确保模型只被加载一次。
+    """
+    global face_analyzer
+    if face_analyzer is None:
+        print("[FaceFlip] 首次使用，正在初始化 InsightFace...")
+        try:
+            # providers可以根据需要修改,例如 ['CUDAExecutionProvider', 'CPUExecutionProvider']
+            # 为了更好的性能, 如果有NVIDIA显卡, 推荐安装 onnxruntime-gpu 并使用 'CUDAExecutionProvider'
+            face_analyzer_instance = FaceAnalysis(providers=['CPUExecutionProvider'])
+            face_analyzer_instance.prepare(ctx_id=0, det_size=(640, 640))
+            face_analyzer = face_analyzer_instance
+            print("[FaceFlip] InsightFace 初始化成功")
+        except Exception as e:
+            print(f"[FaceFlip] InsightFace 初始化失败: {e}")
+            # 将其设置为一个特定值，以防止后续重复尝试初始化
+            face_analyzer = "failed_to_initialize"
+    
+    if isinstance(face_analyzer, FaceAnalysis):
+        return face_analyzer
+    else:
+        return None
 
 def draw_eye_landmarks(image: np.ndarray, landmarks, mode: str) -> np.ndarray:
     """
@@ -195,12 +214,13 @@ def detect_and_crop_face(image: np.ndarray, scale_factor: float = 1.0) -> Tuple[
     Returns:
         裁剪后的人脸图像和人脸信息
     """
-    if face_analyzer is None:
+    analyzer = get_face_analyzer()
+    if analyzer is None:
         return None, None
         
     try:
         # 检测人脸
-        faces = face_analyzer.get(image)
+        faces = analyzer.get(image)
         if not faces:
             print("[FaceFlip] InsightFace 未检测到人脸")
             return None, None
@@ -301,7 +321,7 @@ class FaceFlip:
             ref_img = reference_image[0].cpu().numpy()  # 使用第一张图作为参考
             ref_img_cv = (ref_img * 255).astype(np.uint8)
             
-            if use_insightface and face_analyzer is not None:
+            if use_insightface:
                 # 使用InsightFace检测和裁剪参考图像中的人脸
                 cropped_face, _ = detect_and_crop_face(ref_img_cv, face_scale)
                 if cropped_face is not None:
@@ -339,7 +359,7 @@ class FaceFlip:
             landmarks_img_cv = img_cv.copy()
             
             if auto_flip_face:
-                if use_insightface and face_analyzer is not None:
+                if use_insightface:
                     # 使用InsightFace检测和裁剪人脸
                     cropped_face, crop_info = detect_and_crop_face(img_cv, face_scale)
                     if cropped_face is not None:

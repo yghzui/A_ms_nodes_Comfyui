@@ -47,22 +47,23 @@ class I2VConfigureNode:
                 "output_width": ("INT", {"default": 512, "min": 64, "max": 8192}),
                 "output_height": ("INT", {"default": 768, "min": 64, "max": 8192}),
                 "length": ("INT", {"default": 33, "min": 1, "max": 100}),
+                "steps": ("INT", {"default": 12, "min": 1, "max": 100}),
                 "batch_size": ("INT", {"default": 12, "min": 1, "max": 100}),
                 "enable_ratio_adjustment": ("BOOLEAN", {"default": True}),
             }
         }
 
     RETURN_TYPES = ("INT", "INT", "INT", "INT")
-    RETURN_NAMES = ("width", "height", "length", "batch_size")
+    RETURN_NAMES = ("width", "height", "length", "steps", "batch_size")
     FUNCTION = "adjust_i2v_config"
     CATEGORY = "A_my_nodes/math"
 
-    def adjust_i2v_config(self, images, output_width, output_height, length, batch_size, enable_ratio_adjustment):
+    def adjust_i2v_config(self, images, output_width, output_height, length, steps, batch_size, enable_ratio_adjustment):
         # 从图像张量中获取尺寸信息 (n,h,w,c)
         _, input_height, input_width, _ = images.shape
         
         if not enable_ratio_adjustment:
-            return (output_width, output_height, length, batch_size)
+            return (output_width, output_height, length, steps, batch_size)
         
         # 计算输入和输出的宽高比
         input_ratio = input_width / input_height
@@ -74,15 +75,5 @@ class I2VConfigureNode:
             # 交换输出的宽和高
             output_width, output_height = output_height, output_width
             
-        return (output_width, output_height, length, batch_size)
-
-NODE_CLASS_MAPPINGS = {
-    "AspectRatioAdjuster": AspectRatioAdjuster,
-    "I2VConfigureNode": I2VConfigureNode
-}
-
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "AspectRatioAdjuster": "宽高比例调整器",
-    "I2VConfigureNode": "基于输入的i2v配置器"
-}
+        return (output_width, output_height, length, steps, batch_size)
 
