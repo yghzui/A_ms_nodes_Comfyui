@@ -53,7 +53,7 @@ class I2VConfigureNode:
             }
         }
 
-    RETURN_TYPES = ("INT", "INT", "INT", "INT")
+    RETURN_TYPES = ("INT", "INT", "INT", "INT", "INT")
     RETURN_NAMES = ("width", "height", "length", "steps", "batch_size")
     FUNCTION = "adjust_i2v_config"
     CATEGORY = "A_my_nodes/math"
