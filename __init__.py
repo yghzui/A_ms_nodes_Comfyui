@@ -20,6 +20,7 @@ from .nodes.load_image_batch import LoadImageBatchAdvanced
 from .nodes.image_mix import ImageMaskedColorFill,ImageBlackColorFill,ImageLayerMix, ImageDualMaskColorFill
 from .nodes.load_lora_batch import LoadLoraBatch
 from .nodes.wan_video_lora_batch import WanVideoLoraBatch
+from .nodes.show_result_last import ShowResultLast
 NODE_CLASS_MAPPINGS = {
     "LoadAndResizeImageMy": LoadAndResizeImageMy,
     "ResizeImagesAndMasks": ResizeImagesAndMasks,
@@ -59,6 +60,7 @@ NODE_CLASS_MAPPINGS = {
     "ImageDualMaskColorFill": ImageDualMaskColorFill,
     "LoadLoraBatch": LoadLoraBatch,
     "WanVideoLoraBatch": WanVideoLoraBatch,
+    "ShowResultLast": ShowResultLast,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by My",
@@ -100,6 +102,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageDualMaskColorFill": "ImageDualMaskColorFill 双遮罩不重叠区域颜色填充 by My",
     "LoadLoraBatch": "LoadLoraBatch 批量加载LoRA by My",
     "WanVideoLoraBatch": "WanVideoLoraBatch 批量收集WanVideo LoRA by My",
+    "ShowResultLast": "显示结果-最后 by My",
 }
 
 WEB_DIRECTORY = "./web/js"
