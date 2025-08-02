@@ -26,11 +26,12 @@ app.registerExtension({
             const GAP = 5;
             const PADDING = 10;
             
-            // 为顶部输入控件预留空间
+            // 为顶部输入控件和视频标题预留空间
             const TOP_MARGIN = 50; // 顶部控件的高度
+            const TITLE_HEIGHT = 25; // 视频标题的高度
             
             const availableWidth = containerWidth - (PADDING * 2);
-            const availableHeight = containerHeight - (PADDING * 2) - TOP_MARGIN;
+            const availableHeight = containerHeight - (PADDING * 2) - TOP_MARGIN - TITLE_HEIGHT;
             
             // 计算最佳网格
             let bestRows = 1;
@@ -56,7 +57,7 @@ app.registerExtension({
                 const row = Math.floor(i / bestCols);
                 const col = i % bestCols;
                 const x = PADDING + col * (bestSize + GAP);
-                const y = PADDING + TOP_MARGIN + row * (bestSize + GAP); // 加上顶部边距
+                const y = PADDING + TOP_MARGIN + row * (bestSize + GAP + TITLE_HEIGHT); // 加上顶部边距和标题空间
                 
                 node.videoRects.push({
                     x: x,
@@ -68,7 +69,7 @@ app.registerExtension({
             
             // 调整节点大小以适应内容
             const totalWidth = (bestSize * bestCols) + (GAP * (bestCols - 1)) + (PADDING * 2);
-            const totalHeight = (bestSize * bestRows) + (GAP * (bestRows - 1)) + (PADDING * 2) + TOP_MARGIN;
+            const totalHeight = (bestSize * bestRows) + (GAP * (bestRows - 1)) + (PADDING * 2) + TOP_MARGIN + TITLE_HEIGHT;
             
             const newSize = [Math.max(totalWidth, 200), Math.max(totalHeight, 100)];
             console.log("计算的新尺寸:", newSize, "当前尺寸:", node.size);
@@ -234,27 +235,36 @@ app.registerExtension({
                 ctx.lineWidth = 1;
                 ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
                 
-                // 绘制视频到Canvas - 保持原始比例
+                // 绘制视频到Canvas - 保持原始比例，向下偏移避免被文件名遮挡
                 if (video.readyState >= 2) { // HAVE_CURRENT_DATA
                     try {
+                        // 为文件名预留空间
+                        const titleHeight = 20;
+                        const videoRect = {
+                            x: rect.x,
+                            y: rect.y + titleHeight, // 向下偏移
+                            width: rect.width,
+                            height: rect.height - titleHeight // 减去文件名高度
+                        };
+                        
                         // 计算视频的原始比例
                         const videoAspectRatio = video.videoWidth / video.videoHeight;
-                        const rectAspectRatio = rect.width / rect.height;
+                        const rectAspectRatio = videoRect.width / videoRect.height;
                         
                         let drawWidth, drawHeight, drawX, drawY;
                         
                         if (videoAspectRatio > rectAspectRatio) {
                             // 视频更宽，以宽度为准
-                            drawWidth = rect.width;
-                            drawHeight = rect.width / videoAspectRatio;
-                            drawX = rect.x;
-                            drawY = rect.y + (rect.height - drawHeight) / 2;
+                            drawWidth = videoRect.width;
+                            drawHeight = videoRect.width / videoAspectRatio;
+                            drawX = videoRect.x;
+                            drawY = videoRect.y + (videoRect.height - drawHeight) / 2;
                         } else {
                             // 视频更高，以高度为准
-                            drawHeight = rect.height;
-                            drawWidth = rect.height * videoAspectRatio;
-                            drawX = rect.x + (rect.width - drawWidth) / 2;
-                            drawY = rect.y;
+                            drawHeight = videoRect.height;
+                            drawWidth = videoRect.height * videoAspectRatio;
+                            drawX = videoRect.x + (videoRect.width - drawWidth) / 2;
+                            drawY = videoRect.y;
                         }
                         
                         // 绘制视频，保持原始比例
