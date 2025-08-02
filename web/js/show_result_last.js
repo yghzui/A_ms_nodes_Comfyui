@@ -91,11 +91,13 @@ app.registerExtension({
             if (!videoPaths || videoPaths.length === 0) {
                 node.videos = [];
                 node.videoRects = [];
+                node.videoFileNames = [];
                 return;
             }
             
             const validPaths = videoPaths.filter(path => path.trim());
             node.videos = [];
+            node.videoFileNames = []; // 保存文件名列表
             
             // 为每个视频路径创建视频元素
             validPaths.forEach((path) => {
@@ -110,6 +112,11 @@ app.registerExtension({
                 // 通过API获取视频URL
                 video.src = api.apiURL(`/view?filename=${encodeURIComponent(path)}&type=input`);
                 
+                // 从路径中提取文件名
+                const pathParts = path.split('\\');
+                const fileName = pathParts[pathParts.length - 1];
+                node.videoFileNames.push(fileName);
+                
                 node.videos.push(video);
             });
             
@@ -118,6 +125,21 @@ app.registerExtension({
             
             // 触发重绘
             app.graph.setDirtyCanvas(true, false);
+        }
+
+        /**
+         * 自动调整字体大小以适应宽度
+         */
+        function getAdjustedFontSize(ctx, text, maxWidth, minFontSize = 8, maxFontSize = 12) {
+            let fontSize = maxFontSize;
+            ctx.font = `bold ${fontSize}px Arial`;
+            
+            while (ctx.measureText(text).width > maxWidth && fontSize > minFontSize) {
+                fontSize--;
+                ctx.font = `bold ${fontSize}px Arial`;
+            }
+            
+            return fontSize;
         }
 
         /**
@@ -141,12 +163,24 @@ app.registerExtension({
                 ctx.lineWidth = 1;
                 ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
                 
-                // 绘制视频标题
-                ctx.fillStyle = '#fff';
-                ctx.font = '12px Arial';
+                // 绘制视频标题 - 在顶部显示文件名
                 ctx.textAlign = 'center';
-                const fileName = video.src.split('/').pop().split('?')[0];
-                ctx.fillText(fileName, rect.x + rect.width / 2, rect.y + rect.height - 5);
+                
+                // 使用保存的文件名
+                const fileName = node.videoFileNames && node.videoFileNames[i] ? node.videoFileNames[i] : 'Unknown';
+                
+                // 在顶部绘制文件名背景
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(rect.x, rect.y, rect.width, 20);
+                
+                // 自动调整字体大小
+                const maxTextWidth = rect.width - 10; // 留出边距
+                const fontSize = getAdjustedFontSize(ctx, fileName, maxTextWidth);
+                ctx.font = `bold ${fontSize}px Arial`;
+                
+                // 绘制文件名
+                ctx.fillStyle = '#fff';
+                ctx.fillText(fileName, rect.x + rect.width / 2, rect.y + 15);
             }
             
             ctx.restore();
@@ -169,6 +203,55 @@ app.registerExtension({
                     originalOnDrawForeground.call(this, ctx);
                 }
                 drawNodeVideos(this, ctx);
+            };
+            
+            // 添加鼠标事件处理
+            const originalOnMouseDown = this.onMouseDown;
+            this.onMouseDown = function(e) {
+                if (originalOnMouseDown) {
+                    originalOnMouseDown.call(this, e);
+                }
+                
+                // 检查鼠标是否在视频框内
+                if (this.videoRects) {
+                    for (let i = 0; i < this.videoRects.length; i++) {
+                        const rect = this.videoRects[i];
+                        if (e.canvasX >= rect.x && e.canvasX <= rect.x + rect.width &&
+                            e.canvasY >= rect.y && e.canvasY <= rect.y + rect.height) {
+                            
+                            // 显示完整路径的tooltip
+                            if (this.videoPaths && this.videoPaths[i]) {
+                                const tooltip = document.createElement('div');
+                                tooltip.style.cssText = `
+                                    position: fixed;
+                                    background: rgba(0, 0, 0, 0.9);
+                                    color: white;
+                                    padding: 8px 12px;
+                                    border-radius: 4px;
+                                    font-size: 12px;
+                                    max-width: 400px;
+                                    word-wrap: break-word;
+                                    z-index: 10000;
+                                    pointer-events: none;
+                                `;
+                                tooltip.textContent = this.videoPaths[i];
+                                document.body.appendChild(tooltip);
+                                
+                                // 设置tooltip位置
+                                tooltip.style.left = (e.clientX + 10) + 'px';
+                                tooltip.style.top = (e.clientY - 30) + 'px';
+                                
+                                // 3秒后移除tooltip
+                                setTimeout(() => {
+                                    if (tooltip.parentNode) {
+                                        tooltip.parentNode.removeChild(tooltip);
+                                    }
+                                }, 3000);
+                            }
+                            break;
+                        }
+                    }
+                }
             };
             
             // 重写节点的resize方法，当大小改变时重新计算布局
