@@ -13,8 +13,8 @@ class NoticeSound:
          return {
             "required": {
                 "repeat_times": ("INT", {"default": 1, "min": 1, "max": 10, "step": 1}),
-                "check_mute": ("BOOLEAN", {"default": False}),
-                "max_volume": ("BOOLEAN", {"default": False}),
+                "check_mute": ("BOOLEAN", {"default": False,'tooltip':'是否检查静音状态,容易因为com释放问题导致崩溃'}),
+                "max_volume": ("BOOLEAN", {"default": False,'tooltip':'是否将音量调到最大,容易因为com释放问题导致崩溃'}),
             },
             "optional": {
                 "image": ("IMAGE",),
