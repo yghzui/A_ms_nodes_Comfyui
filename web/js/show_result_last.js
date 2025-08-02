@@ -88,16 +88,44 @@ app.registerExtension({
          * 显示视频的核心实现
          */
         function showVideos(node, videoPaths) {
+            console.log("开始处理新视频数据，清除旧数据...");
+            
+            // 清除旧的视频定时器
+            if (node.videoTimer) {
+                clearInterval(node.videoTimer);
+                node.videoTimer = null;
+            }
+            
+            // 暂停并清除旧的视频元素
+            if (node.videos) {
+                node.videos.forEach(video => {
+                    if (video && !video.paused) {
+                        video.pause();
+                    }
+                    // 清除视频源，释放内存
+                    if (video.src) {
+                        video.src = '';
+                        video.load();
+                    }
+                });
+            }
+            
             if (!videoPaths || videoPaths.length === 0) {
                 node.videos = [];
                 node.videoRects = [];
                 node.videoFileNames = [];
+                node.videoPaths = [];
+                console.log("没有视频数据，已清除所有旧数据");
                 return;
             }
             
             const validPaths = videoPaths.filter(path => path.trim());
+            console.log(`处理 ${validPaths.length} 个有效视频路径`);
+            
+            // 重新初始化数组
             node.videos = [];
-            node.videoFileNames = []; // 保存文件名列表
+            node.videoFileNames = [];
+            node.videoPaths = validPaths; // 保存当前视频路径
             
             // 为每个视频路径创建视频元素
             validPaths.forEach((path) => {
@@ -107,7 +135,9 @@ app.registerExtension({
                 video.loop = true;
                 video.style.maxWidth = '100%';
                 video.style.maxHeight = '100%';
-                video.style.objectFit = 'contain';
+                video.style.objectFit = 'contain'; // 保持原始比例
+                video.style.width = 'auto';
+                video.style.height = 'auto';
                 
                 // 通过自定义静态文件服务获取视频URL - 使用相对路径
                 const videoUrl = `${window.location.origin}/static_output/${encodeURIComponent(path)}`;
@@ -117,6 +147,22 @@ app.registerExtension({
                 // 添加错误处理
                 video.onerror = function() {
                     console.error(`视频加载失败: ${path}, URL: ${videoUrl}`);
+                };
+                
+                // 添加加载完成处理
+                video.onloadeddata = function() {
+                    console.log(`视频加载完成: ${fileName}, 原始尺寸: ${video.videoWidth}x${video.videoHeight}, 比例: ${(video.videoWidth/video.videoHeight).toFixed(2)}`);
+                    
+                    // 保存视频的原始比例信息
+                    video.aspectRatio = video.videoWidth / video.videoHeight;
+                    
+                    // 开始播放
+                    video.play().catch(e => {
+                        console.warn(`自动播放失败: ${e.message}`);
+                    });
+                    
+                    // 触发重绘以显示正确的比例
+                    app.graph.setDirtyCanvas(true, false);
                 };
                 
                 // 从相对路径中提取文件名
@@ -129,6 +175,24 @@ app.registerExtension({
             
             // 计算视频布局
             calculateVideoLayout(node, validPaths.length);
+            
+            // 启动视频播放定时器
+            if (node.videoTimer) {
+                clearInterval(node.videoTimer);
+            }
+            
+            // 每50毫秒重绘一次，确保视频流畅播放（平衡性能和流畅度）
+            node.videoTimer = setInterval(() => {
+                if (node.videos && node.videos.length > 0) {
+                    // 检查是否有视频正在播放
+                    const hasPlayingVideo = node.videos.some(video => 
+                        video && !video.paused && !video.ended
+                    );
+                    if (hasPlayingVideo) {
+                        app.graph.setDirtyCanvas(true, false);
+                    }
+                }
+            }, 50);
             
             // 触发重绘
             app.graph.setDirtyCanvas(true, false);
@@ -170,6 +234,41 @@ app.registerExtension({
                 ctx.lineWidth = 1;
                 ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
                 
+                // 绘制视频到Canvas - 保持原始比例
+                if (video.readyState >= 2) { // HAVE_CURRENT_DATA
+                    try {
+                        // 计算视频的原始比例
+                        const videoAspectRatio = video.videoWidth / video.videoHeight;
+                        const rectAspectRatio = rect.width / rect.height;
+                        
+                        let drawWidth, drawHeight, drawX, drawY;
+                        
+                        if (videoAspectRatio > rectAspectRatio) {
+                            // 视频更宽，以宽度为准
+                            drawWidth = rect.width;
+                            drawHeight = rect.width / videoAspectRatio;
+                            drawX = rect.x;
+                            drawY = rect.y + (rect.height - drawHeight) / 2;
+                        } else {
+                            // 视频更高，以高度为准
+                            drawHeight = rect.height;
+                            drawWidth = rect.height * videoAspectRatio;
+                            drawX = rect.x + (rect.width - drawWidth) / 2;
+                            drawY = rect.y;
+                        }
+                        
+                        // 绘制视频，保持原始比例
+                        ctx.drawImage(video, drawX, drawY, drawWidth, drawHeight);
+                        
+                        // 在视频周围绘制边框，显示实际显示区域
+                        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                        ctx.lineWidth = 1;
+                        ctx.strokeRect(drawX, drawY, drawWidth, drawHeight);
+                    } catch (e) {
+                        console.warn(`绘制视频失败: ${e.message}`);
+                    }
+                }
+                
                 // 绘制视频标题 - 在顶部显示文件名
                 ctx.textAlign = 'center';
                 
@@ -188,16 +287,49 @@ app.registerExtension({
                 // 绘制文件名
                 ctx.fillStyle = '#fff';
                 ctx.fillText(fileName, rect.x + rect.width / 2, rect.y + 15);
+                
+                // 绘制播放状态指示器
+                if (video.paused) {
+                    // 绘制暂停图标
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                    ctx.fillRect(rect.x + rect.width / 2 - 15, rect.y + rect.height / 2 - 15, 8, 30);
+                    ctx.fillRect(rect.x + rect.width / 2 + 7, rect.y + rect.height / 2 - 15, 8, 30);
+                } else {
+                    // 绘制播放图标
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                    ctx.beginPath();
+                    ctx.moveTo(rect.x + rect.width / 2 - 10, rect.y + rect.height / 2 - 15);
+                    ctx.lineTo(rect.x + rect.width / 2 - 10, rect.y + rect.height / 2 + 15);
+                    ctx.lineTo(rect.x + rect.width / 2 + 15, rect.y + rect.height / 2);
+                    ctx.closePath();
+                    ctx.fill();
+                }
             }
             
             ctx.restore();
         }
 
         function populate(videoPaths) {
-            console.log("显示相对视频路径:", videoPaths);
+            console.log("收到新的视频数据，开始更新显示...");
+            console.log("新视频路径:", videoPaths);
             console.log("节点当前尺寸:", this.size);
             
-            // 保存视频路径，用于重新计算
+            // 检查是否有数据变化
+            const oldPaths = this.videoPaths || [];
+            const newPaths = videoPaths || [];
+            
+            // 比较新旧数据是否相同
+            const hasChanged = oldPaths.length !== newPaths.length || 
+                              oldPaths.some((oldPath, index) => oldPath !== newPaths[index]);
+            
+            if (!hasChanged) {
+                console.log("视频数据没有变化，跳过更新");
+                return;
+            }
+            
+            console.log("检测到视频数据变化，开始清除旧数据并加载新数据");
+            
+            // 保存新的视频路径
             this.videoPaths = videoPaths;
             
             // 显示视频
@@ -226,6 +358,18 @@ app.registerExtension({
                         if (e.canvasX >= rect.x && e.canvasX <= rect.x + rect.width &&
                             e.canvasY >= rect.y && e.canvasY <= rect.y + rect.height) {
                             
+                            // 切换视频播放/暂停状态
+                            if (this.videos && this.videos[i]) {
+                                const video = this.videos[i];
+                                if (video.paused) {
+                                    video.play().catch(e => {
+                                        console.warn(`播放视频失败: ${e.message}`);
+                                    });
+                                } else {
+                                    video.pause();
+                                }
+                            }
+                            
                             // 显示相对路径的tooltip
                             if (this.videoPaths && this.videoPaths[i]) {
                                 const tooltip = document.createElement('div');
@@ -241,7 +385,13 @@ app.registerExtension({
                                     z-index: 10000;
                                     pointer-events: none;
                                 `;
-                                tooltip.textContent = `相对路径: ${this.videoPaths[i]}`;
+                                // 获取视频的原始尺寸信息
+                                const video = this.videos[i];
+                                let sizeInfo = '';
+                                if (video && video.videoWidth && video.videoHeight) {
+                                    sizeInfo = ` (${video.videoWidth}x${video.videoHeight})`;
+                                }
+                                tooltip.textContent = `相对路径: ${this.videoPaths[i]}${sizeInfo}`;
                                 document.body.appendChild(tooltip);
                                 
                                 // 设置tooltip位置
@@ -314,6 +464,28 @@ app.registerExtension({
             };
         };
 
+        // 添加节点销毁时的清理逻辑
+        const onRemoved = nodeType.prototype.onRemoved;
+        nodeType.prototype.onRemoved = function () {
+            // 清理视频定时器
+            if (this.videoTimer) {
+                clearInterval(this.videoTimer);
+                this.videoTimer = null;
+            }
+            
+            // 暂停所有视频
+            if (this.videos) {
+                this.videos.forEach(video => {
+                    if (video && !video.paused) {
+                        video.pause();
+                    }
+                });
+            }
+            
+            onRemoved?.apply(this, arguments);
+            console.log("ShowResultLast 节点已清理");
+        };
+
         // 处理节点执行完成
         const onExecuted = nodeType.prototype.onExecuted;
         nodeType.prototype.onExecuted = function (message) {
@@ -323,9 +495,16 @@ app.registerExtension({
             // 处理Python返回的数据
             if (message && message.text) {
                 console.log("收到Python数据:", message.text);
-                populate.call(this, message.text);
+                
+                // 检查数据是否为空或无效
+                if (!message.text || (Array.isArray(message.text) && message.text.length === 0)) {
+                    console.log("收到空数据，清除所有视频");
+                    populate.call(this, []);
+                } else {
+                    populate.call(this, message.text);
+                }
             } else {
-                console.log("没有收到数据");
+                console.log("没有收到数据，显示等待状态");
                 populate.call(this, ["等待数据..."]);
             }
         };
