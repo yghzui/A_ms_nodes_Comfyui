@@ -109,11 +109,18 @@ app.registerExtension({
                 video.style.maxHeight = '100%';
                 video.style.objectFit = 'contain';
                 
-                // 通过API获取视频URL
-                video.src = api.apiURL(`/view?filename=${encodeURIComponent(path)}&type=input`);
+                // 通过自定义静态文件服务获取视频URL - 使用相对路径
+                const videoUrl = `${window.location.origin}/static_output/${encodeURIComponent(path)}`;
+                console.log(`生成视频URL: ${videoUrl} (相对路径: ${path})`);
+                video.src = videoUrl;
                 
-                // 从路径中提取文件名
-                const pathParts = path.split('\\');
+                // 添加错误处理
+                video.onerror = function() {
+                    console.error(`视频加载失败: ${path}, URL: ${videoUrl}`);
+                };
+                
+                // 从相对路径中提取文件名
+                const pathParts = path.split(/[\\\/]/);
                 const fileName = pathParts[pathParts.length - 1];
                 node.videoFileNames.push(fileName);
                 
@@ -187,7 +194,7 @@ app.registerExtension({
         }
 
         function populate(videoPaths) {
-            console.log("显示视频路径:", videoPaths);
+            console.log("显示相对视频路径:", videoPaths);
             console.log("节点当前尺寸:", this.size);
             
             // 保存视频路径，用于重新计算
@@ -219,7 +226,7 @@ app.registerExtension({
                         if (e.canvasX >= rect.x && e.canvasX <= rect.x + rect.width &&
                             e.canvasY >= rect.y && e.canvasY <= rect.y + rect.height) {
                             
-                            // 显示完整路径的tooltip
+                            // 显示相对路径的tooltip
                             if (this.videoPaths && this.videoPaths[i]) {
                                 const tooltip = document.createElement('div');
                                 tooltip.style.cssText = `
@@ -234,7 +241,7 @@ app.registerExtension({
                                     z-index: 10000;
                                     pointer-events: none;
                                 `;
-                                tooltip.textContent = this.videoPaths[i];
+                                tooltip.textContent = `相对路径: ${this.videoPaths[i]}`;
                                 document.body.appendChild(tooltip);
                                 
                                 // 设置tooltip位置

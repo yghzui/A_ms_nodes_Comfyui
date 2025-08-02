@@ -1,12 +1,12 @@
 import os
 import json
 from typing import List, Tuple, Any
-
+from folder_paths import get_output_directory
 class ShowResultLast:
     """显示结果节点 - 解析MP4文件并显示在文本框中"""
     
     def __init__(self):
-        self.output_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", "output")
+        self.output_dir = get_output_directory()
         self.type = "ShowResultLast"
         self.description = "接收多个文件路径，解析出MP4文件并显示在只读文本框中"
         self.category = "显示工具"
@@ -113,10 +113,14 @@ class ShowResultLast:
             display_text += f"\n原始数据:\n{Filenames}"
         
         print(f"ShowResultLast: 显示文本: {display_text}")
-        
+        return_data = []
+        if mp4_files:
+            for mp4_file in mp4_files:
+                relative_path = os.path.relpath(mp4_file, self.output_dir)
+                return_data.append(relative_path)
         # 返回UI更新数据，让前端能够接收
         return {
             "ui": {
-                "text": mp4_files  # 作为一个元素的列表返回
+                "text": return_data  # 作为一个元素的列表返回
             }
         }
