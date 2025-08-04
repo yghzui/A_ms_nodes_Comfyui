@@ -398,7 +398,7 @@ function drawNodeImages(node, ctx) {
             node._customMouseY >= node.size[1] - buttonSize - 10 && node._customMouseY <= node.size[1] - 10;
         
         const mouseInNextButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
-            node._customMouseX >= node.size[0] - buttonSize * 3 - buttonSpacing * 2 - 10 && node._customMouseX <= node.size[0] - buttonSize * 2 - buttonSpacing * 2 - 10 &&
+            node._customMouseX >= node.size[0] - buttonSize - 10 && node._customMouseX <= node.size[0] - 10 &&
             node._customMouseY >= node.size[1] - buttonSize - 10 && node._customMouseY <= node.size[1] - 10;
         
         // 检查鼠标是否悬浮在清除按钮上（左下角）
@@ -420,15 +420,15 @@ function drawNodeImages(node, ctx) {
             ctx.textBaseline = 'middle';
             
             // 计算索引文本位置（在上一个按钮的左边）
-            const indexX = node.size[0] - buttonSize * 3 - buttonSpacing * 2 - 15;
+            const indexX = node.size[0] - buttonSize * 2 - buttonSpacing - 15;
             const indexY = node.size[1] - buttonSize - 10 + buttonSize / 2;
             
             // 绘制索引文本
             ctx.fillText(indexText, indexX, indexY);
         }
         
-        // 绘制上一个按钮 (‹)
-        const prevButtonX = node.size[0] - buttonSize * 3 - buttonSpacing * 2 - 10;
+        // 绘制上一个按钮 (‹) - 左边
+        const prevButtonX = node.size[0] - buttonSize * 2 - buttonSpacing - 10;
         const prevButtonY = node.size[1] - buttonSize - 10;
         
         // 按钮背景（悬浮效果）
@@ -447,8 +447,8 @@ function drawNodeImages(node, ctx) {
         ctx.textBaseline = 'middle';
         ctx.fillText('‹', prevButtonX + buttonSize / 2, prevButtonY + buttonSize / 2);
         
-        // 绘制下一个按钮 (›)
-        const nextButtonX = node.size[0] - buttonSize * 2 - buttonSpacing - 10;
+        // 绘制下一个按钮 (›) - 右边
+        const nextButtonX = node.size[0] - buttonSize - 10;
         const nextButtonY = node.size[1] - buttonSize - 10;
         
         // 按钮背景（悬浮效果）
