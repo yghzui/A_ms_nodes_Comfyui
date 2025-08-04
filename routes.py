@@ -1,4 +1,5 @@
 import os
+import json
 from aiohttp import web
 from server import PromptServer
 from folder_paths import get_output_directory
@@ -22,6 +23,74 @@ async def serve_output_file(request):
 
     return web.FileResponse(full_path)
 
+# 删除文件API处理函数
+async def delete_output_file(request):
+    """删除output目录内的文件"""
+    try:
+        # 获取请求体数据
+        data = await request.json()
+        relative_path = data.get('path')
+        
+        if not relative_path:
+            return web.Response(
+                status=400, 
+                text=json.dumps({"error": "缺少path参数"}), 
+                content_type='application/json'
+            )
+        
+        output_dir = get_output_directory()
+        full_path = os.path.normpath(os.path.join(output_dir, relative_path))
+        
+        # 安全性检查：防止目录穿越
+        if not full_path.startswith(output_dir):
+            return web.Response(
+                status=403, 
+                text=json.dumps({"error": "禁止访问该路径"}), 
+                content_type='application/json'
+            )
+        
+        # 检查文件是否存在
+        if not os.path.isfile(full_path):
+            return web.Response(
+                status=404, 
+                text=json.dumps({"error": "文件不存在"}), 
+                content_type='application/json'
+            )
+        
+        # 删除文件
+        os.remove(full_path)
+        
+        print(f"✅ 成功删除文件: {relative_path}")
+        
+        return web.Response(
+            status=200,
+            text=json.dumps({
+                "success": True,
+                "message": f"文件 {relative_path} 删除成功",
+                "deleted_path": relative_path
+            }),
+            content_type='application/json'
+        )
+        
+    except PermissionError:
+        return web.Response(
+            status=403,
+            text=json.dumps({"error": "没有权限删除该文件"}),
+            content_type='application/json'
+        )
+    except OSError as e:
+        return web.Response(
+            status=500,
+            text=json.dumps({"error": f"删除文件失败: {str(e)}"}),
+            content_type='application/json'
+        )
+    except Exception as e:
+        return web.Response(
+            status=500,
+            text=json.dumps({"error": f"服务器内部错误: {str(e)}"}),
+            content_type='application/json'
+        )
+
 # 路由注册函数 - 这个函数会在ComfyUI初始化时被调用
 def register_routes():
     """注册自定义路由到PromptServer"""
@@ -37,15 +106,22 @@ def register_routes():
         if hasattr(PromptServer, 'instance') and PromptServer.instance is not None:
             # 检查路由是否已经存在
             existing_routes = [route.path for route in PromptServer.instance.routes]
-            if "/static_output/{path:.*}" in existing_routes:
+            
+            # 注册静态文件服务路由
+            if "/static_output/{path:.*}" not in existing_routes:
+                PromptServer.instance.routes.get("/static_output/{path:.*}")(serve_output_file)
+                print("✅ 静态文件服务路由 /static_output/{path:.*} 注册成功！")
+            else:
                 print("⚠️ 路由 /static_output/{path:.*} 已经存在，跳过注册")
-                _routes_registered = True
-                return
+            
+            # 注册删除文件API路由
+            if "/delete_output_file" not in existing_routes:
+                PromptServer.instance.routes.post("/delete_output_file")(delete_output_file)
+                print("✅ 删除文件API路由 /delete_output_file 注册成功！")
+            else:
+                print("⚠️ 路由 /delete_output_file 已经存在，跳过注册")
                 
-            # 注册路由到PromptServer的路由表
-            PromptServer.instance.routes.get("/static_output/{path:.*}")(serve_output_file)
             _routes_registered = True  # 设置注册标志
-            print("✅ 我自己的路由 /static_output/{path:.*} 注册成功！")
         else:
             print("⚠️ PromptServer.instance 未初始化，路由注册延迟")
     except Exception as e:
