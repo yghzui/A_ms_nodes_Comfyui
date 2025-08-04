@@ -152,6 +152,7 @@ app.registerExtension({
                 node.videoFileNames = [];
                 node.videoPaths = [];
                 node.fileNameRects = []; // 清除文件名区域信息
+                node.deleteButtonRects = []; // 清除删除按钮区域信息
                 node.singleVideoMode = false; // 清除单视频模式状态
                 node.focusedVideoIndex = -1;
                 node.sizeInitialized = false; // 重置大小初始化标志
@@ -170,6 +171,7 @@ app.registerExtension({
             node.videoFileNames = [];
             node.videoPaths = validPaths; // 保存当前视频路径
             node.fileNameRects = []; // 初始化文件名区域数组
+            node.deleteButtonRects = []; // 初始化删除按钮区域数组
             
             // 初始化单视频显示状态
             node.singleVideoMode = false;
@@ -393,11 +395,16 @@ app.registerExtension({
                     height: 20 // 文件名区域高度
                 };
                 
+                // 绘制右上角按钮区域
+                const buttonSize = 16;
+                const buttonMargin = 5;
+                let rightOffset = buttonMargin;
+                
                 // 如果视频有音频，在右上角绘制音频图标
                 if (video.hasAudio) {
                     const audioIconSize = 12;
-                    const audioIconX = rect.x + rect.width - audioIconSize - 5;
-                    const audioIconY = rect.y + 5;
+                    const audioIconX = rect.x + rect.width - rightOffset - audioIconSize;
+                    const audioIconY = rect.y + buttonMargin;
                     
                     // 绘制音频图标背景
                     ctx.fillStyle = 'rgba(0, 255, 0, 0.8)';
@@ -410,7 +417,47 @@ app.registerExtension({
                     ctx.font = `${audioIconSize-2}px Arial`;
                     ctx.textAlign = 'center';
                     ctx.fillText('🔊', audioIconX + audioIconSize/2, audioIconY + audioIconSize/2 + 3);
+                    
+                    rightOffset += audioIconSize + buttonMargin;
                 }
+                
+                // 绘制删除按钮 - 在音频图标左侧
+                const deleteButtonX = rect.x + rect.width - rightOffset - buttonSize;
+                const deleteButtonY = rect.y + buttonMargin;
+                
+                // 检查鼠标是否悬浮在删除按钮上
+                const mouseInDeleteButton = node.mouseX !== undefined && node.mouseY !== undefined &&
+                    node.mouseX >= deleteButtonX && node.mouseX <= deleteButtonX + buttonSize &&
+                    node.mouseY >= deleteButtonY && node.mouseY <= deleteButtonY + buttonSize;
+                
+                // 绘制删除按钮背景（悬浮效果）
+                ctx.fillStyle = mouseInDeleteButton ? 'rgba(255, 0, 0, 0.9)' : 'rgba(255, 0, 0, 0.7)';
+                ctx.beginPath();
+                ctx.arc(deleteButtonX + buttonSize/2, deleteButtonY + buttonSize/2, buttonSize/2, 0, 2 * Math.PI);
+                ctx.fill();
+                
+                // 绘制删除按钮边框
+                ctx.strokeStyle = mouseInDeleteButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+                ctx.lineWidth = mouseInDeleteButton ? 2 : 1;
+                ctx.stroke();
+                
+                // 绘制删除图标 (×)
+                ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+                ctx.font = `${buttonSize - 4}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('×', deleteButtonX + buttonSize/2, deleteButtonY + buttonSize/2);
+                
+                // 保存删除按钮区域信息
+                if (!node.deleteButtonRects) {
+                    node.deleteButtonRects = [];
+                }
+                node.deleteButtonRects[i] = {
+                    x: deleteButtonX,
+                    y: deleteButtonY,
+                    width: buttonSize,
+                    height: buttonSize
+                };
                 
                 // 绘制播放状态指示器 - 只在鼠标悬浮时显示
                 const centerX = rect.x + rect.width / 2;
@@ -829,6 +876,39 @@ app.registerExtension({
                     }
                 }
                 
+                // 检查是否点击删除按钮
+                if (this.deleteButtonRects && this.deleteButtonRects.length > 0) {
+                    for (let i = 0; i < this.deleteButtonRects.length; i++) {
+                        const deleteRect = this.deleteButtonRects[i];
+                        
+                        // 检查视频是否可见
+                        if (this.videoRects && this.videoRects[i] && this.videoRects[i].visible === false) {
+                            continue;
+                        }
+                        
+                        // 计算删除按钮在Canvas中的绝对坐标
+                        const absDeleteButtonX = nodePos[0] + deleteRect.x;
+                        const absDeleteButtonY = nodePos[1] + deleteRect.y;
+                        const absDeleteButtonWidth = deleteRect.width;
+                        const absDeleteButtonHeight = deleteRect.height;
+                        
+                        if (e.canvasX >= absDeleteButtonX && e.canvasX <= absDeleteButtonX + absDeleteButtonWidth &&
+                            e.canvasY >= absDeleteButtonY && e.canvasY <= absDeleteButtonY + absDeleteButtonHeight) {
+                            
+                            console.log(`点击删除按钮，视频索引: ${i}`);
+                            
+                            // 阻止事件冒泡
+                            e.preventDefault();
+                            e.stopPropagation();
+                            
+                            // 执行删除操作
+                            this.deleteVideoWithConfirmation(i);
+                            
+                            return true;
+                        }
+                    }
+                }
+                
                 // 检查鼠标是否在视频框内
                 if (this.videoRects && this.videoRects.length > 0) {
                     console.log("检查视频区域点击", this.videoRects.length, "个视频区域");
@@ -1014,6 +1094,386 @@ app.registerExtension({
                 }
             };
             
+            // 删除视频及其关联文件的确认对话框
+            this.deleteVideoWithConfirmation = function(videoIndex) {
+                if (!this.videoPaths || !this.videoPaths[videoIndex]) {
+                    console.error("无效的视频索引:", videoIndex);
+                    return;
+                }
+                
+                const videoPath = this.videoPaths[videoIndex];
+                const fileName = this.videoFileNames && this.videoFileNames[videoIndex] ? this.videoFileNames[videoIndex] : 'Unknown';
+                
+                // 生成关联文件列表
+                const relatedFiles = this.generateRelatedFiles(videoPath);
+                
+                // 创建确认对话框
+                const confirmDialog = document.createElement('div');
+                confirmDialog.id = 'delete-confirm-dialog-' + this.id;
+                confirmDialog.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: #2a2a2a;
+                    border: 2px solid #666;
+                    border-radius: 8px;
+                    padding: 20px;
+                    z-index: 10001;
+                    max-width: 500px;
+                    color: white;
+                    font-family: Arial, sans-serif;
+                `;
+                
+                // 构建确认消息
+                let confirmMessage = `<h3 style="margin: 0 0 15px 0; color: #ff6b6b;">⚠️ 确认删除文件</h3>`;
+                confirmMessage += `<p style="margin: 0 0 10px 0;"><strong>主文件:</strong> ${fileName}</p>`;
+                
+                if (relatedFiles.length > 1) {
+                    confirmMessage += `<p style="margin: 0 0 10px 0;"><strong>关联文件:</strong></p>`;
+                    confirmMessage += `<ul style="margin: 0 0 15px 0; padding-left: 20px;">`;
+                    relatedFiles.forEach(file => {
+                        if (file !== videoPath) {
+                            const relatedFileName = file.split(/[\\\/]/).pop();
+                            confirmMessage += `<li>${relatedFileName}</li>`;
+                        }
+                    });
+                    confirmMessage += `</ul>`;
+                }
+                
+                confirmMessage += `<p style="margin: 0 0 20px 0; color: #ff6b6b;"><strong>此操作不可撤销！</strong></p>`;
+                
+                // 添加按钮
+                confirmMessage += `
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button id="cancel-delete-${this.id}" style="
+                            padding: 8px 16px;
+                            background: #666;
+                            color: white;
+                            border: none;
+                            border-radius: 4px;
+                            cursor: pointer;
+                        ">取消</button>
+                        <button id="confirm-delete-${this.id}" style="
+                            padding: 8px 16px;
+                            background: #ff6b6b;
+                            color: white;
+                            border: none;
+                            border-radius: 4px;
+                            cursor: pointer;
+                        ">确认删除</button>
+                    </div>
+                `;
+                
+                confirmDialog.innerHTML = confirmMessage;
+                document.body.appendChild(confirmDialog);
+                
+                // 添加背景遮罩
+                const overlay = document.createElement('div');
+                overlay.id = 'delete-overlay-' + this.id;
+                overlay.style.cssText = `
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0, 0, 0, 0.5);
+                    z-index: 10000;
+                `;
+                document.body.appendChild(overlay);
+                
+                // 绑定按钮事件
+                document.getElementById(`cancel-delete-${this.id}`).onclick = () => {
+                    this.removeDeleteDialog();
+                };
+                
+                document.getElementById(`confirm-delete-${this.id}`).onclick = () => {
+                    this.removeDeleteDialog();
+                    this.executeDelete(videoIndex, relatedFiles);
+                };
+                
+                // 点击遮罩关闭对话框
+                overlay.onclick = () => {
+                    this.removeDeleteDialog();
+                };
+            };
+            
+            // 移除删除确认对话框
+            this.removeDeleteDialog = function() {
+                const dialog = document.getElementById('delete-confirm-dialog-' + this.id);
+                const overlay = document.getElementById('delete-overlay-' + this.id);
+                if (dialog) dialog.remove();
+                if (overlay) overlay.remove();
+            };
+            
+            // 生成关联文件列表
+            this.generateRelatedFiles = function(videoPath) {
+                const files = [videoPath]; // 主文件
+                
+                // 从路径中提取文件名（不含扩展名）
+                const pathParts = videoPath.split(/[\\\/]/);
+                const fullFileName = pathParts[pathParts.length - 1];
+                const fileNameWithoutExt = fullFileName.replace(/\.[^/.]+$/, "");
+                
+                // 生成可能的关联文件
+                const possibleExtensions = ['.mp4'];
+                const possibleSuffixes = ['-audio'];
+                
+                // 检查音频文件
+                possibleExtensions.forEach(ext => {
+                    const audioFile = videoPath.replace(/\.[^/.]+$/, "") + '-audio' + ext;
+                    files.push(audioFile);
+                });
+                
+                // 检查预览图片
+                const imageExtensions = ['.png'];
+                imageExtensions.forEach(ext => {
+                    const imageFile = videoPath.replace(/\.[^/.]+$/, "") + ext;
+                    files.push(imageFile);
+                });
+                
+                return files;
+            };
+            
+            // 执行删除操作
+            this.executeDelete = async function(videoIndex, relatedFiles) {
+                console.log(`开始删除视频 ${videoIndex} 及其关联文件`);
+                console.log("要删除的文件:", relatedFiles);
+                
+                const results = {
+                    success: [],
+                    failed: [],
+                    total: relatedFiles.length
+                };
+                
+                // 显示删除进度对话框
+                this.showDeleteProgress(results);
+                
+                // 逐个删除文件
+                for (let i = 0; i < relatedFiles.length; i++) {
+                    const filePath = relatedFiles[i];
+                    
+                    try {
+                        const response = await fetch('/delete_output_file', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                path: filePath
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (response.ok && result.success) {
+                            results.success.push(filePath);
+                            console.log(`✅ 成功删除: ${filePath}`);
+                        } else {
+                            results.failed.push({
+                                path: filePath,
+                                error: result.error || '未知错误'
+                            });
+                            console.log(`❌ 删除失败: ${filePath}, 错误: ${result.error}`);
+                        }
+                    } catch (error) {
+                        results.failed.push({
+                            path: filePath,
+                            error: error.message
+                        });
+                        console.log(`❌ 删除异常: ${filePath}, 错误: ${error.message}`);
+                    }
+                    
+                    // 更新进度
+                    this.updateDeleteProgress(results, i + 1);
+                }
+                
+                // 显示删除结果
+                this.showDeleteResults(results, videoIndex);
+            };
+            
+            // 显示删除进度
+            this.showDeleteProgress = function(results) {
+                const progressDialog = document.createElement('div');
+                progressDialog.id = 'delete-progress-dialog-' + this.id;
+                progressDialog.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: #2a2a2a;
+                    border: 2px solid #666;
+                    border-radius: 8px;
+                    padding: 20px;
+                    z-index: 10001;
+                    min-width: 300px;
+                    color: white;
+                    font-family: Arial, sans-serif;
+                `;
+                
+                progressDialog.innerHTML = `
+                    <h3 style="margin: 0 0 15px 0;">🗑️ 正在删除文件...</h3>
+                    <div id="delete-progress-text-${this.id}" style="margin: 0 0 10px 0;">准备删除...</div>
+                    <div style="background: #444; height: 20px; border-radius: 10px; overflow: hidden;">
+                        <div id="delete-progress-bar-${this.id}" style="
+                            background: #4CAF50;
+                            height: 100%;
+                            width: 0%;
+                            transition: width 0.3s;
+                        "></div>
+                    </div>
+                `;
+                
+                document.body.appendChild(progressDialog);
+            };
+            
+            // 更新删除进度
+            this.updateDeleteProgress = function(results, currentCount) {
+                const progressText = document.getElementById(`delete-progress-text-${this.id}`);
+                const progressBar = document.getElementById(`delete-progress-bar-${this.id}`);
+                
+                if (progressText && progressBar) {
+                    const percentage = (currentCount / results.total) * 100;
+                    progressText.textContent = `正在删除... (${currentCount}/${results.total})`;
+                    progressBar.style.width = percentage + '%';
+                }
+            };
+            
+            // 显示删除结果
+            this.showDeleteResults = function(results, videoIndex) {
+                // 移除进度对话框
+                const progressDialog = document.getElementById(`delete-progress-dialog-${this.id}`);
+                if (progressDialog) progressDialog.remove();
+                
+                // 创建结果对话框
+                const resultDialog = document.createElement('div');
+                resultDialog.id = 'delete-result-dialog-' + this.id;
+                resultDialog.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: #2a2a2a;
+                    border: 2px solid #666;
+                    border-radius: 8px;
+                    padding: 20px;
+                    z-index: 10001;
+                    max-width: 500px;
+                    max-height: 400px;
+                    overflow-y: auto;
+                    color: white;
+                    font-family: Arial, sans-serif;
+                `;
+                
+                // 构建结果消息
+                let resultMessage = `<h3 style="margin: 0 0 15px 0; color: ${results.failed.length === 0 ? '#4CAF50' : '#ff6b6b'};">`;
+                resultMessage += results.failed.length === 0 ? '✅ 删除完成' : '⚠️ 删除部分完成';
+                resultMessage += `</h3>`;
+                
+                resultMessage += `<p style="margin: 0 0 10px 0;"><strong>总计:</strong> ${results.total} 个文件</p>`;
+                resultMessage += `<p style="margin: 0 0 10px 0; color: #4CAF50;"><strong>成功:</strong> ${results.success.length} 个文件</p>`;
+                
+                if (results.failed.length > 0) {
+                    resultMessage += `<p style="margin: 0 0 10px 0; color: #ff6b6b;"><strong>失败:</strong> ${results.failed.length} 个文件</p>`;
+                    resultMessage += `<details style="margin: 0 0 15px 0;">`;
+                    resultMessage += `<summary style="cursor: pointer; color: #ff6b6b;">查看失败详情</summary>`;
+                    resultMessage += `<ul style="margin: 10px 0 0 0; padding-left: 20px;">`;
+                    results.failed.forEach(fail => {
+                        const fileName = fail.path.split(/[\\\/]/).pop();
+                        resultMessage += `<li>${fileName}: ${fail.error}</li>`;
+                    });
+                    resultMessage += `</ul>`;
+                    resultMessage += `</details>`;
+                }
+                
+                // 添加关闭按钮
+                resultMessage += `
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button id="close-result-${this.id}" style="
+                            padding: 8px 16px;
+                            background: #666;
+                            color: white;
+                            border: none;
+                            border-radius: 4px;
+                            cursor: pointer;
+                        ">关闭</button>
+                    </div>
+                `;
+                
+                resultDialog.innerHTML = resultMessage;
+                document.body.appendChild(resultDialog);
+                
+                // 绑定关闭按钮事件
+                document.getElementById(`close-result-${this.id}`).onclick = () => {
+                    this.removeResultDialog();
+                    
+                    // 如果删除成功，从列表中移除该视频
+                    if (results.success.length > 0) {
+                        this.removeVideoFromList(videoIndex);
+                    }
+                };
+                
+                // 3秒后自动关闭
+                setTimeout(() => {
+                    this.removeResultDialog();
+                    if (results.success.length > 0) {
+                        this.removeVideoFromList(videoIndex);
+                    }
+                }, 3000);
+            };
+            
+            // 移除结果对话框
+            this.removeResultDialog = function() {
+                const dialog = document.getElementById('delete-result-dialog-' + this.id);
+                if (dialog) dialog.remove();
+            };
+            
+            // 从列表中移除视频
+            this.removeVideoFromList = function(videoIndex) {
+                if (!this.videoPaths || videoIndex < 0 || videoIndex >= this.videoPaths.length) {
+                    return;
+                }
+                
+                console.log(`从列表中移除视频 ${videoIndex}`);
+                
+                // 暂停并清理视频元素
+                if (this.videos && this.videos[videoIndex]) {
+                    const video = this.videos[videoIndex];
+                    if (!video.paused) {
+                        video.pause();
+                    }
+                    if (video.src) {
+                        video.src = '';
+                        video.load();
+                    }
+                }
+                
+                // 从数组中移除相关数据
+                this.videoPaths.splice(videoIndex, 1);
+                if (this.videos) this.videos.splice(videoIndex, 1);
+                if (this.videoFileNames) this.videoFileNames.splice(videoIndex, 1);
+                if (this.videoRects) this.videoRects.splice(videoIndex, 1);
+                if (this.fileNameRects) this.fileNameRects.splice(videoIndex, 1);
+                if (this.deleteButtonRects) this.deleteButtonRects.splice(videoIndex, 1);
+                
+                // 重新计算布局
+                if (this.videoPaths.length > 0) {
+                    calculateVideoLayout(this, this.videoPaths.length);
+                } else {
+                    // 如果没有视频了，清除所有数据
+                    this.videos = [];
+                    this.videoRects = [];
+                    this.videoFileNames = [];
+                    this.fileNameRects = [];
+                    this.deleteButtonRects = [];
+                    this.singleVideoMode = false;
+                    this.focusedVideoIndex = -1;
+                }
+                
+                // 触发重绘
+                app.graph.setDirtyCanvas(true, false);
+            };
+            
             // 延迟触发重绘，确保布局计算完成
             setTimeout(() => {
                 console.log("延迟后的节点尺寸:", this.size);
@@ -1068,6 +1528,18 @@ app.registerExtension({
             if (this.hideTooltip) {
                 this.hideTooltip();
             }
+            
+            // 清理删除相关的对话框
+            if (this.removeDeleteDialog) {
+                this.removeDeleteDialog();
+            }
+            if (this.removeResultDialog) {
+                this.removeResultDialog();
+            }
+            
+            // 清理进度对话框
+            const progressDialog = document.getElementById(`delete-progress-dialog-${this.id}`);
+            if (progressDialog) progressDialog.remove();
             
             onRemoved?.apply(this, arguments);
             console.log("ShowResultLast 节点已清理");
