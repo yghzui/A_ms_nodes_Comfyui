@@ -159,6 +159,8 @@ app.registerExtension({
                 node.fileNameRects = []; // 清除文件名区域信息
                 node.singleVideoMode = false; // 清除单视频模式状态
                 node.focusedVideoIndex = -1;
+                node.prevButtonRect = null; // 清除上一个按钮区域
+                node.nextButtonRect = null; // 清除下一个按钮区域
                 node.restoreButtonRect = null; // 清除恢复按钮区域
                 console.log("没有视频数据，已清除所有旧数据");
                 return;
@@ -453,46 +455,101 @@ app.registerExtension({
                 }
             }
             
-            // 绘制恢复按钮（只在单视频模式下显示）
+            // 绘制控制按钮（只在单视频模式下显示）
             if (node.singleVideoMode) {
                 const buttonSize = 20;
-                const buttonX = node.size[0] - buttonSize - 10;
-                const buttonY = node.size[1] - buttonSize - 10;
+                const buttonSpacing = 5;
                 
-                // 绘制按钮背景
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-                ctx.fillRect(buttonX, buttonY, buttonSize, buttonSize);
+                // 检查鼠标是否悬浮在按钮上
+                const mouseInRestoreButton = node.mouseX !== undefined && node.mouseY !== undefined &&
+                    node.mouseX >= node.size[0] - buttonSize - 10 && node.mouseX <= node.size[0] - 10 &&
+                    node.mouseY >= node.size[1] - buttonSize - 10 && node.mouseY <= node.size[1] - 10;
                 
-                // 绘制按钮边框
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-                ctx.lineWidth = 2;
-                ctx.strokeRect(buttonX, buttonY, buttonSize, buttonSize);
+                const mouseInPrevButton = node.mouseX !== undefined && node.mouseY !== undefined &&
+                    node.mouseX >= node.size[0] - buttonSize * 2 - buttonSpacing - 10 && node.mouseX <= node.size[0] - buttonSize - buttonSpacing - 10 &&
+                    node.mouseY >= node.size[1] - buttonSize - 10 && node.mouseY <= node.size[1] - 10;
                 
-                // 绘制恢复图标（四个小方块）
+                const mouseInNextButton = node.mouseX !== undefined && node.mouseY !== undefined &&
+                    node.mouseX >= node.size[0] - buttonSize * 3 - buttonSpacing * 2 - 10 && node.mouseX <= node.size[0] - buttonSize * 2 - buttonSpacing * 2 - 10 &&
+                    node.mouseY >= node.size[1] - buttonSize - 10 && node.mouseY <= node.size[1] - 10;
+                
+                // 绘制上一个按钮 (‹)
+                const prevButtonX = node.size[0] - buttonSize * 3 - buttonSpacing * 2 - 10;
+                const prevButtonY = node.size[1] - buttonSize - 10;
+                
+                // 按钮背景（悬浮效果）
+                ctx.fillStyle = mouseInPrevButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(prevButtonX, prevButtonY, buttonSize, buttonSize);
+                
+                // 按钮边框
+                ctx.strokeStyle = mouseInPrevButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+                ctx.lineWidth = mouseInPrevButton ? 2 : 1;
+                ctx.strokeRect(prevButtonX, prevButtonY, buttonSize, buttonSize);
+                
+                // 绘制‹符号
                 ctx.fillStyle = 'rgba(255, 255, 255, 1)';
-                const iconSize = 6;
-                const iconGap = 2;
-                const iconStartX = buttonX + (buttonSize - iconSize * 2 - iconGap) / 2;
-                const iconStartY = buttonY + (buttonSize - iconSize * 2 - iconGap) / 2;
+                ctx.font = `${buttonSize - 4}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('‹', prevButtonX + buttonSize / 2, prevButtonY + buttonSize / 2);
                 
-                // 左上角
-                ctx.fillRect(iconStartX, iconStartY, iconSize, iconSize);
-                // 右上角
-                ctx.fillRect(iconStartX + iconSize + iconGap, iconStartY, iconSize, iconSize);
-                // 左下角
-                ctx.fillRect(iconStartX, iconStartY + iconSize + iconGap, iconSize, iconSize);
-                // 右下角
-                ctx.fillRect(iconStartX + iconSize + iconGap, iconStartY + iconSize + iconGap, iconSize, iconSize);
+                // 绘制下一个按钮 (›)
+                const nextButtonX = node.size[0] - buttonSize * 2 - buttonSpacing - 10;
+                const nextButtonY = node.size[1] - buttonSize - 10;
                 
-                // 保存恢复按钮区域信息
+                // 按钮背景（悬浮效果）
+                ctx.fillStyle = mouseInNextButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(nextButtonX, nextButtonY, buttonSize, buttonSize);
+                
+                // 按钮边框
+                ctx.strokeStyle = mouseInNextButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+                ctx.lineWidth = mouseInNextButton ? 2 : 1;
+                ctx.strokeRect(nextButtonX, nextButtonY, buttonSize, buttonSize);
+                
+                // 绘制›符号
+                ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+                ctx.fillText('›', nextButtonX + buttonSize / 2, nextButtonY + buttonSize / 2);
+                
+                // 绘制恢复按钮 (⭯)
+                const restoreButtonX = node.size[0] - buttonSize - 10;
+                const restoreButtonY = node.size[1] - buttonSize - 10;
+                
+                // 按钮背景（悬浮效果）
+                ctx.fillStyle = mouseInRestoreButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(restoreButtonX, restoreButtonY, buttonSize, buttonSize);
+                
+                // 按钮边框
+                ctx.strokeStyle = mouseInRestoreButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+                ctx.lineWidth = mouseInRestoreButton ? 2 : 1;
+                ctx.strokeRect(restoreButtonX, restoreButtonY, buttonSize, buttonSize);
+                
+                // 绘制⭯符号
+                ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+                ctx.fillText('⭯', restoreButtonX + buttonSize / 2, restoreButtonY + buttonSize / 2);
+                
+                // 保存按钮区域信息
+                node.prevButtonRect = {
+                    x: prevButtonX,
+                    y: prevButtonY,
+                    width: buttonSize,
+                    height: buttonSize
+                };
+                node.nextButtonRect = {
+                    x: nextButtonX,
+                    y: nextButtonY,
+                    width: buttonSize,
+                    height: buttonSize
+                };
                 node.restoreButtonRect = {
-                    x: buttonX,
-                    y: buttonY,
+                    x: restoreButtonX,
+                    y: restoreButtonY,
                     width: buttonSize,
                     height: buttonSize
                 };
             } else {
-                // 清除恢复按钮区域信息
+                // 清除按钮区域信息
+                node.prevButtonRect = null;
+                node.nextButtonRect = null;
                 node.restoreButtonRect = null;
             }
             
@@ -676,35 +733,102 @@ app.registerExtension({
                 // 获取节点的Canvas坐标
                 const nodePos = this.pos;
                 
-                // 检查是否点击恢复按钮（单视频模式下）
-                if (this.singleVideoMode && this.restoreButtonRect) {
-                    const absButtonX = nodePos[0] + this.restoreButtonRect.x;
-                    const absButtonY = nodePos[1] + this.restoreButtonRect.y;
-                    const absButtonWidth = this.restoreButtonRect.width;
-                    const absButtonHeight = this.restoreButtonRect.height;
-                    
-                    if (e.canvasX >= absButtonX && e.canvasX <= absButtonX + absButtonWidth &&
-                        e.canvasY >= absButtonY && e.canvasY <= absButtonY + absButtonHeight) {
+                // 检查是否点击控制按钮（单视频模式下）
+                if (this.singleVideoMode) {
+                    // 检查点击上一个按钮 (‹)
+                    if (this.prevButtonRect) {
+                        const absPrevButtonX = nodePos[0] + this.prevButtonRect.x;
+                        const absPrevButtonY = nodePos[1] + this.prevButtonRect.y;
+                        const absPrevButtonWidth = this.prevButtonRect.width;
+                        const absPrevButtonHeight = this.prevButtonRect.height;
                         
-                        console.log("点击恢复按钮，退出单视频模式");
-                        
-                        // 阻止事件冒泡
-                        e.preventDefault();
-                        e.stopPropagation();
-                        
-                        // 退出单视频模式
-                        this.singleVideoMode = false;
-                        this.focusedVideoIndex = -1;
-                        
-                        // 重新计算布局
-                        if (this.videoPaths && this.videoPaths.length > 0) {
-                            calculateVideoLayout(this, this.videoPaths.length);
+                        if (e.canvasX >= absPrevButtonX && e.canvasX <= absPrevButtonX + absPrevButtonWidth &&
+                            e.canvasY >= absPrevButtonY && e.canvasY <= absPrevButtonY + absPrevButtonHeight) {
+                            
+                            console.log("点击上一个按钮");
+                            
+                            // 阻止事件冒泡
+                            e.preventDefault();
+                            e.stopPropagation();
+                            
+                            // 切换到上一个视频
+                            if (this.videoPaths && this.videoPaths.length > 0) {
+                                this.focusedVideoIndex = (this.focusedVideoIndex - 1 + this.videoPaths.length) % this.videoPaths.length;
+                                console.log(`切换到上一个视频，当前索引: ${this.focusedVideoIndex}`);
+                                
+                                // 重新计算布局
+                                calculateVideoLayout(this, this.videoPaths.length);
+                                
+                                // 触发重绘
+                                app.graph.setDirtyCanvas(true, false);
+                            }
+                            
+                            return true;
                         }
+                    }
+                    
+                    // 检查点击下一个按钮 (›)
+                    if (this.nextButtonRect) {
+                        const absNextButtonX = nodePos[0] + this.nextButtonRect.x;
+                        const absNextButtonY = nodePos[1] + this.nextButtonRect.y;
+                        const absNextButtonWidth = this.nextButtonRect.width;
+                        const absNextButtonHeight = this.nextButtonRect.height;
                         
-                        // 触发重绘
-                        app.graph.setDirtyCanvas(true, false);
+                        if (e.canvasX >= absNextButtonX && e.canvasX <= absNextButtonX + absNextButtonWidth &&
+                            e.canvasY >= absNextButtonY && e.canvasY <= absNextButtonY + absNextButtonHeight) {
+                            
+                            console.log("点击下一个按钮");
+                            
+                            // 阻止事件冒泡
+                            e.preventDefault();
+                            e.stopPropagation();
+                            
+                            // 切换到下一个视频
+                            if (this.videoPaths && this.videoPaths.length > 0) {
+                                this.focusedVideoIndex = (this.focusedVideoIndex + 1) % this.videoPaths.length;
+                                console.log(`切换到下一个视频，当前索引: ${this.focusedVideoIndex}`);
+                                
+                                // 重新计算布局
+                                calculateVideoLayout(this, this.videoPaths.length);
+                                
+                                // 触发重绘
+                                app.graph.setDirtyCanvas(true, false);
+                            }
+                            
+                            return true;
+                        }
+                    }
+                    
+                    // 检查点击恢复按钮 (⭯)
+                    if (this.restoreButtonRect) {
+                        const absRestoreButtonX = nodePos[0] + this.restoreButtonRect.x;
+                        const absRestoreButtonY = nodePos[1] + this.restoreButtonRect.y;
+                        const absRestoreButtonWidth = this.restoreButtonRect.width;
+                        const absRestoreButtonHeight = this.restoreButtonRect.height;
                         
-                        return true;
+                        if (e.canvasX >= absRestoreButtonX && e.canvasX <= absRestoreButtonX + absRestoreButtonWidth &&
+                            e.canvasY >= absRestoreButtonY && e.canvasY <= absRestoreButtonY + absRestoreButtonHeight) {
+                            
+                            console.log("点击恢复按钮，退出单视频模式");
+                            
+                            // 阻止事件冒泡
+                            e.preventDefault();
+                            e.stopPropagation();
+                            
+                            // 退出单视频模式
+                            this.singleVideoMode = false;
+                            this.focusedVideoIndex = -1;
+                            
+                            // 重新计算布局
+                            if (this.videoPaths && this.videoPaths.length > 0) {
+                                calculateVideoLayout(this, this.videoPaths.length);
+                            }
+                            
+                            // 触发重绘
+                            app.graph.setDirtyCanvas(true, false);
+                            
+                            return true;
+                        }
                     }
                 }
                 
