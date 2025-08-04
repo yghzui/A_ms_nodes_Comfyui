@@ -375,14 +375,18 @@ app.registerExtension({
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
                 ctx.fillRect(rect.x, rect.y, rect.width, 20);
                 
+                // 在单视频模式下，显示当前视频索引 (n/m)
+                let displayText = fileName;
+                // 移除标题中的索引显示，改为在按钮区域显示
+                
                 // 自动调整字体大小
                 const maxTextWidth = rect.width - 10; // 留出边距
-                const fontSize = getAdjustedFontSize(ctx, fileName, maxTextWidth);
+                const fontSize = getAdjustedFontSize(ctx, displayText, maxTextWidth);
                 ctx.font = `bold ${fontSize}px Arial`;
                 
-                // 绘制文件名
+                // 绘制文件名（包含索引信息）
                 ctx.fillStyle = '#fff';
-                ctx.fillText(fileName, rect.x + rect.width / 2, rect.y + 15);
+                ctx.fillText(displayText, rect.x + rect.width / 2, rect.y + 15);
                 
                 // 保存文件名区域信息，用于tooltip检测
                 if (!node.fileNameRects) {
@@ -516,6 +520,27 @@ app.registerExtension({
                 const mouseInNextButton = node.mouseX !== undefined && node.mouseY !== undefined &&
                     node.mouseX >= node.size[0] - buttonSize * 3 - buttonSpacing * 2 - 10 && node.mouseX <= node.size[0] - buttonSize * 2 - buttonSpacing * 2 - 10 &&
                     node.mouseY >= node.size[1] - buttonSize - 10 && node.mouseY <= node.size[1] - 10;
+                
+                // 绘制索引信息 (n/m) - 在上一个按钮的左边
+                if (node.videoPaths && node.videoPaths.length > 1 && 
+                    node.focusedVideoIndex >= 0 && node.focusedVideoIndex < node.videoPaths.length) {
+                    const currentIndex = node.focusedVideoIndex + 1;
+                    const totalCount = node.videoPaths.length;
+                    const indexText = `(${currentIndex}/${totalCount})`;
+                    
+                    // 设置文本样式
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                    ctx.font = '12px Arial';
+                    ctx.textAlign = 'right';
+                    ctx.textBaseline = 'middle';
+                    
+                    // 计算索引文本位置（在上一个按钮的左边）
+                    const indexX = node.size[0] - buttonSize * 3 - buttonSpacing * 2 - 15;
+                    const indexY = node.size[1] - buttonSize - 10 + buttonSize / 2;
+                    
+                    // 绘制索引文本
+                    ctx.fillText(indexText, indexX, indexY);
+                }
                 
                 // 绘制上一个按钮 (‹)
                 const prevButtonX = node.size[0] - buttonSize * 3 - buttonSpacing * 2 - 10;
@@ -1064,7 +1089,15 @@ app.registerExtension({
                         sizeInfo = ` (${video.videoWidth}x${video.videoHeight})`;
                     }
                     
-                    tooltip.textContent = `相对路径: ${this.videoPaths[videoIndex]}${sizeInfo}`;
+                    // 添加索引信息到tooltip
+                    let indexInfo = '';
+                    if (this.videoPaths && this.videoPaths.length > 1) {
+                        const currentIndex = videoIndex + 1;
+                        const totalCount = this.videoPaths.length;
+                        indexInfo = ` [${currentIndex}/${totalCount}]`;
+                    }
+                    
+                    tooltip.textContent = `相对路径: ${this.videoPaths[videoIndex]}${sizeInfo}${indexInfo}`;
                     document.body.appendChild(tooltip);
                     
                     // 设置tooltip位置，确保不超出屏幕边界
@@ -1458,6 +1491,30 @@ app.registerExtension({
                 
                 // 重新计算布局
                 if (this.videoPaths.length > 0) {
+                                    // 检查单视频模式下的逻辑
+                if (this.singleVideoMode) {
+                    // 如果删除的是当前聚焦的视频
+                    if (videoIndex === this.focusedVideoIndex) {
+                        // 如果还有其他视频，切换到第一个视频
+                        if (this.videoPaths.length > 0) {
+                            this.focusedVideoIndex = 0;
+                        } else {
+                            // 没有视频了，退出单视频模式
+                            this.singleVideoMode = false;
+                            this.focusedVideoIndex = -1;
+                        }
+                    } else if (videoIndex < this.focusedVideoIndex) {
+                        // 如果删除的视频在当前聚焦视频之前，需要调整索引
+                        this.focusedVideoIndex--;
+                    }
+                    // 如果删除的视频在当前聚焦视频之后，索引不需要调整
+                    
+                    // 确保聚焦索引在有效范围内
+                    if (this.focusedVideoIndex >= this.videoPaths.length) {
+                        this.focusedVideoIndex = this.videoPaths.length - 1;
+                    }
+                }
+                    
                     calculateVideoLayout(this, this.videoPaths.length);
                 } else {
                     // 如果没有视频了，清除所有数据
@@ -1468,6 +1525,7 @@ app.registerExtension({
                     this.deleteButtonRects = [];
                     this.singleVideoMode = false;
                     this.focusedVideoIndex = -1;
+                    this.sizeInitialized = false; // 重置大小初始化标志
                 }
                 
                 // 触发重绘
