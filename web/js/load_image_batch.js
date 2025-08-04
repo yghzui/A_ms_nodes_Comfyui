@@ -275,89 +275,105 @@ function drawNodeImages(node, ctx) {
             }
         }
         
-        // 检查鼠标是否在图片区域内，只在悬浮时显示文件名和清除按钮
-        const mouseInImage = node._customMouseX !== undefined && node._customMouseY !== undefined &&
-            node._customMouseX >= rect.x && node._customMouseX <= rect.x + rect.width &&
-            node._customMouseY >= rect.y && node._customMouseY <= rect.y + rect.height;
-        
-        if (mouseInImage) {
-            // 绘制图片标题 - 在顶部显示文件名，与图片重叠
-            ctx.textAlign = 'center';
+        // 在多图片模式下，只在悬浮时显示文件名和清除按钮
+        if (!node._customSingleImageMode) {
+            const mouseInImage = node._customMouseX !== undefined && node._customMouseY !== undefined &&
+                node._customMouseX >= rect.x && node._customMouseX <= rect.x + rect.width &&
+                node._customMouseY >= rect.y && node._customMouseY <= rect.y + rect.height;
             
-            // 使用保存的文件名
-            const fileName = node._customImageFileNames && node._customImageFileNames[i] ? node._customImageFileNames[i] : 'Unknown';
-            
-            // 在顶部绘制文件名背景（半透明，与图片重叠）
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-            ctx.fillRect(rect.x, rect.y, rect.width, 30);
-            
-            // 自动调整字体大小
-            const maxTextWidth = rect.width - 10; // 留出边距
-            const fontSize = getAdjustedFontSize(ctx, fileName, maxTextWidth);
-            ctx.font = `bold ${fontSize}px Arial`;
-            
-            // 绘制文件名
-            ctx.fillStyle = '#fff';
-            ctx.fillText(fileName, rect.x + rect.width / 2, rect.y + 20);
-            
-            // 绘制右上角清除按钮
-            const buttonSize = 16;
-            const buttonMargin = 5;
-            const clearButtonX = rect.x + rect.width - buttonMargin - buttonSize;
-            const clearButtonY = rect.y + buttonMargin;
-            
-            // 检查鼠标是否悬浮在清除按钮上
-            const mouseInClearButton = node._customMouseX >= clearButtonX && node._customMouseX <= clearButtonX + buttonSize &&
-                node._customMouseY >= clearButtonY && node._customMouseY <= clearButtonY + buttonSize;
-            
-            // 绘制清除按钮背景（悬浮效果）
-            ctx.fillStyle = mouseInClearButton ? 'rgba(255, 0, 0, 0.9)' : 'rgba(255, 0, 0, 0.7)';
-            ctx.beginPath();
-            ctx.arc(clearButtonX + buttonSize/2, clearButtonY + buttonSize/2, buttonSize/2, 0, 2 * Math.PI);
-            ctx.fill();
-            
-            // 绘制清除按钮边框
-            ctx.strokeStyle = mouseInClearButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
-            ctx.lineWidth = mouseInClearButton ? 2 : 1;
-            ctx.stroke();
-            
-            // 绘制清除图标 (×)
-            ctx.fillStyle = 'rgba(255, 255, 255, 1)';
-            ctx.font = `${buttonSize - 4}px Arial`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText('×', clearButtonX + buttonSize/2, clearButtonY + buttonSize/2);
-            
-            // 保存清除按钮区域信息
-            if (!node._customClearButtonRects) {
-                node._customClearButtonRects = [];
+            if (mouseInImage) {
+                // 绘制图片标题 - 在顶部显示文件名，与图片重叠
+                ctx.textAlign = 'center';
+                
+                // 使用保存的文件名
+                const fileName = node._customImageFileNames && node._customImageFileNames[i] ? node._customImageFileNames[i] : 'Unknown';
+                
+                // 在顶部绘制文件名背景（半透明，与图片重叠）
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                ctx.fillRect(rect.x, rect.y, rect.width, 30);
+                
+                // 自动调整字体大小
+                const maxTextWidth = rect.width - 10; // 留出边距
+                const fontSize = getAdjustedFontSize(ctx, fileName, maxTextWidth);
+                ctx.font = `bold ${fontSize}px Arial`;
+                
+                // 绘制文件名
+                ctx.fillStyle = '#fff';
+                ctx.fillText(fileName, rect.x + rect.width / 2, rect.y + 20);
+                
+                // 绘制右上角清除按钮
+                const buttonSize = 16;
+                const buttonMargin = 5;
+                const clearButtonX = rect.x + rect.width - buttonMargin - buttonSize;
+                const clearButtonY = rect.y + buttonMargin;
+                
+                // 检查鼠标是否悬浮在清除按钮上
+                const mouseInClearButton = node._customMouseX >= clearButtonX && node._customMouseX <= clearButtonX + buttonSize &&
+                    node._customMouseY >= clearButtonY && node._customMouseY <= clearButtonY + buttonSize;
+                
+                // 绘制清除按钮背景（悬浮效果）
+                ctx.fillStyle = mouseInClearButton ? 'rgba(255, 0, 0, 0.9)' : 'rgba(255, 0, 0, 0.7)';
+                ctx.beginPath();
+                ctx.arc(clearButtonX + buttonSize/2, clearButtonY + buttonSize/2, buttonSize/2, 0, 2 * Math.PI);
+                ctx.fill();
+                
+                // 绘制清除按钮边框
+                ctx.strokeStyle = mouseInClearButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+                ctx.lineWidth = mouseInClearButton ? 2 : 1;
+                ctx.stroke();
+                
+                // 绘制清除图标 (×)
+                ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+                ctx.font = `${buttonSize - 4}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('×', clearButtonX + buttonSize/2, clearButtonY + buttonSize/2);
+                
+                // 保存清除按钮区域信息
+                if (!node._customClearButtonRects) {
+                    node._customClearButtonRects = [];
+                }
+                node._customClearButtonRects[i] = {
+                    x: clearButtonX,
+                    y: clearButtonY,
+                    width: buttonSize,
+                    height: buttonSize
+                };
+                
+                // 保存文件名区域信息，用于tooltip检测
+                if (!node._customFileNameRects) {
+                    node._customFileNameRects = [];
+                }
+                node._customFileNameRects[i] = {
+                    x: rect.x,
+                    y: rect.y,
+                    width: rect.width,
+                    height: 30
+                };
+            } else {
+                // 鼠标不在图片上时，清除按钮区域为空
+                if (!node._customClearButtonRects) {
+                    node._customClearButtonRects = [];
+                }
+                node._customClearButtonRects[i] = null;
+                
+                // 保存文件名区域信息
+                if (!node._customFileNameRects) {
+                    node._customFileNameRects = [];
+                }
+                node._customFileNameRects[i] = null;
             }
-            node._customClearButtonRects[i] = {
-                x: clearButtonX,
-                y: clearButtonY,
-                width: buttonSize,
-                height: buttonSize
-            };
         } else {
-            // 鼠标不在图片上时，清除按钮区域为空
+            // 单图片模式下，清除按钮区域为空（将在控制按钮区域绘制）
             if (!node._customClearButtonRects) {
                 node._customClearButtonRects = [];
             }
             node._customClearButtonRects[i] = null;
-        }
-        
-        // 保存文件名区域信息，用于tooltip检测（只在悬浮时有效）
-        if (!node._customFileNameRects) {
-            node._customFileNameRects = [];
-        }
-        if (mouseInImage) {
-            node._customFileNameRects[i] = {
-                x: rect.x,
-                y: rect.y,
-                width: rect.width,
-                height: 30
-            };
-        } else {
+            
+            // 单图片模式下，文件名区域为空（将在底部绘制）
+            if (!node._customFileNameRects) {
+                node._customFileNameRects = [];
+            }
             node._customFileNameRects[i] = null;
         }
     }
@@ -378,6 +394,11 @@ function drawNodeImages(node, ctx) {
         
         const mouseInNextButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
             node._customMouseX >= node.size[0] - buttonSize * 3 - buttonSpacing * 2 - 10 && node._customMouseX <= node.size[0] - buttonSize * 2 - buttonSpacing * 2 - 10 &&
+            node._customMouseY >= node.size[1] - buttonSize - 10 && node._customMouseY <= node.size[1] - 10;
+        
+        // 检查鼠标是否悬浮在清除按钮上（左下角）
+        const mouseInClearButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
+            node._customMouseX >= 10 && node._customMouseX <= 10 + buttonSize &&
             node._customMouseY >= node.size[1] - buttonSize - 10 && node._customMouseY <= node.size[1] - 10;
         
         // 绘制索引信息 (n/m) - 在上一个按钮的左边
@@ -455,6 +476,41 @@ function drawNodeImages(node, ctx) {
         ctx.fillStyle = 'rgba(255, 255, 255, 1)';
         ctx.fillText('⭯', restoreButtonX + buttonSize / 2, restoreButtonY + buttonSize / 2);
         
+        // 绘制左下角清除按钮
+        const clearButtonX = 10;
+        const clearButtonY = node.size[1] - buttonSize - 10;
+        
+        // 按钮背景（固定样式，无悬浮效果）
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
+        ctx.fillRect(clearButtonX, clearButtonY, buttonSize, buttonSize);
+        
+        // 按钮边框
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(clearButtonX, clearButtonY, buttonSize, buttonSize);
+        
+        // 绘制清除图标 (×)
+        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+        ctx.font = `${buttonSize - 4}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('×', clearButtonX + buttonSize / 2, clearButtonY + buttonSize / 2);
+        
+        // 绘制底部文件名
+        if (node._customImageFileNames && node._customImageFileNames[node._customFocusedImageIndex]) {
+            const fileName = node._customImageFileNames[node._customFocusedImageIndex];
+            
+            // 设置文本样式
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // 在底部中间绘制文件名
+            const fileNameY = node.size[1] - 15;
+            ctx.fillText(fileName, node.size[0] / 2, fileNameY);
+        }
+        
         // 保存按钮区域信息
         node._customPrevButtonRect = {
             x: prevButtonX,
@@ -474,11 +530,18 @@ function drawNodeImages(node, ctx) {
             width: buttonSize,
             height: buttonSize
         };
+        node._customClearButtonRect = {
+            x: clearButtonX,
+            y: clearButtonY,
+            width: buttonSize,
+            height: buttonSize
+        };
     } else {
         // 清除按钮区域信息
         node._customPrevButtonRect = null;
         node._customNextButtonRect = null;
         node._customRestoreButtonRect = null;
+        node._customClearButtonRect = null;
     }
     
     ctx.restore();
@@ -783,9 +846,32 @@ function populate(imagePaths) {
                     return true;
                 }
             }
+            
+            // 检查点击左下角清除按钮（单图片模式）
+            if (this._customClearButtonRect) {
+                const absClearButtonX = nodePos[0] + this._customClearButtonRect.x;
+                const absClearButtonY = nodePos[1] + this._customClearButtonRect.y;
+                const absClearButtonWidth = this._customClearButtonRect.width;
+                const absClearButtonHeight = this._customClearButtonRect.height;
+                
+                if (e.canvasX >= absClearButtonX && e.canvasX <= absClearButtonX + absClearButtonWidth &&
+                    e.canvasY >= absClearButtonY && e.canvasY <= absClearButtonY + absClearButtonHeight) {
+                    
+                    console.log(`点击左下角清除按钮，图片索引: ${this._customFocusedImageIndex}`);
+                    
+                    // 阻止事件冒泡
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // 执行清除操作
+                    this.clearImageWithConfirmation(this._customFocusedImageIndex);
+                    
+                    return true;
+                }
+            }
         }
                 
-        // 检查是否点击清除按钮
+        // 检查是否点击清除按钮（多图片模式）
         if (this._customClearButtonRects && this._customClearButtonRects.length > 0) {
             for (let i = 0; i < this._customClearButtonRects.length; i++) {
                 const clearRect = this._customClearButtonRects[i];
@@ -1364,6 +1450,7 @@ app.registerExtension({
                 this._customImgs = null;
                 this._customImageRects = null;
                 this._customClearButtonRects = null;
+                this._customClearButtonRect = null;
                 this._customImageFileNames = null;
                 this._customImagePaths = null;
                 this._customFileNameRects = null;
