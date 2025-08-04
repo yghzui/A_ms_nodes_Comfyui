@@ -564,9 +564,10 @@ function populate(imagePaths) {
                 originalOnDrawForeground.call(this, ctx);
             }
             
-            // 然后绘制我们的自定义内容
-            if (this._customImgs && this._customImageRects) {
-                console.log("执行自定义绘制，图片数量:", this._customImgs.length);
+            // 只有LoadImageBatchAdvanced节点才执行自定义绘制
+            if (this.type === "LoadImageBatchAdvanced" && this._customImgs && this._customImageRects) {
+                // 只在调试模式下输出日志
+                // console.log("执行自定义绘制，图片数量:", this._customImgs.length);
                 drawNodeImages(this, ctx);
             }
         };
@@ -605,15 +606,32 @@ function populate(imagePaths) {
             originalOnMouseMove.call(this, e);
         }
         
+        // 只有LoadImageBatchAdvanced节点才处理自定义鼠标事件
+        if (this.type !== "LoadImageBatchAdvanced") {
+            return;
+        }
+        
+        // 计算新的鼠标位置
+        const newMouseX = e.canvasX - this.pos[0];
+        const newMouseY = e.canvasY - this.pos[1];
+        
+        // 检查鼠标位置是否真的改变了
+        const mousePositionChanged = this._customMouseX !== newMouseX || this._customMouseY !== newMouseY;
+        
         // 保存鼠标位置用于悬浮检测
-        this._customMouseX = e.canvasX - this.pos[0];
-        this._customMouseY = e.canvasY - this.pos[1];
+        this._customMouseX = newMouseX;
+        this._customMouseY = newMouseY;
         
         // 处理悬浮tooltip - 只在悬浮在文件名区域时显示
         let tooltipShown = false;
         if (this._customFileNameRects && this._customFileNameRects.length > 0) {
             for (let i = 0; i < this._customFileNameRects.length; i++) {
                 const fileNameRect = this._customFileNameRects[i];
+                
+                // 检查文件名区域是否存在（只在悬浮时存在）
+                if (!fileNameRect) {
+                    continue;
+                }
                 
                 // 计算文件名区域在Canvas中的绝对坐标
                 const nodePos = this.pos;
@@ -641,8 +659,10 @@ function populate(imagePaths) {
             this.hideTooltip();
         }
                 
-        // 触发重绘以更新悬浮状态
-        app.graph.setDirtyCanvas(true, false);
+        // 只在鼠标位置真正改变时才触发重绘
+        if (mousePositionChanged) {
+            app.graph.setDirtyCanvas(true, false);
+        }
     };
             
     // 鼠标离开时清除位置
@@ -650,6 +670,11 @@ function populate(imagePaths) {
     this.onMouseLeave = function(e) {
         if (originalOnMouseLeave) {
             originalOnMouseLeave.call(this, e);
+        }
+        
+        // 只有LoadImageBatchAdvanced节点才处理自定义鼠标事件
+        if (this.type !== "LoadImageBatchAdvanced") {
+            return;
         }
         
         // 清除鼠标位置
@@ -664,6 +689,14 @@ function populate(imagePaths) {
     };
     
     this.onMouseDown = function(e) {
+        // 只有LoadImageBatchAdvanced节点才处理自定义鼠标事件
+        if (this.type !== "LoadImageBatchAdvanced") {
+            if (originalOnMouseDown) {
+                return originalOnMouseDown.call(this, e);
+            }
+            return false;
+        }
+        
         console.log("onMouseDown 被调用", e);
         console.log("节点信息:", this.id, this.type, this.size);
         console.log("图片区域:", this._customImageRects);
