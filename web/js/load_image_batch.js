@@ -383,10 +383,15 @@ function drawNodeImages(node, ctx) {
         const buttonSize = 20;
         const buttonSpacing = 5;
         
+        // 获取当前显示的图片位置，用于计算恢复按钮位置
+        const currentImageRect = node._customImageRects[node._customFocusedImageIndex];
+        const restoreButtonX = currentImageRect ? currentImageRect.x + currentImageRect.width - buttonSize - 5 : node.size[0] - buttonSize - 10;
+        const restoreButtonY = currentImageRect ? currentImageRect.y + 5 : 10;
+        
         // 检查鼠标是否悬浮在按钮上
         const mouseInRestoreButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
-            node._customMouseX >= node.size[0] - buttonSize - 10 && node._customMouseX <= node.size[0] - 10 &&
-            node._customMouseY >= node.size[1] - buttonSize - 10 && node._customMouseY <= node.size[1] - 10;
+            node._customMouseX >= restoreButtonX && node._customMouseX <= restoreButtonX + buttonSize &&
+            node._customMouseY >= restoreButtonY && node._customMouseY <= restoreButtonY + buttonSize;
         
         const mouseInPrevButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
             node._customMouseX >= node.size[0] - buttonSize * 2 - buttonSpacing - 10 && node._customMouseX <= node.size[0] - buttonSize - buttonSpacing - 10 &&
@@ -459,9 +464,7 @@ function drawNodeImages(node, ctx) {
         ctx.fillStyle = 'rgba(255, 255, 255, 1)';
         ctx.fillText('›', nextButtonX + buttonSize / 2, nextButtonY + buttonSize / 2);
         
-        // 绘制恢复按钮 (⭯)
-        const restoreButtonX = node.size[0] - buttonSize - 10;
-        const restoreButtonY = node.size[1] - buttonSize - 10;
+        // 绘制恢复按钮 (⭯) - 放在图片区域的右上角
         
         // 按钮背景（悬浮效果）
         ctx.fillStyle = mouseInRestoreButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';

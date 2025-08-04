@@ -519,10 +519,15 @@ app.registerExtension({
                 const buttonSize = 20;
                 const buttonSpacing = 5;
                 
-                        // 检查鼠标是否悬浮在按钮上
+                        // 获取当前显示的视频位置，用于计算恢复按钮位置
+        const currentVideoRect = node.videoRects[node.focusedVideoIndex];
+        const restoreButtonX = currentVideoRect ? currentVideoRect.x + currentVideoRect.width - buttonSize - 5 : node.size[0] - buttonSize - 10;
+        const restoreButtonY = currentVideoRect ? currentVideoRect.y + 5 : 10;
+        
+        // 检查鼠标是否悬浮在按钮上
         const mouseInRestoreButton = node.mouseX !== undefined && node.mouseY !== undefined &&
-            node.mouseX >= node.size[0] - buttonSize - 10 && node.mouseX <= node.size[0] - 10 &&
-            node.mouseY >= node.size[1] - buttonSize - 10 && node.mouseY <= node.size[1] - 10;
+            node.mouseX >= restoreButtonX && node.mouseX <= restoreButtonX + buttonSize &&
+            node.mouseY >= restoreButtonY && node.mouseY <= restoreButtonY + buttonSize;
         
         const mouseInPrevButton = node.mouseX !== undefined && node.mouseY !== undefined &&
             node.mouseX >= node.size[0] - buttonSize * 2 - buttonSpacing - 10 && node.mouseX <= node.size[0] - buttonSize - buttonSpacing - 10 &&
@@ -595,9 +600,7 @@ app.registerExtension({
                 ctx.fillStyle = 'rgba(255, 255, 255, 1)';
                 ctx.fillText('›', nextButtonX + buttonSize / 2, nextButtonY + buttonSize / 2);
                 
-                // 绘制恢复按钮 (⭯)
-                const restoreButtonX = node.size[0] - buttonSize - 10;
-                const restoreButtonY = node.size[1] - buttonSize - 10;
+                // 绘制恢复按钮 (⭯) - 放在视频区域的右上角
                 
                 // 按钮背景（悬浮效果）
                 ctx.fillStyle = mouseInRestoreButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
