@@ -3,6 +3,7 @@ console.log("Loading custom node: A_my_nodes/web/js/load_image_batch.js");
 
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
+import { showImageLightbox } from "./lightbox_preview.js";
 
 /**
  * 从 VideoHelperSuite 示例中借鉴的健壮的回调链函数。
@@ -394,16 +395,21 @@ function drawNodeImages(node, ctx) {
             node._customMouseY >= restoreButtonY && node._customMouseY <= restoreButtonY + buttonSize;
         
         const mouseInPrevButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
-            node._customMouseX >= node.size[0] - buttonSize * 2 - buttonSpacing - 10 && node._customMouseX <= node.size[0] - buttonSize - buttonSpacing - 10 &&
+            node._customMouseX >= node.size[0] - buttonSize * 3 - buttonSpacing - 10 && node._customMouseX <= node.size[0] - buttonSize * 2 - buttonSpacing - 10 &&
             node._customMouseY >= node.size[1] - buttonSize - 10 && node._customMouseY <= node.size[1] - 10;
         
         const mouseInNextButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
-            node._customMouseX >= node.size[0] - buttonSize - 10 && node._customMouseX <= node.size[0] - 10 &&
+            node._customMouseX >= node.size[0] - buttonSize * 2 - 10 && node._customMouseX <= node.size[0] - buttonSize - 10 &&
             node._customMouseY >= node.size[1] - buttonSize - 10 && node._customMouseY <= node.size[1] - 10;
         
         // 检查鼠标是否悬浮在清除按钮上（左下角）
         const mouseInClearButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
             node._customMouseX >= 10 && node._customMouseX <= 10 + buttonSize &&
+            node._customMouseY >= node.size[1] - buttonSize - 10 && node._customMouseY <= node.size[1] - 10;
+        
+        // 检查鼠标是否悬浮在全屏预览按钮上（右下角）
+        const mouseInFullscreenButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
+            node._customMouseX >= node.size[0] - buttonSize - 10 && node._customMouseX <= node.size[0] - 10 &&
             node._customMouseY >= node.size[1] - buttonSize - 10 && node._customMouseY <= node.size[1] - 10;
         
         // 绘制索引信息 (n/m) - 在上一个按钮的左边
@@ -420,7 +426,7 @@ function drawNodeImages(node, ctx) {
             ctx.textBaseline = 'middle';
             
             // 计算索引文本位置（在上一个按钮的左边）
-            const indexX = node.size[0] - buttonSize * 2 - buttonSpacing - 15;
+            const indexX = node.size[0] - buttonSize * 3 - buttonSpacing - 15;
             const indexY = node.size[1] - buttonSize - 10 + buttonSize / 2;
             
             // 绘制索引文本
@@ -428,7 +434,7 @@ function drawNodeImages(node, ctx) {
         }
         
         // 绘制上一个按钮 (‹) - 左边
-        const prevButtonX = node.size[0] - buttonSize * 2 - buttonSpacing - 10;
+        const prevButtonX = node.size[0] - buttonSize * 3 - buttonSpacing - 10;
         const prevButtonY = node.size[1] - buttonSize - 10;
         
         // 按钮背景（悬浮效果）
@@ -448,7 +454,7 @@ function drawNodeImages(node, ctx) {
         ctx.fillText('‹', prevButtonX + buttonSize / 2, prevButtonY + buttonSize / 2);
         
         // 绘制下一个按钮 (›) - 右边
-        const nextButtonX = node.size[0] - buttonSize - 10;
+        const nextButtonX = node.size[0] - buttonSize * 2 - 10;
         const nextButtonY = node.size[1] - buttonSize - 10;
         
         // 按钮背景（悬浮效果）
@@ -499,6 +505,26 @@ function drawNodeImages(node, ctx) {
         ctx.textBaseline = 'middle';
         ctx.fillText('×', clearButtonX + buttonSize / 2, clearButtonY + buttonSize / 2);
         
+        // 绘制右下角全屏预览按钮
+        const fullscreenButtonX = node.size[0] - buttonSize - 10;
+        const fullscreenButtonY = node.size[1] - buttonSize - 10;
+        
+        // 按钮背景（悬浮效果）
+        ctx.fillStyle = mouseInFullscreenButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(fullscreenButtonX, fullscreenButtonY, buttonSize, buttonSize);
+        
+        // 按钮边框
+        ctx.strokeStyle = mouseInFullscreenButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = mouseInFullscreenButton ? 2 : 1;
+        ctx.strokeRect(fullscreenButtonX, fullscreenButtonY, buttonSize, buttonSize);
+        
+        // 绘制全屏图标 (⛶)
+        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+        ctx.font = `${buttonSize - 4}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('⛶', fullscreenButtonX + buttonSize / 2, fullscreenButtonY + buttonSize / 2);
+        
         // 绘制底部文件名
         if (node._customImageFileNames && node._customImageFileNames[node._customFocusedImageIndex]) {
             const fileName = node._customImageFileNames[node._customFocusedImageIndex];
@@ -539,12 +565,19 @@ function drawNodeImages(node, ctx) {
             width: buttonSize,
             height: buttonSize
         };
+        node._customFullscreenButtonRect = {
+            x: fullscreenButtonX,
+            y: fullscreenButtonY,
+            width: buttonSize,
+            height: buttonSize
+        };
     } else {
         // 清除按钮区域信息
         node._customPrevButtonRect = null;
         node._customNextButtonRect = null;
         node._customRestoreButtonRect = null;
         node._customClearButtonRect = null;
+        node._customFullscreenButtonRect = null;
     }
     
     ctx.restore();
@@ -868,6 +901,31 @@ function populate(imagePaths) {
                     
                     // 执行清除操作
                     this.clearImageWithConfirmation(this._customFocusedImageIndex);
+                    
+                    return true;
+                }
+            }
+            
+            // 检查点击右下角全屏预览按钮（单图片模式）
+            if (this._customFullscreenButtonRect) {
+                const absFullscreenButtonX = nodePos[0] + this._customFullscreenButtonRect.x;
+                const absFullscreenButtonY = nodePos[1] + this._customFullscreenButtonRect.y;
+                const absFullscreenButtonWidth = this._customFullscreenButtonRect.width;
+                const absFullscreenButtonHeight = this._customFullscreenButtonRect.height;
+                
+                if (e.canvasX >= absFullscreenButtonX && e.canvasX <= absFullscreenButtonX + absFullscreenButtonWidth &&
+                    e.canvasY >= absFullscreenButtonY && e.canvasY <= absFullscreenButtonY + absFullscreenButtonHeight) {
+                    
+                    console.log(`点击全屏预览按钮，图片索引: ${this._customFocusedImageIndex}`);
+                    
+                    // 阻止事件冒泡
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // 执行全屏预览
+                    if (this._customImagePaths && this._customImagePaths.length > 0) {
+                        showImageLightbox(this._customImagePaths, this._customFocusedImageIndex);
+                    }
                     
                     return true;
                 }
@@ -1454,6 +1512,7 @@ app.registerExtension({
                 this._customImageRects = null;
                 this._customClearButtonRects = null;
                 this._customClearButtonRect = null;
+                this._customFullscreenButtonRect = null;
                 this._customImageFileNames = null;
                 this._customImagePaths = null;
                 this._customFileNameRects = null;

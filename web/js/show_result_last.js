@@ -5,6 +5,7 @@ console.log("Patching node: ShowResultLast1");
 import { ComfyWidgets } from "../../../scripts/widgets.js";
 console.log("Patching node: ShowResultLast2");
 import { api } from "../../../scripts/api.js";
+import { showVideoLightbox } from "./lightbox_preview.js";
 
 app.registerExtension({
     name: "A_my_nodes.ShowResultLast.UI",
@@ -541,6 +542,11 @@ app.registerExtension({
         const mouseInDeleteButton = node.mouseX !== undefined && node.mouseY !== undefined &&
             node.mouseX >= 10 && node.mouseX <= 10 + buttonSize &&
             node.mouseY >= node.size[1] - buttonSize - 10 && node.mouseY <= node.size[1] - 10;
+        
+        // 检查鼠标是否悬浮在全屏预览按钮上（右下角）
+        const mouseInFullscreenButton = node.mouseX !== undefined && node.mouseY !== undefined &&
+            node.mouseX >= node.size[0] - buttonSize - 10 && node.mouseX <= node.size[0] - 10 &&
+            node.mouseY >= node.size[1] - buttonSize - 10 && node.mouseY <= node.size[1] - 10;
                 
                 // 绘制索引信息 (n/m) - 在上一个按钮的左边
                 if (node.videoPaths && node.videoPaths.length > 1 && 
@@ -628,12 +634,32 @@ app.registerExtension({
                 ctx.lineWidth = 1;
                 ctx.strokeRect(deleteButtonX, deleteButtonY, buttonSize, buttonSize);
                 
-                // 绘制删除图标 (×)
-                ctx.fillStyle = 'rgba(255, 255, 255, 1)';
-                ctx.font = `${buttonSize - 4}px Arial`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('×', deleteButtonX + buttonSize / 2, deleteButtonY + buttonSize / 2);
+                        // 绘制删除图标 (×)
+        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+        ctx.font = `${buttonSize - 4}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('×', deleteButtonX + buttonSize / 2, deleteButtonY + buttonSize / 2);
+        
+        // 绘制右下角全屏预览按钮
+        const fullscreenButtonX = node.size[0] - buttonSize - 10;
+        const fullscreenButtonY = node.size[1] - buttonSize - 10;
+        
+        // 按钮背景（悬浮效果）
+        ctx.fillStyle = mouseInFullscreenButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(fullscreenButtonX, fullscreenButtonY, buttonSize, buttonSize);
+        
+        // 按钮边框
+        ctx.strokeStyle = mouseInFullscreenButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = mouseInFullscreenButton ? 2 : 1;
+        ctx.strokeRect(fullscreenButtonX, fullscreenButtonY, buttonSize, buttonSize);
+        
+        // 绘制全屏图标 (⛶)
+        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+        ctx.font = `${buttonSize - 4}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('⛶', fullscreenButtonX + buttonSize / 2, fullscreenButtonY + buttonSize / 2);
                 
                 // 绘制底部文件名
                 if (node.videoFileNames && node.videoFileNames[node.focusedVideoIndex]) {
@@ -675,12 +701,19 @@ app.registerExtension({
                     width: buttonSize,
                     height: buttonSize
                 };
+                node.fullscreenButtonRect = {
+                    x: fullscreenButtonX,
+                    y: fullscreenButtonY,
+                    width: buttonSize,
+                    height: buttonSize
+                };
             } else {
                 // 清除按钮区域信息
                 node.prevButtonRect = null;
                 node.nextButtonRect = null;
                 node.restoreButtonRect = null;
                 node.deleteButtonRect = null;
+                node.fullscreenButtonRect = null;
             }
             
             ctx.restore();
@@ -979,6 +1012,31 @@ app.registerExtension({
                             
                             // 执行删除操作
                             this.deleteVideoWithConfirmation(this.focusedVideoIndex);
+                            
+                            return true;
+                        }
+                    }
+                    
+                    // 检查点击右下角全屏预览按钮（单视频模式）
+                    if (this.fullscreenButtonRect) {
+                        const absFullscreenButtonX = nodePos[0] + this.fullscreenButtonRect.x;
+                        const absFullscreenButtonY = nodePos[1] + this.fullscreenButtonRect.y;
+                        const absFullscreenButtonWidth = this.fullscreenButtonRect.width;
+                        const absFullscreenButtonHeight = this.fullscreenButtonRect.height;
+                        
+                        if (e.canvasX >= absFullscreenButtonX && e.canvasX <= absFullscreenButtonX + absFullscreenButtonWidth &&
+                            e.canvasY >= absFullscreenButtonY && e.canvasY <= absFullscreenButtonY + absFullscreenButtonHeight) {
+                            
+                            console.log(`点击全屏预览按钮，视频索引: ${this.focusedVideoIndex}`);
+                            
+                            // 阻止事件冒泡
+                            e.preventDefault();
+                            e.stopPropagation();
+                            
+                            // 执行全屏预览
+                            if (this.videoPaths && this.videoPaths.length > 0) {
+                                showVideoLightbox(this.videoPaths, this.focusedVideoIndex);
+                            }
                             
                             return true;
                         }
@@ -1683,8 +1741,9 @@ app.registerExtension({
             this.videos = null;
             this.videoRects = null;
             this.deleteButtonRects = null;
-            this.deleteButtonRect = null;
-            this.videoFileNames = null;
+                            this.deleteButtonRect = null;
+                this.fullscreenButtonRect = null;
+                this.videoFileNames = null;
             this.videoPaths = null;
             this.fileNameRects = null;
             this.mouseX = null;
