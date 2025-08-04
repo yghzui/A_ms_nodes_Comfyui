@@ -217,7 +217,8 @@ function showImages(node, paths) {
 function drawNodeImages(node, ctx) {
     if (!node._customImgs || !node._customImageRects) return;
     
-    console.log("开始绘制图片，图片数量:", node._customImgs.length);
+    // 绘制图片（已优化，避免频繁调用）
+    // console.log("开始绘制图片，图片数量:", node._customImgs.length);
     
     ctx.save();
     
@@ -547,14 +548,10 @@ function populate(imagePaths) {
     // 显示图片
     showImages(this, imagePaths);
     
-    // 使用Symbol来确保绘制方法不会被覆盖
-    const CUSTOM_DRAW_SYMBOL = Symbol('customDrawForeground');
-    
-    // 确保只设置一次绘制方法，避免重复设置
-    if (!this[CUSTOM_DRAW_SYMBOL]) {
+    // 重写节点的绘制方法（只在第一次调用时设置）
+    if (!this._customDrawMethodSet) {
         console.log("设置自定义绘制方法");
         
-        // 重写节点的绘制方法
         const originalOnDrawForeground = this.onDrawForeground;
         
         // 创建一个包装函数，确保我们的绘制逻辑始终被执行
@@ -566,8 +563,6 @@ function populate(imagePaths) {
             
             // 只有LoadImageBatchAdvanced节点才执行自定义绘制
             if (this.type === "LoadImageBatchAdvanced" && this._customImgs && this._customImageRects) {
-                // 只在调试模式下输出日志
-                // console.log("执行自定义绘制，图片数量:", this._customImgs.length);
                 drawNodeImages(this, ctx);
             }
         };
@@ -576,22 +571,9 @@ function populate(imagePaths) {
         this.onDrawForeground = customDrawForeground;
         
         // 标记已设置
-        this[CUSTOM_DRAW_SYMBOL] = true;
-        
-        // 添加一个检查机制，定期验证绘制方法是否被覆盖
-        const checkDrawMethod = () => {
-            if (this.onDrawForeground !== customDrawForeground) {
-                console.warn("检测到绘制方法被覆盖，重新设置");
-                this.onDrawForeground = customDrawForeground;
-            }
-        };
-        
-        // 每5秒检查一次
-        this._customDrawCheckInterval = setInterval(checkDrawMethod, 5000);
+        this._customDrawMethodSet = true;
         
         console.log("自定义绘制方法设置完成");
-    } else {
-        console.log("自定义绘制方法已存在，跳过设置");
     }
     
     // 添加鼠标事件处理
@@ -1282,24 +1264,39 @@ app.registerExtension({
                 }
             });
             
-            // 添加鼠标事件处理
+            // 添加鼠标事件处理（只在有图片数据时处理）
             chainCallback(nodeType.prototype, "onMouseMove", function(e) {
-                // 保存鼠标位置用于悬浮检测
-                this._customMouseX = e.canvasX - this.pos[0];
-                this._customMouseY = e.canvasY - this.pos[1];
-                
-                // 触发重绘以更新悬浮状态
-                app.graph.setDirtyCanvas(true, false);
+                // 只有LoadImageBatchAdvanced节点且有图片数据时才处理
+                if (this.type === "LoadImageBatchAdvanced" && this._customImgs && this._customImgs.length > 0) {
+                    // 计算新的鼠标位置
+                    const newMouseX = e.canvasX - this.pos[0];
+                    const newMouseY = e.canvasY - this.pos[1];
+                    
+                    // 检查鼠标位置是否真的改变了
+                    const mousePositionChanged = this._customMouseX !== newMouseX || this._customMouseY !== newMouseY;
+                    
+                    // 保存鼠标位置用于悬浮检测
+                    this._customMouseX = newMouseX;
+                    this._customMouseY = newMouseY;
+                    
+                    // 只在鼠标位置真正改变时才触发重绘
+                    if (mousePositionChanged) {
+                        app.graph.setDirtyCanvas(true, false);
+                    }
+                }
             });
             
             // 鼠标离开时清除位置
             chainCallback(nodeType.prototype, "onMouseLeave", function(e) {
-                // 清除鼠标位置
-                this._customMouseX = undefined;
-                this._customMouseY = undefined;
-                
-                // 触发重绘以隐藏指示器
-                app.graph.setDirtyCanvas(true, false);
+                // 只有LoadImageBatchAdvanced节点且有图片数据时才处理
+                if (this.type === "LoadImageBatchAdvanced" && this._customImgs && this._customImgs.length > 0) {
+                    // 清除鼠标位置
+                    this._customMouseX = undefined;
+                    this._customMouseY = undefined;
+                    
+                    // 触发重绘以隐藏指示器
+                    app.graph.setDirtyCanvas(true, false);
+                }
             });
             
             // 处理鼠标点击事件
@@ -1360,11 +1357,8 @@ app.registerExtension({
                     this.removeClearResultDialog();
                 }
                 
-                // 清理定时器
-                if (this._customDrawCheckInterval) {
-                    clearInterval(this._customDrawCheckInterval);
-                    this._customDrawCheckInterval = null;
-                }
+                // 清理自定义绘制方法标记
+                this._customDrawMethodSet = false;
                 
                 // 清理自定义属性
                 this._customImgs = null;
