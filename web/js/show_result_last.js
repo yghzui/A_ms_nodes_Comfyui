@@ -827,6 +827,11 @@ app.registerExtension({
                         for (let i = 0; i < this.fileNameRects.length; i++) {
                             const fileNameRect = this.fileNameRects[i];
                             
+                            // 检查文件名区域是否存在（只在悬浮时存在）
+                            if (!fileNameRect) {
+                                continue;
+                            }
+                            
                             // 计算文件名区域在Canvas中的绝对坐标
                             const absFileNameX = nodePos[0] + fileNameRect.x;
                             const absFileNameY = nodePos[1] + fileNameRect.y;
@@ -1047,6 +1052,11 @@ app.registerExtension({
                 if (this.deleteButtonRects && this.deleteButtonRects.length > 0) {
                     for (let i = 0; i < this.deleteButtonRects.length; i++) {
                         const deleteRect = this.deleteButtonRects[i];
+                        
+                        // 检查删除按钮是否存在（只在悬浮时存在）
+                        if (!deleteRect) {
+                            continue;
+                        }
                         
                         // 检查视频是否可见
                         if (this.videoRects && this.videoRects[i] && this.videoRects[i].visible === false) {
