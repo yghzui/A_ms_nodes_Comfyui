@@ -322,16 +322,15 @@ app.registerExtension({
                 ctx.lineWidth = 1;
                 ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
                 
-                // 绘制视频到Canvas - 保持原始比例，向下偏移避免被文件名遮挡
+                // 绘制视频到Canvas - 保持原始比例
                 if (video.readyState >= 2) { // HAVE_CURRENT_DATA
                     try {
-                        // 为文件名预留空间
-                        const titleHeight = 20;
+                        // 单视频模式下文件名显示在底部，不需要向下偏移
                         const videoRect = {
                             x: rect.x,
-                            y: rect.y + titleHeight, // 向下偏移
+                            y: rect.y,
                             width: rect.width,
-                            height: rect.height - titleHeight // 减去文件名高度
+                            height: rect.height
                         };
                         
                         // 计算视频的原始比例
@@ -366,101 +365,117 @@ app.registerExtension({
                     }
                 }
                 
-                // 在多视频模式下，在顶部显示文件名和删除按钮
+                // 在多视频模式下，只在悬浮时显示文件名和删除按钮
                 if (!node.singleVideoMode) {
-                    // 绘制视频标题 - 在顶部显示文件名
-                    ctx.textAlign = 'center';
+                    // 使用与onMouseMove相同的逻辑来判断鼠标是否在视频区域内
+                    const mouseInVideo = node.mouseInVideoArea && node.currentHoveredVideo === i;
                     
-                    // 使用保存的文件名
-                    const fileName = node.videoFileNames && node.videoFileNames[i] ? node.videoFileNames[i] : 'Unknown';
-                    
-                    // 在顶部绘制文件名背景
-                    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-                    ctx.fillRect(rect.x, rect.y, rect.width, 20);
-                    
-                    // 自动调整字体大小
-                    const maxTextWidth = rect.width - 10; // 留出边距
-                    const fontSize = getAdjustedFontSize(ctx, fileName, maxTextWidth);
-                    ctx.font = `bold ${fontSize}px Arial`;
-                    
-                    // 绘制文件名
-                    ctx.fillStyle = '#fff';
-                    ctx.fillText(fileName, rect.x + rect.width / 2, rect.y + 15);
-                    
-                    // 保存文件名区域信息，用于tooltip检测
-                    if (!node.fileNameRects) {
-                        node.fileNameRects = [];
-                    }
-                    node.fileNameRects[i] = {
-                        x: rect.x,
-                        y: rect.y,
-                        width: rect.width,
-                        height: 20 // 文件名区域高度
-                    };
-                    
-                    // 绘制右上角按钮区域
-                    const buttonSize = 16;
-                    const buttonMargin = 5;
-                    let rightOffset = buttonMargin;
-                    
-                    // 如果视频有音频，在右上角绘制音频图标
-                    if (video.hasAudio) {
-                        const audioIconSize = 12;
-                        const audioIconX = rect.x + rect.width - rightOffset - audioIconSize;
-                        const audioIconY = rect.y + buttonMargin;
+                    if (mouseInVideo) {
+                        // 绘制视频标题 - 在顶部显示文件名，与视频重叠
+                        ctx.textAlign = 'center';
                         
-                        // 绘制音频图标背景
-                        ctx.fillStyle = 'rgba(0, 255, 0, 0.8)';
+                        // 使用保存的文件名
+                        const fileName = node.videoFileNames && node.videoFileNames[i] ? node.videoFileNames[i] : 'Unknown';
+                        
+                        // 在顶部绘制文件名背景（半透明，与视频重叠）
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                        ctx.fillRect(rect.x, rect.y, rect.width, 20);
+                        
+                        // 自动调整字体大小
+                        const maxTextWidth = rect.width - 10; // 留出边距
+                        const fontSize = getAdjustedFontSize(ctx, fileName, maxTextWidth);
+                        ctx.font = `bold ${fontSize}px Arial`;
+                        
+                        // 绘制文件名
+                        ctx.fillStyle = '#fff';
+                        ctx.fillText(fileName, rect.x + rect.width / 2, rect.y + 13);
+                        
+                        // 绘制右上角按钮区域
+                        const buttonSize = 16;
+                        const buttonMargin = 5;
+                        let rightOffset = buttonMargin;
+                        
+                        // 如果视频有音频，在右上角绘制音频图标
+                        if (video.hasAudio) {
+                            const audioIconSize = 12;
+                            const audioIconX = rect.x + rect.width - rightOffset - audioIconSize;
+                            const audioIconY = rect.y + buttonMargin;
+                            
+                            // 绘制音频图标背景
+                            ctx.fillStyle = 'rgba(0, 255, 0, 0.8)';
+                            ctx.beginPath();
+                            ctx.arc(audioIconX + audioIconSize/2, audioIconY + audioIconSize/2, audioIconSize/2, 0, 2 * Math.PI);
+                            ctx.fill();
+                            
+                            // 绘制音频图标
+                            ctx.fillStyle = '#fff';
+                            ctx.font = `${audioIconSize-2}px Arial`;
+                            ctx.textAlign = 'center';
+                            ctx.fillText('🔊', audioIconX + audioIconSize/2, audioIconY + audioIconSize/2 + 3);
+                            
+                            rightOffset += audioIconSize + buttonMargin;
+                        }
+                        
+                        // 绘制删除按钮 - 在音频图标左侧
+                        const deleteButtonX = rect.x + rect.width - rightOffset - buttonSize;
+                        const deleteButtonY = rect.y + buttonMargin;
+                        
+                        // 检查鼠标是否悬浮在删除按钮上
+                        const mouseInDeleteButton = node.mouseX >= deleteButtonX && node.mouseX <= deleteButtonX + buttonSize &&
+                            node.mouseY >= deleteButtonY && node.mouseY <= deleteButtonY + buttonSize;
+                        
+                        // 绘制删除按钮背景（悬浮效果）
+                        ctx.fillStyle = mouseInDeleteButton ? 'rgba(255, 0, 0, 0.9)' : 'rgba(255, 0, 0, 0.7)';
                         ctx.beginPath();
-                        ctx.arc(audioIconX + audioIconSize/2, audioIconY + audioIconSize/2, audioIconSize/2, 0, 2 * Math.PI);
+                        ctx.arc(deleteButtonX + buttonSize/2, deleteButtonY + buttonSize/2, buttonSize/2, 0, 2 * Math.PI);
                         ctx.fill();
                         
-                        // 绘制音频图标
-                        ctx.fillStyle = '#fff';
-                        ctx.font = `${audioIconSize-2}px Arial`;
-                        ctx.textAlign = 'center';
-                        ctx.fillText('🔊', audioIconX + audioIconSize/2, audioIconY + audioIconSize/2 + 3);
+                        // 绘制删除按钮边框
+                        ctx.strokeStyle = mouseInDeleteButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+                        ctx.lineWidth = mouseInDeleteButton ? 2 : 1;
+                        ctx.stroke();
                         
-                        rightOffset += audioIconSize + buttonMargin;
+                        // 绘制删除图标 (×)
+                        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+                        ctx.font = `${buttonSize - 4}px Arial`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText('×', deleteButtonX + buttonSize/2, deleteButtonY + buttonSize/2);
+                        
+                        // 保存删除按钮区域信息
+                        if (!node.deleteButtonRects) {
+                            node.deleteButtonRects = [];
+                        }
+                        node.deleteButtonRects[i] = {
+                            x: deleteButtonX,
+                            y: deleteButtonY,
+                            width: buttonSize,
+                            height: buttonSize
+                        };
+                        
+                        // 保存文件名区域信息，用于tooltip检测
+                        if (!node.fileNameRects) {
+                            node.fileNameRects = [];
+                        }
+                        node.fileNameRects[i] = {
+                            x: rect.x,
+                            y: rect.y,
+                            width: rect.width,
+                            height: 20
+                        };
+                    } else {
+                        // 鼠标不在视频上时，删除按钮区域为空
+                        if (!node.deleteButtonRects) {
+                            node.deleteButtonRects = [];
+                        }
+                        node.deleteButtonRects[i] = null;
+                        
+                        // 保存文件名区域信息
+                        if (!node.fileNameRects) {
+                            node.fileNameRects = [];
+                        }
+                        node.fileNameRects[i] = null;
                     }
-                    
-                    // 绘制删除按钮 - 在音频图标左侧
-                    const deleteButtonX = rect.x + rect.width - rightOffset - buttonSize;
-                    const deleteButtonY = rect.y + buttonMargin;
-                    
-                    // 检查鼠标是否悬浮在删除按钮上
-                    const mouseInDeleteButton = node.mouseX !== undefined && node.mouseY !== undefined &&
-                        node.mouseX >= deleteButtonX && node.mouseX <= deleteButtonX + buttonSize &&
-                        node.mouseY >= deleteButtonY && node.mouseY <= deleteButtonY + buttonSize;
-                    
-                    // 绘制删除按钮背景（悬浮效果）
-                    ctx.fillStyle = mouseInDeleteButton ? 'rgba(255, 0, 0, 0.9)' : 'rgba(255, 0, 0, 0.7)';
-                    ctx.beginPath();
-                    ctx.arc(deleteButtonX + buttonSize/2, deleteButtonY + buttonSize/2, buttonSize/2, 0, 2 * Math.PI);
-                    ctx.fill();
-                    
-                    // 绘制删除按钮边框
-                    ctx.strokeStyle = mouseInDeleteButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
-                    ctx.lineWidth = mouseInDeleteButton ? 2 : 1;
-                    ctx.stroke();
-                    
-                    // 绘制删除图标 (×)
-                    ctx.fillStyle = 'rgba(255, 255, 255, 1)';
-                    ctx.font = `${buttonSize - 4}px Arial`;
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText('×', deleteButtonX + buttonSize/2, deleteButtonY + buttonSize/2);
-                    
-                    // 保存删除按钮区域信息
-                    if (!node.deleteButtonRects) {
-                        node.deleteButtonRects = [];
-                    }
-                    node.deleteButtonRects[i] = {
-                        x: deleteButtonX,
-                        y: deleteButtonY,
-                        width: buttonSize,
-                        height: buttonSize
-                    };
                 } else {
                     // 单视频模式下，清除按钮区域为空（将在控制按钮区域绘制）
                     if (!node.deleteButtonRects) {
@@ -793,9 +808,9 @@ app.registerExtension({
                         
                         if (mouseInVideo) {
                             currentHoveredVideo = i;
+                            mouseInAnyVideo = true;
                             
                             if (video && video.hasAudio) {
-                                mouseInAnyVideo = true;
                                 // 鼠标在视频区域内，取消静音
                                 if (video.muted) {
                                     console.log(`鼠标进入视频 ${i} 区域，取消静音`);
@@ -820,6 +835,7 @@ app.registerExtension({
                     
                     // 更新鼠标悬浮状态
                     this.mouseInVideoArea = mouseInAnyVideo;
+                    this.currentHoveredVideo = currentHoveredVideo;
                     
                     // 处理悬浮tooltip - 只在悬浮在文件名区域时显示
                     let tooltipShown = false;
@@ -875,6 +891,7 @@ app.registerExtension({
                 this.mouseX = undefined;
                 this.mouseY = undefined;
                 this.mouseInVideoArea = false;
+                this.currentHoveredVideo = -1;
                 
                 // 隐藏tooltip
                 this.hideTooltip();
