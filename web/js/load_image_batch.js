@@ -54,9 +54,10 @@ function calculateImageLayout(node, imageCount) {
     // 为顶部输入控件和图片标题预留更多空间
     const TOP_MARGIN = 160; // 进一步增加顶部控件的高度，从80改为160
     const TITLE_HEIGHT = 25; // 图片标题的高度
+    const BOTTOM_CONTROLS_HEIGHT = 30; // 底部控制按钮的高度
     
     const availableWidth = containerWidth - (PADDING * 2);
-    const availableHeight = containerHeight - (PADDING * 2) - TOP_MARGIN - TITLE_HEIGHT;
+    const availableHeight = containerHeight - (PADDING * 2) - TOP_MARGIN - TITLE_HEIGHT - BOTTOM_CONTROLS_HEIGHT;
     
     // 检查是否处于单图片模式
     if (node._customSingleImageMode && node._customFocusedImageIndex >= 0 && node._customFocusedImageIndex < imageCount) {
@@ -147,6 +148,31 @@ function getAdjustedFontSize(ctx, text, maxWidth, minFontSize = 8, maxFontSize =
 }
 
 /**
+ * 根据选择状态更新widget的值
+ * @param {object} node - LiteGraph节点实例
+ */
+function updateWidgetValue(node) {
+    if (!node._customImagePaths || !node._customSelectedImages) {
+        return;
+    }
+    
+    // 获取选中的图片路径
+    const selectedPaths = [];
+    for (let i = 0; i < node._customImagePaths.length; i++) {
+        if (node._customSelectedImages[i]) {
+            selectedPaths.push(node._customImagePaths[i]);
+        }
+    }
+    
+    // 更新widget的值
+    const imagePathsWidget = node.widgets.find(w => w.name === "image_paths");
+    if (imagePathsWidget) {
+        imagePathsWidget.value = selectedPaths.join(',');
+        console.log("更新widget值，选中的图片数量:", selectedPaths.length);
+    }
+}
+
+/**
  * 显示图片的核心实现
  * @param {object} node - LiteGraph节点实例
  * @param {string[]} paths - 图片路径数组
@@ -166,6 +192,10 @@ function showImages(node, paths) {
         node._customPrevButtonRect = null;
         node._customNextButtonRect = null;
         node._customRestoreButtonRect = null;
+        node._customCheckboxRects = [];
+        node._customSelectedImages = [];
+        node._customSelectAllButtonRect = null;
+        node._customInvertSelectionButtonRect = null;
         return [];
     }
     
@@ -178,6 +208,12 @@ function showImages(node, paths) {
     node._customImagePaths = validPaths; // 保存当前图片路径
     node._customFileNameRects = []; // 初始化文件名区域数组
     node._customClearButtonRects = []; // 初始化清除按钮区域数组
+    node._customCheckboxRects = []; // 初始化复选框区域数组
+    
+    // 初始化选择状态 - 默认全部选中
+    if (!node._customSelectedImages || node._customSelectedImages.length !== validPaths.length) {
+        node._customSelectedImages = new Array(validPaths.length).fill(true);
+    }
     
     // 初始化单图片显示状态
     node._customSingleImageMode = false;
@@ -205,6 +241,9 @@ function showImages(node, paths) {
     
     // 计算图片布局
     calculateImageLayout(node, validPaths.length);
+    
+    // 更新widget的值以反映选择状态
+    updateWidgetValue(node);
     
     console.log("图片显示设置完成，图片数量:", node._customImgs.length);
     return node._customImgs;
@@ -275,6 +314,48 @@ function drawNodeImages(node, ctx) {
                 console.warn(`绘制图片失败: ${e.message}`);
             }
         }
+        
+        // 绘制左下角复选框（始终显示）
+        const checkboxSize = 16;
+        const checkboxMargin = 5;
+        const checkboxX = rect.x + checkboxMargin;
+        const checkboxY = rect.y + rect.height - checkboxMargin - checkboxSize;
+        
+        // 检查鼠标是否悬浮在复选框上
+        const mouseInCheckbox = node._customMouseX !== undefined && node._customMouseY !== undefined &&
+            node._customMouseX >= checkboxX && node._customMouseX <= checkboxX + checkboxSize &&
+            node._customMouseY >= checkboxY && node._customMouseY <= checkboxY + checkboxSize;
+        
+        // 绘制复选框背景
+        ctx.fillStyle = mouseInCheckbox ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255, 255, 255, 0.8)';
+        ctx.fillRect(checkboxX, checkboxY, checkboxSize, checkboxSize);
+        
+        // 绘制复选框边框
+        ctx.strokeStyle = mouseInCheckbox ? 'rgba(0, 0, 0, 1)' : 'rgba(0, 0, 0, 0.8)';
+        ctx.lineWidth = mouseInCheckbox ? 2 : 1;
+        ctx.strokeRect(checkboxX, checkboxY, checkboxSize, checkboxSize);
+        
+        // 如果选中，绘制勾选标记
+        if (node._customSelectedImages && node._customSelectedImages[i]) {
+            ctx.strokeStyle = 'rgba(0, 0, 0, 1)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(checkboxX + 3, checkboxY + checkboxSize / 2);
+            ctx.lineTo(checkboxX + checkboxSize / 3, checkboxY + checkboxSize - 3);
+            ctx.lineTo(checkboxX + checkboxSize - 3, checkboxY + 3);
+            ctx.stroke();
+        }
+        
+        // 保存复选框区域信息
+        if (!node._customCheckboxRects) {
+            node._customCheckboxRects = [];
+        }
+        node._customCheckboxRects[i] = {
+            x: checkboxX,
+            y: checkboxY,
+            width: checkboxSize,
+            height: checkboxSize
+        };
         
         // 在多图片模式下，只在悬浮时显示文件名和清除按钮
         if (!node._customSingleImageMode) {
@@ -377,6 +458,225 @@ function drawNodeImages(node, ctx) {
             }
             node._customFileNameRects[i] = null;
         }
+    }
+    
+    // 绘制控制按钮（只在单图片模式下显示）
+    if (node._customSingleImageMode) {
+        const buttonSize = 20;
+        const buttonSpacing = 5;
+        
+        // 获取当前显示的图片位置，用于计算恢复按钮位置
+        const currentImageRect = node._customImageRects[node._customFocusedImageIndex];
+        const restoreButtonX = currentImageRect ? currentImageRect.x + currentImageRect.width - buttonSize - 5 : node.size[0] - buttonSize - 10;
+        const restoreButtonY = currentImageRect ? currentImageRect.y + 5 : 10;
+        
+        // 检查鼠标是否悬浮在按钮上
+        const mouseInRestoreButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
+            node._customMouseX >= restoreButtonX && node._customMouseX <= restoreButtonX + buttonSize &&
+            node._customMouseY >= restoreButtonY && node._customMouseY <= restoreButtonY + buttonSize;
+        
+        const mouseInPrevButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
+            node._customMouseX >= node.size[0] - buttonSize * 3 - buttonSpacing - 10 && node._customMouseX <= node.size[0] - buttonSize * 2 - buttonSpacing - 10 &&
+            node._customMouseY >= node.size[1] - buttonSize - 10 && node._customMouseY <= node.size[1] - 10;
+        
+        const mouseInNextButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
+            node._customMouseX >= node.size[0] - buttonSize * 2 - 10 && node._customMouseX <= node.size[0] - buttonSize - 10 &&
+            node._customMouseY >= node.size[1] - buttonSize - 10 && node._customMouseY <= node.size[1] - 10;
+        
+        // 检查鼠标是否悬浮在清除按钮上（左下角）
+        const mouseInClearButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
+            node._customMouseX >= 10 && node._customMouseX <= 10 + buttonSize &&
+            node._customMouseY >= node.size[1] - buttonSize - 10 && node._customMouseY <= node.size[1] - 10;
+        
+        // 检查鼠标是否悬浮在全屏预览按钮上（右下角）
+        const mouseInFullscreenButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
+            node._customMouseX >= node.size[0] - buttonSize - 10 && node._customMouseX <= node.size[0] - 10 &&
+            node._customMouseY >= node.size[1] - buttonSize - 10 && node._customMouseY <= node.size[1] - 10;
+        
+        // 绘制索引信息 (n/m) - 在上一个按钮的左边
+        if (node._customImagePaths && node._customImagePaths.length > 1 && 
+            node._customFocusedImageIndex >= 0 && node._customFocusedImageIndex < node._customImagePaths.length) {
+            const currentIndex = node._customFocusedImageIndex + 1;
+            const totalCount = node._customImagePaths.length;
+            const indexText = `(${currentIndex}/${totalCount})`;
+            
+            // 设置文本样式
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+            
+            // 计算索引文本位置（在上一个按钮的左边）
+            const indexX = node.size[0] - buttonSize * 3 - buttonSpacing - 15;
+            const indexY = node.size[1] - buttonSize - 10 + buttonSize / 2;
+            
+            // 绘制索引文本
+            ctx.fillText(indexText, indexX, indexY);
+        }
+        
+        // 绘制上一个按钮 (‹) - 左边
+        const prevButtonX = node.size[0] - buttonSize * 3 - buttonSpacing - 10;
+        const prevButtonY = node.size[1] - buttonSize - 10;
+        
+        // 按钮背景（悬浮效果）
+        ctx.fillStyle = mouseInPrevButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(prevButtonX, prevButtonY, buttonSize, buttonSize);
+        
+        // 按钮边框
+        ctx.strokeStyle = mouseInPrevButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = mouseInPrevButton ? 2 : 1;
+        ctx.strokeRect(prevButtonX, prevButtonY, buttonSize, buttonSize);
+        
+        // 绘制‹符号
+        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+        ctx.font = `${buttonSize - 4}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('‹', prevButtonX + buttonSize / 2, prevButtonY + buttonSize / 2);
+        
+        // 绘制下一个按钮 (›) - 右边
+        const nextButtonX = node.size[0] - buttonSize * 2 - 10;
+        const nextButtonY = node.size[1] - buttonSize - 10;
+        
+        // 按钮背景（悬浮效果）
+        ctx.fillStyle = mouseInNextButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(nextButtonX, nextButtonY, buttonSize, buttonSize);
+        
+        // 按钮边框
+        ctx.strokeStyle = mouseInNextButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = mouseInNextButton ? 2 : 1;
+        ctx.strokeRect(nextButtonX, nextButtonY, buttonSize, buttonSize);
+        
+        // 绘制›符号
+        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+        ctx.fillText('›', nextButtonX + buttonSize / 2, nextButtonY + buttonSize / 2);
+        
+        // 绘制恢复按钮 (⭯) - 放在图片区域的右上角
+        
+        // 按钮背景（悬浮效果）
+        ctx.fillStyle = mouseInRestoreButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(restoreButtonX, restoreButtonY, buttonSize, buttonSize);
+        
+        // 按钮边框
+        ctx.strokeStyle = mouseInRestoreButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = mouseInRestoreButton ? 2 : 1;
+        ctx.strokeRect(restoreButtonX, restoreButtonY, buttonSize, buttonSize);
+        
+        // 绘制⭯符号
+        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+        ctx.fillText('⭯', restoreButtonX + buttonSize / 2, restoreButtonY + buttonSize / 2);
+        
+        // 绘制左下角清除按钮
+        const clearButtonX = 10;
+        const clearButtonY = node.size[1] - buttonSize - 10;
+        
+        // 按钮背景（固定样式，无悬浮效果）
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
+        ctx.fillRect(clearButtonX, clearButtonY, buttonSize, buttonSize);
+        
+        // 按钮边框
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(clearButtonX, clearButtonY, buttonSize, buttonSize);
+        
+        // 绘制清除图标 (×)
+        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+        ctx.font = `${buttonSize - 4}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('×', clearButtonX + buttonSize / 2, clearButtonY + buttonSize / 2);
+        
+        // 绘制右下角全屏预览按钮
+        const fullscreenButtonX = node.size[0] - buttonSize - 10;
+        const fullscreenButtonY = node.size[1] - buttonSize - 10;
+        
+        // 按钮背景（悬浮效果）
+        ctx.fillStyle = mouseInFullscreenButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(fullscreenButtonX, fullscreenButtonY, buttonSize, buttonSize);
+        
+        // 按钮边框
+        ctx.strokeStyle = mouseInFullscreenButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = mouseInFullscreenButton ? 2 : 1;
+        ctx.strokeRect(fullscreenButtonX, fullscreenButtonY, buttonSize, buttonSize);
+        
+        // 绘制全屏图标 (⛶)
+        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+        ctx.font = `${buttonSize - 4}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('⛶', fullscreenButtonX + buttonSize / 2, fullscreenButtonY + buttonSize / 2);
+        
+        // 绘制底部文件名
+        if (node._customImageFileNames && node._customImageFileNames[node._customFocusedImageIndex]) {
+            const fileName = node._customImageFileNames[node._customFocusedImageIndex];
+            
+            // 设置文本样式
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // 在底部中间绘制文件名
+            const fileNameY = node.size[1] - 15;
+            ctx.fillText(fileName, node.size[0] / 2, fileNameY);
+        }
+    } else {
+        // 多图片模式下绘制底部控制按钮
+        const buttonHeight = 25;
+        const buttonSpacing = 10;
+        const buttonY = node.size[1] - buttonHeight - 5;
+        
+        // 计算全选和反选按钮的位置
+        const selectAllButtonX = 10;
+        const invertSelectionButtonX = selectAllButtonX + 60 + buttonSpacing;
+        
+        // 检查鼠标是否悬浮在按钮上
+        const mouseInSelectAllButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
+            node._customMouseX >= selectAllButtonX && node._customMouseX <= selectAllButtonX + 60 &&
+            node._customMouseY >= buttonY && node._customMouseY <= buttonY + buttonHeight;
+        
+        const mouseInInvertSelectionButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
+            node._customMouseX >= invertSelectionButtonX && node._customMouseX <= invertSelectionButtonX + 60 &&
+            node._customMouseY >= buttonY && node._customMouseY <= buttonY + buttonHeight;
+        
+        // 绘制全选按钮
+        ctx.fillStyle = mouseInSelectAllButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(selectAllButtonX, buttonY, 60, buttonHeight);
+        
+        ctx.strokeStyle = mouseInSelectAllButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = mouseInSelectAllButton ? 2 : 1;
+        ctx.strokeRect(selectAllButtonX, buttonY, 60, buttonHeight);
+        
+        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('全选', selectAllButtonX + 30, buttonY + buttonHeight / 2);
+        
+        // 绘制反选按钮
+        ctx.fillStyle = mouseInInvertSelectionButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(invertSelectionButtonX, buttonY, 60, buttonHeight);
+        
+        ctx.strokeStyle = mouseInInvertSelectionButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = mouseInInvertSelectionButton ? 2 : 1;
+        ctx.strokeRect(invertSelectionButtonX, buttonY, 60, buttonHeight);
+        
+        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+        ctx.fillText('反选', invertSelectionButtonX + 30, buttonY + buttonHeight / 2);
+        
+        // 保存按钮区域信息
+        node._customSelectAllButtonRect = {
+            x: selectAllButtonX,
+            y: buttonY,
+            width: 60,
+            height: buttonHeight
+        };
+        node._customInvertSelectionButtonRect = {
+            x: invertSelectionButtonX,
+            y: buttonY,
+            width: 60,
+            height: buttonHeight
+        };
     }
     
     // 绘制控制按钮（只在单图片模式下显示）
@@ -785,6 +1085,122 @@ function populate(imagePaths) {
         // 获取节点的Canvas坐标
         const nodePos = this.pos;
 
+        // 检查是否点击复选框
+        if (this._customCheckboxRects && this._customCheckboxRects.length > 0) {
+            for (let i = 0; i < this._customCheckboxRects.length; i++) {
+                const checkboxRect = this._customCheckboxRects[i];
+                
+                // 检查复选框是否存在
+                if (!checkboxRect) {
+                    continue;
+                }
+                
+                // 检查图片是否可见
+                if (this._customImageRects && this._customImageRects[i] && this._customImageRects[i].visible === false) {
+                    continue;
+                }
+                
+                // 计算复选框在Canvas中的绝对坐标
+                const absCheckboxX = nodePos[0] + checkboxRect.x;
+                const absCheckboxY = nodePos[1] + checkboxRect.y;
+                const absCheckboxWidth = checkboxRect.width;
+                const absCheckboxHeight = checkboxRect.height;
+                
+                if (e.canvasX >= absCheckboxX && e.canvasX <= absCheckboxX + absCheckboxWidth &&
+                    e.canvasY >= absCheckboxY && e.canvasY <= absCheckboxY + absCheckboxHeight) {
+                    
+                    console.log(`点击复选框，图片索引: ${i}`);
+                    
+                    // 阻止事件冒泡
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // 切换选择状态
+                    if (this._customSelectedImages && this._customSelectedImages[i] !== undefined) {
+                        this._customSelectedImages[i] = !this._customSelectedImages[i];
+                        console.log(`图片 ${i} 选择状态切换为: ${this._customSelectedImages[i]}`);
+                        
+                        // 更新widget的值
+                        updateWidgetValue(this);
+                        
+                        // 触发重绘
+                        app.graph.setDirtyCanvas(true, false);
+                    }
+                    
+                    return true;
+                }
+            }
+        }
+        
+        // 检查是否点击底部控制按钮（多图片模式）
+        if (!this._customSingleImageMode) {
+            // 检查点击全选按钮
+            if (this._customSelectAllButtonRect) {
+                const absSelectAllButtonX = nodePos[0] + this._customSelectAllButtonRect.x;
+                const absSelectAllButtonY = nodePos[1] + this._customSelectAllButtonRect.y;
+                const absSelectAllButtonWidth = this._customSelectAllButtonRect.width;
+                const absSelectAllButtonHeight = this._customSelectAllButtonRect.height;
+                
+                if (e.canvasX >= absSelectAllButtonX && e.canvasX <= absSelectAllButtonX + absSelectAllButtonWidth &&
+                    e.canvasY >= absSelectAllButtonY && e.canvasY <= absSelectAllButtonY + absSelectAllButtonHeight) {
+                    
+                    console.log("点击全选按钮");
+                    
+                    // 阻止事件冒泡
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // 全选所有图片
+                    if (this._customSelectedImages && this._customSelectedImages.length > 0) {
+                        this._customSelectedImages.fill(true);
+                        console.log("全选所有图片");
+                        
+                        // 更新widget的值
+                        updateWidgetValue(this);
+                        
+                        // 触发重绘
+                        app.graph.setDirtyCanvas(true, false);
+                    }
+                    
+                    return true;
+                }
+            }
+            
+            // 检查点击反选按钮
+            if (this._customInvertSelectionButtonRect) {
+                const absInvertSelectionButtonX = nodePos[0] + this._customInvertSelectionButtonRect.x;
+                const absInvertSelectionButtonY = nodePos[1] + this._customInvertSelectionButtonRect.y;
+                const absInvertSelectionButtonWidth = this._customInvertSelectionButtonRect.width;
+                const absInvertSelectionButtonHeight = this._customInvertSelectionButtonRect.height;
+                
+                if (e.canvasX >= absInvertSelectionButtonX && e.canvasX <= absInvertSelectionButtonX + absInvertSelectionButtonWidth &&
+                    e.canvasY >= absInvertSelectionButtonY && e.canvasY <= absInvertSelectionButtonY + absInvertSelectionButtonHeight) {
+                    
+                    console.log("点击反选按钮");
+                    
+                    // 阻止事件冒泡
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // 反选所有图片
+                    if (this._customSelectedImages && this._customSelectedImages.length > 0) {
+                        for (let i = 0; i < this._customSelectedImages.length; i++) {
+                            this._customSelectedImages[i] = !this._customSelectedImages[i];
+                        }
+                        console.log("反选所有图片");
+                        
+                        // 更新widget的值
+                        updateWidgetValue(this);
+                        
+                        // 触发重绘
+                        app.graph.setDirtyCanvas(true, false);
+                    }
+                    
+                    return true;
+                }
+            }
+        }
+        
         // 检查是否点击控制按钮（单图片模式下）
         if (this._customSingleImageMode) {
             // 检查点击上一个按钮 (‹)
@@ -1280,34 +1696,36 @@ function removeClearDialog() {
  * @param {number} imageIndex - 要清除的图片索引
  */
 function executeClear(imageIndex) {
-                console.log(`开始清除图片 ${imageIndex}`);
-                
-                // 获取当前的图片路径
-                const imagePathsWidget = this.widgets.find(w => w.name === "image_paths");
-                if (!imagePathsWidget || !imagePathsWidget.value) {
-                    console.log("没有图片路径数据");
-                    return;
-                }
-                
-                const currentPaths = imagePathsWidget.value.split(',').filter(path => path.trim());
-                if (imageIndex >= currentPaths.length) {
-                    console.error("图片索引超出范围");
-                    return;
-                }
-                
-                // 从路径数组中移除指定索引的路径
-                currentPaths.splice(imageIndex, 1);
-                
-                // 更新widget的值
-                imagePathsWidget.value = currentPaths.join(',');
-                
-                // 更新预览
-    populate.call(this, currentPaths);
-                
-                console.log(`✅ 成功清除图片 ${imageIndex}`);
-                
-                // 显示清除成功提示
-                this.showClearResult(true);
+    console.log(`开始清除图片 ${imageIndex}`);
+    
+    // 从原始图片路径数组中移除指定索引的路径
+    if (this._customImagePaths && imageIndex < this._customImagePaths.length) {
+        this._customImagePaths.splice(imageIndex, 1);
+        
+        // 同时移除对应的选择状态
+        if (this._customSelectedImages && imageIndex < this._customSelectedImages.length) {
+            this._customSelectedImages.splice(imageIndex, 1);
+        }
+        
+        // 同时移除对应的文件名
+        if (this._customImageFileNames && imageIndex < this._customImageFileNames.length) {
+            this._customImageFileNames.splice(imageIndex, 1);
+        }
+        
+        // 更新widget的值
+        updateWidgetValue(this);
+        
+        // 重新显示图片
+        showImages(this, this._customImagePaths);
+        
+        console.log(`✅ 成功清除图片 ${imageIndex}`);
+        
+        // 显示清除成功提示
+        this.showClearResult(true);
+    } else {
+        console.error("图片索引超出范围或没有图片数据");
+        this.showClearResult(false);
+    }
 }
 
 /**
@@ -1428,12 +1846,12 @@ app.registerExtension({
                             }
 
                             if (allPaths.length > 0) {
-                                // 先清除旧的预览
-                                populate.call(node, []);
-                                // 将所有成功上传的路径合并
-                                pathWidget.value = allPaths.join(',');
+                                // 将所有成功上传的路径合并到现有路径中
+                                const existingPaths = pathWidget.value ? pathWidget.value.split(',').filter(p => p.trim()) : [];
+                                const combinedPaths = [...existingPaths, ...allPaths];
+                                pathWidget.value = combinedPaths.join(',');
                                 triggerWidget.value = (triggerWidget.value || 0) + 1;
-                                populate.call(node, allPaths);
+                                populate.call(node, combinedPaths);
                             }
 
                         } catch (error) {
@@ -1462,7 +1880,10 @@ app.registerExtension({
             chainCallback(nodeType.prototype, "onConfigure", function() {
                 const imagePathsWidget = this.widgets.find(w => w.name === "image_paths");
                 if (imagePathsWidget && imagePathsWidget.value) {
-                    populate.call(this, imagePathsWidget.value.split(','));
+                    const paths = imagePathsWidget.value.split(',').filter(path => path.trim());
+                    if (paths.length > 0) {
+                        populate.call(this, paths);
+                    }
                 }
             });
             
@@ -1571,6 +1992,10 @@ app.registerExtension({
                 this._customImageFileNames = null;
                 this._customImagePaths = null;
                 this._customFileNameRects = null;
+                this._customCheckboxRects = null;
+                this._customSelectedImages = null;
+                this._customSelectAllButtonRect = null;
+                this._customInvertSelectionButtonRect = null;
                 this._customMouseX = null;
                 this._customMouseY = null;
                 
