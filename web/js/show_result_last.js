@@ -116,6 +116,7 @@ app.registerExtension({
                 node.videoRects = [];
                 node.videoFileNames = [];
                 node.videoPaths = [];
+                node.fileNameRects = []; // 清除文件名区域信息
                 console.log("没有视频数据，已清除所有旧数据");
                 return;
             }
@@ -127,18 +128,22 @@ app.registerExtension({
             node.videos = [];
             node.videoFileNames = [];
             node.videoPaths = validPaths; // 保存当前视频路径
+            node.fileNameRects = []; // 初始化文件名区域数组
             
             // 为每个视频路径创建视频元素
             validPaths.forEach((path) => {
                 const video = document.createElement('video');
                 video.controls = true;
-                video.muted = true;
+                video.muted = true; // 默认静音
                 video.loop = true;
                 video.style.maxWidth = '100%';
                 video.style.maxHeight = '100%';
                 video.style.objectFit = 'contain'; // 保持原始比例
                 video.style.width = 'auto';
                 video.style.height = 'auto';
+                
+                // 检测视频是否有音频轨道
+                video.hasAudio = false;
                 
                 // 通过自定义静态文件服务获取视频URL - 使用相对路径
                 const videoUrl = `${window.location.origin}/static_output/${encodeURIComponent(path)}`;
@@ -156,6 +161,34 @@ app.registerExtension({
                     
                     // 保存视频的原始比例信息
                     video.aspectRatio = video.videoWidth / video.videoHeight;
+                    
+                    // 检测是否有音频轨道
+                    if (video.audioTracks && video.audioTracks.length > 0) {
+                        video.hasAudio = true;
+                        console.log(`检测到音频轨道: ${fileName}`);
+                    } else {
+                        // 尝试通过文件名检测音频（如果文件名包含-audio）
+                        if (fileName.includes('-audio')) {
+                            video.hasAudio = true;
+                            console.log(`通过文件名检测到音频: ${fileName}`);
+                        } else {
+                            // 尝试通过其他方式检测音频
+                            video.addEventListener('canplay', function() {
+                                // 临时取消静音检测是否有声音
+                                const wasMuted = video.muted;
+                                video.muted = false;
+                                
+                                // 检查音频轨道
+                                if (video.audioTracks && video.audioTracks.length > 0) {
+                                    video.hasAudio = true;
+                                    console.log(`通过音频轨道检测到音频: ${fileName}`);
+                                }
+                                
+                                // 恢复静音状态
+                                video.muted = wasMuted;
+                            }, { once: true });
+                        }
+                    }
                     
                     // 开始播放
                     video.play().catch(e => {
@@ -298,6 +331,36 @@ app.registerExtension({
                 ctx.fillStyle = '#fff';
                 ctx.fillText(fileName, rect.x + rect.width / 2, rect.y + 15);
                 
+                // 保存文件名区域信息，用于tooltip检测
+                if (!node.fileNameRects) {
+                    node.fileNameRects = [];
+                }
+                node.fileNameRects[i] = {
+                    x: rect.x,
+                    y: rect.y,
+                    width: rect.width,
+                    height: 20 // 文件名区域高度
+                };
+                
+                // 如果视频有音频，在右上角绘制音频图标
+                if (video.hasAudio) {
+                    const audioIconSize = 12;
+                    const audioIconX = rect.x + rect.width - audioIconSize - 5;
+                    const audioIconY = rect.y + 5;
+                    
+                    // 绘制音频图标背景
+                    ctx.fillStyle = 'rgba(0, 255, 0, 0.8)';
+                    ctx.beginPath();
+                    ctx.arc(audioIconX + audioIconSize/2, audioIconY + audioIconSize/2, audioIconSize/2, 0, 2 * Math.PI);
+                    ctx.fill();
+                    
+                    // 绘制音频图标
+                    ctx.fillStyle = '#fff';
+                    ctx.font = `${audioIconSize-2}px Arial`;
+                    ctx.textAlign = 'center';
+                    ctx.fillText('🔊', audioIconX + audioIconSize/2, audioIconY + audioIconSize/2 + 3);
+                }
+                
                 // 绘制播放状态指示器 - 只在鼠标悬浮时显示
                 const centerX = rect.x + rect.width / 2;
                 const centerY = rect.y + rect.height / 2;
@@ -380,7 +443,9 @@ app.registerExtension({
             const originalOnMouseDown = this.onMouseDown;
             const originalOnMouseMove = this.onMouseMove;
             
-            // 跟踪鼠标位置
+            console.log("设置鼠标事件处理器");
+            
+            // 跟踪鼠标位置并处理视频区域音频
             this.onMouseMove = function(e) {
                 if (originalOnMouseMove) {
                     originalOnMouseMove.call(this, e);
@@ -390,40 +455,164 @@ app.registerExtension({
                 this.mouseX = e.canvasX;
                 this.mouseY = e.canvasY;
                 
+                // 检查鼠标是否在视频区域内，控制音频播放和显示tooltip
+                if (this.videoRects && this.videos) {
+                    let mouseInAnyVideo = false;
+                    let currentHoveredVideo = -1;
+                    
+                    // 获取节点的Canvas坐标
+                    const nodePos = this.pos;
+                    
+                    for (let i = 0; i < this.videoRects.length; i++) {
+                        const rect = this.videoRects[i];
+                        const video = this.videos[i];
+                        
+                        // 计算视频区域在Canvas中的绝对坐标
+                        const absRectX = nodePos[0] + rect.x;
+                        const absRectY = nodePos[1] + rect.y;
+                        const absRectWidth = rect.width;
+                        const absRectHeight = rect.height;
+                        
+                        const mouseInVideo = e.canvasX >= absRectX && e.canvasX <= absRectX + absRectWidth &&
+                                           e.canvasY >= absRectY && e.canvasY <= absRectY + absRectHeight;
+                        
+                        if (mouseInVideo) {
+                            currentHoveredVideo = i;
+                            
+                            if (video && video.hasAudio) {
+                                mouseInAnyVideo = true;
+                                // 鼠标在视频区域内，取消静音
+                                if (video.muted) {
+                                    console.log(`鼠标进入视频 ${i} 区域，取消静音`);
+                                    video.muted = false;
+                                    
+                                    // 如果视频暂停了，重新播放
+                                    if (video.paused) {
+                                        video.play().catch(e => {
+                                            console.warn(`播放音频失败: ${e.message}`);
+                                        });
+                                    }
+                                }
+                            }
+                        } else {
+                            // 鼠标不在视频区域内，恢复静音
+                            if (video && video.hasAudio && !video.muted) {
+                                console.log(`鼠标离开视频 ${i} 区域，恢复静音`);
+                                video.muted = true;
+                            }
+                        }
+                    }
+                    
+                    // 更新鼠标悬浮状态
+                    this.mouseInVideoArea = mouseInAnyVideo;
+                    
+                    // 处理悬浮tooltip - 只在悬浮在文件名区域时显示
+                    let tooltipShown = false;
+                    if (this.fileNameRects && this.fileNameRects.length > 0) {
+                        for (let i = 0; i < this.fileNameRects.length; i++) {
+                            const fileNameRect = this.fileNameRects[i];
+                            
+                            // 计算文件名区域在Canvas中的绝对坐标
+                            const absFileNameX = nodePos[0] + fileNameRect.x;
+                            const absFileNameY = nodePos[1] + fileNameRect.y;
+                            const absFileNameWidth = fileNameRect.width;
+                            const absFileNameHeight = fileNameRect.height;
+                            
+                            // 检查鼠标是否在文件名区域内
+                            const mouseInFileName = e.canvasX >= absFileNameX && e.canvasX <= absFileNameX + absFileNameWidth &&
+                                                  e.canvasY >= absFileNameY && e.canvasY <= absFileNameY + absFileNameHeight;
+                            
+                            if (mouseInFileName && this.videoPaths && this.videoPaths[i]) {
+                                console.log(`鼠标悬浮在文件名区域 ${i}，显示tooltip`);
+                                // 显示tooltip
+                                this.showTooltip(e, i);
+                                tooltipShown = true;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // 如果没有悬浮在文件名区域，隐藏tooltip
+                    if (!tooltipShown) {
+                        this.hideTooltip();
+                    }
+                }
+                
                 // 触发重绘以更新悬浮状态
                 app.graph.setDirtyCanvas(true, false);
             };
             
-            // 鼠标离开时清除位置
+            // 鼠标离开时清除位置并恢复静音
             const originalOnMouseLeave = this.onMouseLeave;
             this.onMouseLeave = function(e) {
                 if (originalOnMouseLeave) {
                     originalOnMouseLeave.call(this, e);
                 }
                 
+                console.log("鼠标离开节点，恢复所有视频静音状态");
+                
                 // 清除鼠标位置
                 this.mouseX = undefined;
                 this.mouseY = undefined;
+                this.mouseInVideoArea = false;
+                
+                // 隐藏tooltip
+                this.hideTooltip();
+                
+                // 恢复所有视频的静音状态
+                if (this.videos && this.videos.length > 0) {
+                    this.videos.forEach((video, index) => {
+                        if (video && video.hasAudio && !video.muted) {
+                            console.log(`恢复视频 ${index} 的静音状态`);
+                            video.muted = true;
+                        }
+                    });
+                }
                 
                 // 触发重绘以隐藏指示器
                 app.graph.setDirtyCanvas(true, false);
             };
             
             this.onMouseDown = function(e) {
-                if (originalOnMouseDown) {
-                    originalOnMouseDown.call(this, e);
-                }
+                console.log("onMouseDown 被调用", e);
+                console.log("节点信息:", this.id, this.type, this.size);
+                console.log("视频区域:", this.videoRects);
                 
                 // 检查鼠标是否在视频框内
-                if (this.videoRects) {
+                if (this.videoRects && this.videoRects.length > 0) {
+                    console.log("检查视频区域点击", this.videoRects.length, "个视频区域");
+                    
+                    // 获取节点的Canvas坐标
+                    const nodePos = this.pos;
+                    const canvasScale = app.canvas.ds.scale;
+                    const canvasOffset = app.canvas.ds.offset;
+                    
+                    console.log("节点位置:", nodePos, "Canvas缩放:", canvasScale, "Canvas偏移:", canvasOffset);
+                    
                     for (let i = 0; i < this.videoRects.length; i++) {
                         const rect = this.videoRects[i];
-                        if (e.canvasX >= rect.x && e.canvasX <= rect.x + rect.width &&
-                            e.canvasY >= rect.y && e.canvasY <= rect.y + rect.height) {
+                        
+                        // 计算视频区域在Canvas中的绝对坐标
+                        const absRectX = nodePos[0] + rect.x;
+                        const absRectY = nodePos[1] + rect.y;
+                        const absRectWidth = rect.width;
+                        const absRectHeight = rect.height;
+                        
+                        console.log(`检查视频 ${i}:`, {
+                            rect: rect,
+                            绝对坐标: {x: absRectX, y: absRectY, width: absRectWidth, height: absRectHeight},
+                            鼠标位置: {x: e.canvasX, y: e.canvasY}
+                        });
+                        
+                        // 检查鼠标是否在视频区域内
+                        if (e.canvasX >= absRectX && e.canvasX <= absRectX + absRectWidth &&
+                            e.canvasY >= absRectY && e.canvasY <= absRectY + absRectHeight) {
+                            
+                            console.log(`鼠标在视频 ${i} 区域内`);
                             
                             // 检查是否点击在播放状态指示器区域（中心区域）
-                            const centerX = rect.x + rect.width / 2;
-                            const centerY = rect.y + rect.height / 2;
+                            const centerX = absRectX + absRectWidth / 2;
+                            const centerY = absRectY + absRectHeight / 2;
                             const indicatorSize = 25; // 指示器的大小
                             
                             const inCenter = e.canvasX >= centerX - indicatorSize/2 && 
@@ -432,66 +621,52 @@ app.registerExtension({
                                            e.canvasY <= centerY + indicatorSize/2;
                             
                             if (inCenter) {
+                                console.log(`点击在播放状态指示器上，视频 ${i}`);
+                                
+                                // 阻止事件冒泡，避免触发节点选择
+                                e.preventDefault();
+                                e.stopPropagation();
+                                
                                 // 点击在播放状态指示器上，切换播放/暂停
                                 if (this.videos && this.videos[i]) {
                                     const video = this.videos[i];
-                                    console.log(`点击播放状态指示器，当前状态: ${video.paused ? '暂停' : '播放'}`);
+                                    console.log(`切换视频 ${i} 播放状态，当前状态: ${video.paused ? '暂停' : '播放'}`);
                                     
-                                    // 使用setTimeout确保事件处理完成
-                                    setTimeout(() => {
-                                        if (video.paused) {
-                                            video.play().catch(e => {
-                                                console.warn(`播放视频失败: ${e.message}`);
-                                            });
-                                        } else {
-                                            video.pause();
-                                        }
-                                    }, 10);
-                                }
-                            } else {
-                                // 点击在视频其他区域，显示tooltip
-                                console.log(`点击视频区域: ${i}`);
-                                
-                                // 显示相对路径的tooltip
-                                if (this.videoPaths && this.videoPaths[i]) {
-                                    const tooltip = document.createElement('div');
-                                    tooltip.style.cssText = `
-                                        position: fixed;
-                                        background: rgba(0, 0, 0, 0.9);
-                                        color: white;
-                                        padding: 8px 12px;
-                                        border-radius: 4px;
-                                        font-size: 12px;
-                                        max-width: 400px;
-                                        word-wrap: break-word;
-                                        z-index: 10000;
-                                        pointer-events: none;
-                                    `;
-                                    // 获取视频的原始尺寸信息
-                                    const video = this.videos[i];
-                                    let sizeInfo = '';
-                                    if (video && video.videoWidth && video.videoHeight) {
-                                        sizeInfo = ` (${video.videoWidth}x${video.videoHeight})`;
+                                    // 立即执行，不使用setTimeout
+                                    if (video.paused) {
+                                        video.play().catch(e => {
+                                            console.warn(`播放视频失败: ${e.message}`);
+                                        });
+                                    } else {
+                                        video.pause();
                                     }
-                                    tooltip.textContent = `相对路径: ${this.videoPaths[i]}${sizeInfo}`;
-                                    document.body.appendChild(tooltip);
                                     
-                                    // 设置tooltip位置
-                                    tooltip.style.left = (e.clientX + 10) + 'px';
-                                    tooltip.style.top = (e.clientY - 30) + 'px';
-                                    
-                                    // 3秒后移除tooltip
-                                    setTimeout(() => {
-                                        if (tooltip.parentNode) {
-                                            tooltip.parentNode.removeChild(tooltip);
-                                        }
-                                    }, 3000);
+                                    // 触发重绘
+                                    app.graph.setDirtyCanvas(true, false);
                                 }
+                                
+                                // 返回true表示事件已处理
+                                return true;
+                            } else {
+                                console.log(`点击在视频 ${i} 其他区域`);
+                                
+                                // 阻止事件冒泡，避免触发节点选择
+                                e.preventDefault();
+                                e.stopPropagation();
+                                
+                                // 返回true表示事件已处理
+                                return true;
                             }
-                            break;
                         }
                     }
                 }
+                
+                // 如果没有处理视频区域点击，调用原始事件处理
+                if (originalOnMouseDown) {
+                    return originalOnMouseDown.call(this, e);
+                }
+                
+                return false;
             };
             
             // 重写节点的resize方法，当大小改变时重新计算布局
@@ -516,9 +691,69 @@ app.registerExtension({
                 }
             };
             
+            // 添加tooltip管理方法
+            this.showTooltip = function(e, videoIndex) {
+                // 如果已经有tooltip，先移除
+                this.hideTooltip();
+                
+                if (this.videoPaths && this.videoPaths[videoIndex]) {
+                    const tooltip = document.createElement('div');
+                    tooltip.id = 'video-tooltip-' + this.id;
+                    tooltip.style.cssText = `
+                        position: fixed;
+                        background: rgba(0, 0, 0, 0.9);
+                        color: white;
+                        padding: 8px 12px;
+                        border-radius: 4px;
+                        font-size: 12px;
+                        max-width: 400px;
+                        word-wrap: break-word;
+                        z-index: 10000;
+                        pointer-events: none;
+                        white-space: nowrap;
+                    `;
+                    
+                    // 获取视频的原始尺寸信息
+                    const video = this.videos[videoIndex];
+                    let sizeInfo = '';
+                    if (video && video.videoWidth && video.videoHeight) {
+                        sizeInfo = ` (${video.videoWidth}x${video.videoHeight})`;
+                    }
+                    
+                    tooltip.textContent = `相对路径: ${this.videoPaths[videoIndex]}${sizeInfo}`;
+                    document.body.appendChild(tooltip);
+                    
+                    // 设置tooltip位置，确保不超出屏幕边界
+                    const tooltipRect = tooltip.getBoundingClientRect();
+                    let left = e.clientX + 10;
+                    let top = e.clientY - 30;
+                    
+                    // 检查右边界
+                    if (left + tooltipRect.width > window.innerWidth) {
+                        left = e.clientX - tooltipRect.width - 10;
+                    }
+                    
+                    // 检查下边界
+                    if (top + tooltipRect.height > window.innerHeight) {
+                        top = e.clientY - tooltipRect.height - 10;
+                    }
+                    
+                    tooltip.style.left = left + 'px';
+                    tooltip.style.top = top + 'px';
+                }
+            };
+            
+            this.hideTooltip = function() {
+                const existingTooltip = document.getElementById('video-tooltip-' + this.id);
+                if (existingTooltip) {
+                    existingTooltip.remove();
+                }
+            };
+            
             // 延迟触发重绘，确保布局计算完成
             setTimeout(() => {
                 console.log("延迟后的节点尺寸:", this.size);
+                console.log("视频区域信息:", this.videoRects);
                 app.graph.setDirtyCanvas(true, false);
             }, 100);
         }
@@ -563,6 +798,11 @@ app.registerExtension({
                         video.pause();
                     }
                 });
+            }
+            
+            // 清理tooltip
+            if (this.hideTooltip) {
+                this.hideTooltip();
             }
             
             onRemoved?.apply(this, arguments);

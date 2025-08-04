@@ -69,6 +69,47 @@ class ShowResultLast:
         
         return mp4_files
     
+    def prioritize_audio_mp4(self, mp4_files: List[str]) -> List[str]:
+        """优先选择带音频的MP4文件，如果存在带-audio后缀的文件，则只保留音频版本"""
+        if not mp4_files:
+            return []
+        
+        # 按文件名分组，找出对应的音频版本
+        file_groups = {}
+        
+        for mp4_file in mp4_files:
+            # 获取文件名（不含扩展名）
+            file_name = os.path.splitext(os.path.basename(mp4_file))[0]
+            
+            # 检查是否是音频版本
+            is_audio_version = file_name.endswith('-audio')
+            
+            # 获取基础文件名（去掉-audio后缀）
+            base_name = file_name[:-6] if is_audio_version else file_name
+            
+            # 按基础文件名分组
+            if base_name not in file_groups:
+                file_groups[base_name] = {'normal': None, 'audio': None}
+            
+            if is_audio_version:
+                file_groups[base_name]['audio'] = mp4_file
+            else:
+                file_groups[base_name]['normal'] = mp4_file
+        
+        # 构建最终的文件列表，优先选择音频版本
+        final_files = []
+        for base_name, versions in file_groups.items():
+            if versions['audio']:
+                # 如果存在音频版本，优先选择音频版本
+                final_files.append(versions['audio'])
+                print(f"选择音频版本: {os.path.basename(versions['audio'])} (基础名: {base_name})")
+            elif versions['normal']:
+                # 如果没有音频版本，选择普通版本
+                final_files.append(versions['normal'])
+                print(f"选择普通版本: {os.path.basename(versions['normal'])} (基础名: {base_name})")
+        
+        return final_files
+    
     def execute(self, Filenames, show_all_files: bool = False):
         """执行节点逻辑"""
         print(f"ShowResultLast: 接收到文件路径数据: {Filenames}")
@@ -99,11 +140,16 @@ class ShowResultLast:
         
         print(f"ShowResultLast: 解析出 {len(mp4_files)} 个MP4文件")
         
+        # 优先选择带音频的MP4文件
+        filtered_mp4_files = self.prioritize_audio_mp4(mp4_files)
+        
+        print(f"ShowResultLast: 过滤后剩余 {len(filtered_mp4_files)} 个MP4文件")
+        
         # 构建显示文本列表
-        if mp4_files:
+        if filtered_mp4_files:
             # 将所有MP4文件路径合并为一个字符串
             display_text = "找到的MP4文件:\n"
-            for i, mp4_file in enumerate(mp4_files, 1):
+            for i, mp4_file in enumerate(filtered_mp4_files, 1):
                 display_text += f"{i}. {mp4_file}\n"
         else:
             display_text = "未找到MP4文件"
@@ -114,8 +160,8 @@ class ShowResultLast:
         
         print(f"ShowResultLast: 显示文本: {display_text}")
         return_data = []
-        if mp4_files:
-            for mp4_file in mp4_files:
+        if filtered_mp4_files:
+            for mp4_file in filtered_mp4_files:
                 relative_path = os.path.relpath(mp4_file, self.output_dir)
                 return_data.append(relative_path)
         # 返回UI更新数据，让前端能够接收
