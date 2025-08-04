@@ -20,6 +20,7 @@ from .nodes.image_mix import ImageMaskedColorFill,ImageBlackColorFill,ImageLayer
 from .nodes.load_lora_batch import LoadLoraBatch
 from .nodes.wan_video_lora_batch import WanVideoLoraBatch
 from .nodes.show_result_last import ShowResultLast
+from .nodes.manual_video_input import ManualVideoInput
 
 # 导入路由模块
 from . import routes
@@ -80,6 +81,7 @@ NODE_CLASS_MAPPINGS = {
     "LoadLoraBatch": LoadLoraBatch,
     "WanVideoLoraBatch": WanVideoLoraBatch,
     "ShowResultLast": ShowResultLast,
+    "ManualVideoInput": ManualVideoInput,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by My",
@@ -122,6 +124,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadLoraBatch": "LoadLoraBatch 批量加载LoRA by My",
     "WanVideoLoraBatch": "WanVideoLoraBatch 批量收集WanVideo LoRA by My",
     "ShowResultLast": "显示结果-最后 by My",
+    "ManualVideoInput": "手动输入视频文件名 by My",
 }
 
 WEB_DIRECTORY = "./web/js"
