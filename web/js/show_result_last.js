@@ -455,7 +455,7 @@ app.registerExtension({
             
             // 绘制恢复按钮（只在单视频模式下显示）
             if (node.singleVideoMode) {
-                const buttonSize = 30;
+                const buttonSize = 20;
                 const buttonX = node.size[0] - buttonSize - 10;
                 const buttonY = node.size[1] - buttonSize - 10;
                 
