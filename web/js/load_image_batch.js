@@ -50,8 +50,8 @@ function calculateImageLayout(node, imageCount) {
     const GAP = 3;
     const PADDING = 8;
     
-    // 为顶部输入控件和图片标题预留空间
-    const TOP_MARGIN = 50; // 顶部控件的高度
+    // 为顶部输入控件和图片标题预留更多空间
+    const TOP_MARGIN = 160; // 进一步增加顶部控件的高度，从80改为160
     const TITLE_HEIGHT = 25; // 图片标题的高度
     
     const availableWidth = containerWidth - (PADDING * 2);
@@ -87,20 +87,19 @@ function calculateImageLayout(node, imageCount) {
             }
         }
         
-        // 单图片模式不改变节点大小，保持当前大小
         console.log("单图片模式，保持节点大小:", node.size);
     } else {
         // 多图片模式：计算最佳网格
-    let bestRows = 1;
-    let bestCols = 1;
-    let bestSize = 0;
-    
-    for (let rows = 1; rows <= imageCount; rows++) {
-        const cols = Math.ceil(imageCount / rows);
-        const sizeFromWidth = (availableWidth - (GAP * (cols - 1))) / cols;
-        const sizeFromHeight = (availableHeight - (GAP * (rows - 1))) / rows;
-        const size = Math.min(sizeFromWidth, sizeFromHeight);
+        let bestRows = 1;
+        let bestCols = 1;
+        let bestSize = 0;
         
+        for (let rows = 1; rows <= imageCount; rows++) {
+            const cols = Math.ceil(imageCount / rows);
+            const sizeFromWidth = (availableWidth - (GAP * (cols - 1))) / cols;
+            const sizeFromHeight = (availableHeight - (GAP * (rows - 1))) / rows;
+            const size = Math.min(sizeFromWidth, sizeFromHeight);
+            
             if (size > bestSize) {
                 bestSize = size;
                 bestRows = rows;
@@ -125,22 +124,7 @@ function calculateImageLayout(node, imageCount) {
             });
         }
         
-        // 只在初始化时调整节点大小，模式切换时不改变大小
-        if (!node._customSizeInitialized) {
-            const totalWidth = (bestSize * bestCols) + (GAP * (bestCols - 1)) + (PADDING * 2);
-            const totalHeight = (bestSize * bestRows) + (GAP * (bestRows - 1)) + (PADDING * 2) + TOP_MARGIN;
-            
-            const newSize = [Math.max(totalWidth, 200), Math.max(totalHeight, 100)];
-            console.log("初始化多图片模式，设置节点大小:", newSize);
-            
-            node.size[0] = newSize[0];
-            node.size[1] = newSize[1];
-            node._customSizeInitialized = true;
-            node.setDirtyCanvas(true, false);
-            app.graph.setDirtyCanvas(true, false);
-        } else {
-            console.log("多图片模式，保持节点大小:", node.size);
-        }
+        console.log("多图片模式，保持节点大小:", node.size);
     }
     
     console.log("图片布局计算完成，区域数量:", node._customImageRects.length);
@@ -178,7 +162,6 @@ function showImages(node, paths) {
         node._customFileNameRects = [];
         node._customSingleImageMode = false;
         node._customFocusedImageIndex = -1;
-        node._customSizeInitialized = false;
         node._customPrevButtonRect = null;
         node._customNextButtonRect = null;
         node._customRestoreButtonRect = null;
@@ -198,7 +181,6 @@ function showImages(node, paths) {
     // 初始化单图片显示状态
     node._customSingleImageMode = false;
     node._customFocusedImageIndex = -1;
-    node._customSizeInitialized = false; // 标记节点大小未初始化
     
     validPaths.forEach((path, index) => {
         const img = new Image();
@@ -260,8 +242,8 @@ function drawNodeImages(node, ctx) {
         // 绘制图片到Canvas - 保持原始比例，向下偏移避免被文件名遮挡
         if (img.complete && img.naturalWidth > 0) {
             try {
-                // 为文件名预留空间
-                const titleHeight = 20;
+                // 为文件名预留更多空间
+                const titleHeight = 30; // 增加文件名区域高度，从20改为30
                 const imageRect = {
                     x: rect.x,
                     y: rect.y + titleHeight, // 向下偏移
@@ -309,7 +291,7 @@ function drawNodeImages(node, ctx) {
         
         // 在顶部绘制文件名背景
         ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(rect.x, rect.y, rect.width, 20);
+        ctx.fillRect(rect.x, rect.y, rect.width, 30); // 增加背景高度，从20改为30
         
         // 自动调整字体大小
         const maxTextWidth = rect.width - 10; // 留出边距
@@ -318,7 +300,7 @@ function drawNodeImages(node, ctx) {
         
         // 绘制文件名
         ctx.fillStyle = '#fff';
-        ctx.fillText(fileName, rect.x + rect.width / 2, rect.y + 15);
+        ctx.fillText(fileName, rect.x + rect.width / 2, rect.y + 20); // 调整文字位置，从15改为20
         
         // 保存文件名区域信息，用于tooltip检测
         if (!node._customFileNameRects) {
@@ -328,7 +310,7 @@ function drawNodeImages(node, ctx) {
             x: rect.x,
             y: rect.y,
             width: rect.width,
-            height: 20 // 文件名区域高度
+            height: 30 // 文件名区域高度，从20改为30
         };
         
         // 绘制右上角清除按钮
@@ -545,7 +527,6 @@ function updateImagePreviews(node, paths) {
     
     if (!paths || paths.length === 0 || (paths.length === 1 && !paths[0])) {
         console.log("没有有效路径，清除预览");
-        node.computeSize();
         app.graph.setDirtyCanvas(true, true);
         return;
     }
@@ -553,8 +534,7 @@ function updateImagePreviews(node, paths) {
     // 加载图片
     showImages(node, paths);
     
-    // 更新节点大小
-    node.computeSize();
+    // 触发重绘
     app.graph.setDirtyCanvas(true, true);
     
     console.log("图片预览更新完成");
@@ -955,17 +935,9 @@ function populate(imagePaths) {
         }
         console.log("节点大小改变，重新计算布局:", size);
         
-        // 重新计算图片布局，但不调整节点大小
+        // 重新计算图片布局，适应新的节点大小
         if (this._customImagePaths && this._customImagePaths.length > 0) {
-            // 临时保存当前大小
-            const currentSize = [this.size[0], this.size[1]];
-            
-            // 计算布局但不调整大小
             calculateImageLayout(this, this._customImagePaths.length);
-            
-            // 恢复原始大小，避免递归
-            this.size[0] = currentSize[0];
-            this.size[1] = currentSize[1];
         }
     };
     
