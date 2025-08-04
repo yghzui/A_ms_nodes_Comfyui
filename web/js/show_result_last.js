@@ -33,55 +33,95 @@ app.registerExtension({
             const availableWidth = containerWidth - (PADDING * 2);
             const availableHeight = containerHeight - (PADDING * 2) - TOP_MARGIN - TITLE_HEIGHT;
             
-            // 计算最佳网格
-            let bestRows = 1;
-            let bestCols = 1;
-            let bestSize = 0;
-            
-            for (let rows = 1; rows <= videoCount; rows++) {
-                const cols = Math.ceil(videoCount / rows);
-                const sizeFromWidth = (availableWidth - (GAP * (cols - 1))) / cols;
-                const sizeFromHeight = (availableHeight - (GAP * (rows - 1))) / rows;
-                const size = Math.min(sizeFromWidth, sizeFromHeight);
+            // 检查是否处于单视频模式
+            if (node.singleVideoMode && node.focusedVideoIndex >= 0 && node.focusedVideoIndex < videoCount) {
+                // 单视频模式：只显示一个视频，最大化显示
+                const videoSize = Math.min(availableWidth, availableHeight);
+                const x = PADDING + (availableWidth - videoSize) / 2;
+                const y = PADDING + TOP_MARGIN + (availableHeight - videoSize) / 2;
                 
-                if (size > bestSize) {
-                    bestSize = size;
-                    bestRows = rows;
-                    bestCols = cols;
+                node.videoRects = [];
+                for (let i = 0; i < videoCount; i++) {
+                    if (i === node.focusedVideoIndex) {
+                        // 显示聚焦的视频
+                        node.videoRects.push({
+                            x: x,
+                            y: y,
+                            width: videoSize,
+                            height: videoSize,
+                            visible: true
+                        });
+                    } else {
+                        // 隐藏其他视频
+                        node.videoRects.push({
+                            x: 0,
+                            y: 0,
+                            width: 0,
+                            height: 0,
+                            visible: false
+                        });
+                    }
                 }
-            }
-            
-            // 计算每个视频的位置
-            node.videoRects = [];
-            for (let i = 0; i < videoCount; i++) {
-                const row = Math.floor(i / bestCols);
-                const col = i % bestCols;
-                const x = PADDING + col * (bestSize + GAP);
-                const y = PADDING + TOP_MARGIN + row * (bestSize + GAP + TITLE_HEIGHT); // 加上顶部边距和标题空间
                 
-                node.videoRects.push({
-                    x: x,
-                    y: y,
-                    width: bestSize,
-                    height: bestSize
-                });
-            }
-            
-            // 调整节点大小以适应内容
-            const totalWidth = (bestSize * bestCols) + (GAP * (bestCols - 1)) + (PADDING * 2);
-            const totalHeight = (bestSize * bestRows) + (GAP * (bestRows - 1)) + (PADDING * 2) + TOP_MARGIN + TITLE_HEIGHT;
-            
-            const newSize = [Math.max(totalWidth, 200), Math.max(totalHeight, 100)];
-            console.log("计算的新尺寸:", newSize, "当前尺寸:", node.size);
-            
-            if (newSize[0] !== node.size[0] || newSize[1] !== node.size[1]) {
-                // 使用正确的方法调整节点大小
-                node.size[0] = newSize[0];
-                node.size[1] = newSize[1];
+                // 调整节点大小以适应单视频显示
+                const newSize = [Math.max(videoSize + PADDING * 2, 200), Math.max(videoSize + PADDING * 2 + TOP_MARGIN + TITLE_HEIGHT, 100)];
+                console.log("单视频模式新尺寸:", newSize);
                 
-                // 标记需要重绘，但不调用onResize避免递归
-                node.setDirtyCanvas(true, false);
-                app.graph.setDirtyCanvas(true, false);
+                if (newSize[0] !== node.size[0] || newSize[1] !== node.size[1]) {
+                    node.size[0] = newSize[0];
+                    node.size[1] = newSize[1];
+                    node.setDirtyCanvas(true, false);
+                    app.graph.setDirtyCanvas(true, false);
+                }
+            } else {
+                // 多视频模式：计算最佳网格
+                let bestRows = 1;
+                let bestCols = 1;
+                let bestSize = 0;
+                
+                for (let rows = 1; rows <= videoCount; rows++) {
+                    const cols = Math.ceil(videoCount / rows);
+                    const sizeFromWidth = (availableWidth - (GAP * (cols - 1))) / cols;
+                    const sizeFromHeight = (availableHeight - (GAP * (rows - 1))) / rows;
+                    const size = Math.min(sizeFromWidth, sizeFromHeight);
+                    
+                    if (size > bestSize) {
+                        bestSize = size;
+                        bestRows = rows;
+                        bestCols = cols;
+                    }
+                }
+                
+                // 计算每个视频的位置
+                node.videoRects = [];
+                for (let i = 0; i < videoCount; i++) {
+                    const row = Math.floor(i / bestCols);
+                    const col = i % bestCols;
+                    const x = PADDING + col * (bestSize + GAP);
+                    const y = PADDING + TOP_MARGIN + row * (bestSize + GAP + TITLE_HEIGHT);
+                    
+                    node.videoRects.push({
+                        x: x,
+                        y: y,
+                        width: bestSize,
+                        height: bestSize,
+                        visible: true
+                    });
+                }
+                
+                // 调整节点大小以适应内容
+                const totalWidth = (bestSize * bestCols) + (GAP * (bestCols - 1)) + (PADDING * 2);
+                const totalHeight = (bestSize * bestRows) + (GAP * (bestRows - 1)) + (PADDING * 2) + TOP_MARGIN + TITLE_HEIGHT;
+                
+                const newSize = [Math.max(totalWidth, 200), Math.max(totalHeight, 100)];
+                console.log("多视频模式新尺寸:", newSize, "当前尺寸:", node.size);
+                
+                if (newSize[0] !== node.size[0] || newSize[1] !== node.size[1]) {
+                    node.size[0] = newSize[0];
+                    node.size[1] = newSize[1];
+                    node.setDirtyCanvas(true, false);
+                    app.graph.setDirtyCanvas(true, false);
+                }
             }
         }
 
@@ -117,6 +157,9 @@ app.registerExtension({
                 node.videoFileNames = [];
                 node.videoPaths = [];
                 node.fileNameRects = []; // 清除文件名区域信息
+                node.singleVideoMode = false; // 清除单视频模式状态
+                node.focusedVideoIndex = -1;
+                node.restoreButtonRect = null; // 清除恢复按钮区域
                 console.log("没有视频数据，已清除所有旧数据");
                 return;
             }
@@ -129,6 +172,10 @@ app.registerExtension({
             node.videoFileNames = [];
             node.videoPaths = validPaths; // 保存当前视频路径
             node.fileNameRects = []; // 初始化文件名区域数组
+            
+            // 初始化单视频显示状态
+            node.singleVideoMode = false;
+            node.focusedVideoIndex = -1;
             
             // 为每个视频路径创建视频元素
             validPaths.forEach((path) => {
@@ -258,6 +305,11 @@ app.registerExtension({
             for (let i = 0; i < node.videos.length && i < node.videoRects.length; i++) {
                 const video = node.videos[i];
                 const rect = node.videoRects[i];
+                
+                // 检查视频是否可见（单视频模式）
+                if (rect.visible === false) {
+                    continue;
+                }
                 
                 // 绘制视频背景
                 ctx.fillStyle = '#2a2a2a';
@@ -399,6 +451,49 @@ app.registerExtension({
                         }
                     }
                 }
+            }
+            
+            // 绘制恢复按钮（只在单视频模式下显示）
+            if (node.singleVideoMode) {
+                const buttonSize = 30;
+                const buttonX = node.size[0] - buttonSize - 10;
+                const buttonY = node.size[1] - buttonSize - 10;
+                
+                // 绘制按钮背景
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                ctx.fillRect(buttonX, buttonY, buttonSize, buttonSize);
+                
+                // 绘制按钮边框
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(buttonX, buttonY, buttonSize, buttonSize);
+                
+                // 绘制恢复图标（四个小方块）
+                ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+                const iconSize = 6;
+                const iconGap = 2;
+                const iconStartX = buttonX + (buttonSize - iconSize * 2 - iconGap) / 2;
+                const iconStartY = buttonY + (buttonSize - iconSize * 2 - iconGap) / 2;
+                
+                // 左上角
+                ctx.fillRect(iconStartX, iconStartY, iconSize, iconSize);
+                // 右上角
+                ctx.fillRect(iconStartX + iconSize + iconGap, iconStartY, iconSize, iconSize);
+                // 左下角
+                ctx.fillRect(iconStartX, iconStartY + iconSize + iconGap, iconSize, iconSize);
+                // 右下角
+                ctx.fillRect(iconStartX + iconSize + iconGap, iconStartY + iconSize + iconGap, iconSize, iconSize);
+                
+                // 保存恢复按钮区域信息
+                node.restoreButtonRect = {
+                    x: buttonX,
+                    y: buttonY,
+                    width: buttonSize,
+                    height: buttonSize
+                };
+            } else {
+                // 清除恢复按钮区域信息
+                node.restoreButtonRect = null;
             }
             
             ctx.restore();
@@ -578,19 +673,52 @@ app.registerExtension({
                 console.log("节点信息:", this.id, this.type, this.size);
                 console.log("视频区域:", this.videoRects);
                 
+                // 获取节点的Canvas坐标
+                const nodePos = this.pos;
+                
+                // 检查是否点击恢复按钮（单视频模式下）
+                if (this.singleVideoMode && this.restoreButtonRect) {
+                    const absButtonX = nodePos[0] + this.restoreButtonRect.x;
+                    const absButtonY = nodePos[1] + this.restoreButtonRect.y;
+                    const absButtonWidth = this.restoreButtonRect.width;
+                    const absButtonHeight = this.restoreButtonRect.height;
+                    
+                    if (e.canvasX >= absButtonX && e.canvasX <= absButtonX + absButtonWidth &&
+                        e.canvasY >= absButtonY && e.canvasY <= absButtonY + absButtonHeight) {
+                        
+                        console.log("点击恢复按钮，退出单视频模式");
+                        
+                        // 阻止事件冒泡
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
+                        // 退出单视频模式
+                        this.singleVideoMode = false;
+                        this.focusedVideoIndex = -1;
+                        
+                        // 重新计算布局
+                        if (this.videoPaths && this.videoPaths.length > 0) {
+                            calculateVideoLayout(this, this.videoPaths.length);
+                        }
+                        
+                        // 触发重绘
+                        app.graph.setDirtyCanvas(true, false);
+                        
+                        return true;
+                    }
+                }
+                
                 // 检查鼠标是否在视频框内
                 if (this.videoRects && this.videoRects.length > 0) {
                     console.log("检查视频区域点击", this.videoRects.length, "个视频区域");
                     
-                    // 获取节点的Canvas坐标
-                    const nodePos = this.pos;
-                    const canvasScale = app.canvas.ds.scale;
-                    const canvasOffset = app.canvas.ds.offset;
-                    
-                    console.log("节点位置:", nodePos, "Canvas缩放:", canvasScale, "Canvas偏移:", canvasOffset);
-                    
                     for (let i = 0; i < this.videoRects.length; i++) {
                         const rect = this.videoRects[i];
+                        
+                        // 检查视频是否可见
+                        if (rect.visible === false) {
+                            continue;
+                        }
                         
                         // 计算视频区域在Canvas中的绝对坐标
                         const absRectX = nodePos[0] + rect.x;
@@ -653,6 +781,21 @@ app.registerExtension({
                                 // 阻止事件冒泡，避免触发节点选择
                                 e.preventDefault();
                                 e.stopPropagation();
+                                
+                                // 如果不在单视频模式，进入单视频模式
+                                if (!this.singleVideoMode) {
+                                    console.log(`进入单视频模式，聚焦视频 ${i}`);
+                                    this.singleVideoMode = true;
+                                    this.focusedVideoIndex = i;
+                                    
+                                    // 重新计算布局
+                                    if (this.videoPaths && this.videoPaths.length > 0) {
+                                        calculateVideoLayout(this, this.videoPaths.length);
+                                    }
+                                    
+                                    // 触发重绘
+                                    app.graph.setDirtyCanvas(true, false);
+                                }
                                 
                                 // 返回true表示事件已处理
                                 return true;
