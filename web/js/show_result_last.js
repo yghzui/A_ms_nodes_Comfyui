@@ -23,8 +23,8 @@ app.registerExtension({
             
             const containerWidth = node.size[0];
             const containerHeight = node.size[1];
-            const GAP = 5;
-            const PADDING = 10;
+            const GAP = 3;
+            const PADDING = 8;
             
             // 为顶部输入控件和视频标题预留空间
             const TOP_MARGIN = 50; // 顶部控件的高度
@@ -63,16 +63,8 @@ app.registerExtension({
                     }
                 }
                 
-                // 调整节点大小以适应单视频显示
-                const newSize = [Math.max(videoSize + PADDING * 2, 200), Math.max(videoSize + PADDING * 2 + TOP_MARGIN + TITLE_HEIGHT, 100)];
-                console.log("单视频模式新尺寸:", newSize);
-                
-                if (newSize[0] !== node.size[0] || newSize[1] !== node.size[1]) {
-                    node.size[0] = newSize[0];
-                    node.size[1] = newSize[1];
-                    node.setDirtyCanvas(true, false);
-                    app.graph.setDirtyCanvas(true, false);
-                }
+                // 单视频模式不改变节点大小，保持当前大小
+                console.log("单视频模式，保持节点大小:", node.size);
             } else {
                 // 多视频模式：计算最佳网格
                 let bestRows = 1;
@@ -98,7 +90,7 @@ app.registerExtension({
                     const row = Math.floor(i / bestCols);
                     const col = i % bestCols;
                     const x = PADDING + col * (bestSize + GAP);
-                    const y = PADDING + TOP_MARGIN + row * (bestSize + GAP + TITLE_HEIGHT);
+                    const y = PADDING + TOP_MARGIN + row * (bestSize + GAP);
                     
                     node.videoRects.push({
                         x: x,
@@ -109,18 +101,21 @@ app.registerExtension({
                     });
                 }
                 
-                // 调整节点大小以适应内容
-                const totalWidth = (bestSize * bestCols) + (GAP * (bestCols - 1)) + (PADDING * 2);
-                const totalHeight = (bestSize * bestRows) + (GAP * (bestRows - 1)) + (PADDING * 2) + TOP_MARGIN + TITLE_HEIGHT;
-                
-                const newSize = [Math.max(totalWidth, 200), Math.max(totalHeight, 100)];
-                console.log("多视频模式新尺寸:", newSize, "当前尺寸:", node.size);
-                
-                if (newSize[0] !== node.size[0] || newSize[1] !== node.size[1]) {
+                // 只在初始化时调整节点大小，模式切换时不改变大小
+                if (!node.sizeInitialized) {
+                    const totalWidth = (bestSize * bestCols) + (GAP * (bestCols - 1)) + (PADDING * 2);
+                    const totalHeight = (bestSize * bestRows) + (GAP * (bestRows - 1)) + (PADDING * 2) + TOP_MARGIN;
+                    
+                    const newSize = [Math.max(totalWidth, 200), Math.max(totalHeight, 100)];
+                    console.log("初始化多视频模式，设置节点大小:", newSize);
+                    
                     node.size[0] = newSize[0];
                     node.size[1] = newSize[1];
+                    node.sizeInitialized = true;
                     node.setDirtyCanvas(true, false);
                     app.graph.setDirtyCanvas(true, false);
+                } else {
+                    console.log("多视频模式，保持节点大小:", node.size);
                 }
             }
         }
@@ -159,6 +154,7 @@ app.registerExtension({
                 node.fileNameRects = []; // 清除文件名区域信息
                 node.singleVideoMode = false; // 清除单视频模式状态
                 node.focusedVideoIndex = -1;
+                node.sizeInitialized = false; // 重置大小初始化标志
                 node.prevButtonRect = null; // 清除上一个按钮区域
                 node.nextButtonRect = null; // 清除下一个按钮区域
                 node.restoreButtonRect = null; // 清除恢复按钮区域
@@ -178,6 +174,7 @@ app.registerExtension({
             // 初始化单视频显示状态
             node.singleVideoMode = false;
             node.focusedVideoIndex = -1;
+            node.sizeInitialized = false; // 标记节点大小未初始化
             
             // 为每个视频路径创建视频元素
             validPaths.forEach((path) => {
