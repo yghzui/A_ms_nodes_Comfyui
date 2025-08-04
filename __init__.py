@@ -123,7 +123,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageDualMaskColorFill": "ImageDualMaskColorFill 双遮罩不重叠区域颜色填充 by My",
     "LoadLoraBatch": "LoadLoraBatch 批量加载LoRA by My",
     "WanVideoLoraBatch": "WanVideoLoraBatch 批量收集WanVideo LoRA by My",
-    "ShowResultLast": "显示结果-最后 by My",
+    "ShowResultLast": "Show VHS_FILENAMES by path  显示视频结果 通过路径by My",
     "ManualVideoInput": "手动输入视频文件名 by My",
 }
 
