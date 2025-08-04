@@ -1033,6 +1033,61 @@ function populate(imagePaths) {
         return false;
     };
     
+    // 添加双击事件处理
+    const originalOnDblClick = this.onDblClick;
+    this.onDblClick = function(e) {
+        // 只有LoadImageBatchAdvanced节点才处理自定义双击事件
+        if (this.type !== "LoadImageBatchAdvanced") {
+            if (originalOnDblClick) {
+                return originalOnDblClick.call(this, e);
+            }
+            return false;
+        }
+        
+        console.log("onDblClick 被调用", e);
+        
+        // 获取节点的Canvas坐标
+        const nodePos = this.pos;
+        
+        // 检查是否双击图片区域（单图片模式）
+        if (this._customSingleImageMode && this._customImageRects && this._customImageRects.length > 0) {
+            const currentImageRect = this._customImageRects[this._customFocusedImageIndex];
+            
+            if (currentImageRect && currentImageRect.visible !== false) {
+                // 计算图片区域在Canvas中的绝对坐标
+                const absRectX = nodePos[0] + currentImageRect.x;
+                const absRectY = nodePos[1] + currentImageRect.y;
+                const absRectWidth = currentImageRect.width;
+                const absRectHeight = currentImageRect.height;
+                
+                // 检查鼠标是否在图片区域内
+                if (e.canvasX >= absRectX && e.canvasX <= absRectX + absRectWidth &&
+                    e.canvasY >= absRectY && e.canvasY <= absRectY + absRectHeight) {
+                    
+                    console.log(`双击图片，进入全屏预览，图片索引: ${this._customFocusedImageIndex}`);
+                    
+                    // 阻止事件冒泡
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // 执行全屏预览
+                    if (this._customImagePaths && this._customImagePaths.length > 0) {
+                        showImageLightbox(this._customImagePaths, this._customFocusedImageIndex);
+                    }
+                    
+                    return true;
+                }
+            }
+        }
+        
+        // 如果没有处理双击事件，调用原始事件处理
+        if (originalOnDblClick) {
+            return originalOnDblClick.call(this, e);
+        }
+        
+        return false;
+    };
+    
     // 重写节点的resize方法，当大小改变时重新计算布局
     const originalOnResize = this.onResize;
     this.onResize = function(size) {

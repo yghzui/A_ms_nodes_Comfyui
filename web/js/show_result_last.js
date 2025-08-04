@@ -1190,6 +1190,53 @@ app.registerExtension({
                 return false;
             };
             
+            // 添加双击事件处理
+            const originalOnDblClick = this.onDblClick;
+            this.onDblClick = function(e) {
+                console.log("onDblClick 被调用", e);
+                
+                // 获取节点的Canvas坐标
+                const nodePos = this.pos;
+                
+                // 检查是否双击视频区域（单视频模式）
+                if (this.singleVideoMode && this.videoRects && this.videoRects.length > 0) {
+                    const currentVideoRect = this.videoRects[this.focusedVideoIndex];
+                    
+                    if (currentVideoRect && currentVideoRect.visible !== false) {
+                        // 计算视频区域在Canvas中的绝对坐标
+                        const absRectX = nodePos[0] + currentVideoRect.x;
+                        const absRectY = nodePos[1] + currentVideoRect.y;
+                        const absRectWidth = currentVideoRect.width;
+                        const absRectHeight = currentVideoRect.height;
+                        
+                        // 检查鼠标是否在视频区域内
+                        if (e.canvasX >= absRectX && e.canvasX <= absRectX + absRectWidth &&
+                            e.canvasY >= absRectY && e.canvasY <= absRectY + absRectHeight) {
+                            
+                            console.log(`双击视频，进入全屏预览，视频索引: ${this.focusedVideoIndex}`);
+                            
+                            // 阻止事件冒泡
+                            e.preventDefault();
+                            e.stopPropagation();
+                            
+                            // 执行全屏预览
+                            if (this.videoPaths && this.videoPaths.length > 0) {
+                                showVideoLightbox(this.videoPaths, this.focusedVideoIndex);
+                            }
+                            
+                            return true;
+                        }
+                    }
+                }
+                
+                // 如果没有处理双击事件，调用原始事件处理
+                if (originalOnDblClick) {
+                    return originalOnDblClick.call(this, e);
+                }
+                
+                return false;
+            };
+            
             // 重写节点的resize方法，当大小改变时重新计算布局
             const originalOnResize = this.onResize;
             this.onResize = function(size) {
