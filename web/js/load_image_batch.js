@@ -1846,12 +1846,10 @@ app.registerExtension({
                             }
 
                             if (allPaths.length > 0) {
-                                // 将所有成功上传的路径合并到现有路径中
-                                const existingPaths = pathWidget.value ? pathWidget.value.split(',').filter(p => p.trim()) : [];
-                                const combinedPaths = [...existingPaths, ...allPaths];
-                                pathWidget.value = combinedPaths.join(',');
+                                // 用新上传的路径替换现有路径，而不是合并
+                                pathWidget.value = allPaths.join(',');
                                 triggerWidget.value = (triggerWidget.value || 0) + 1;
-                                populate.call(node, combinedPaths);
+                                populate.call(node, allPaths);
                             }
 
                         } catch (error) {
