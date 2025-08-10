@@ -21,12 +21,13 @@ class NoticeSound:
                 'mask': ('MASK',),
                 "Filenames": ("VHS_FILENAMES",),
                 "text": ("STRING",),
-              
+                # 新增：支持LATENT类型输入，用于透传
+                "latent": ("LATENT",),
             }
         }
     OUTPUT_NODE = True
-    RETURN_TYPES = tuple(["IMAGE", "MASK", "VHS_FILENAMES", "STRING"])
-    RETURN_NAMES = tuple(["image", "mask", "Filenames", "text"])
+    RETURN_TYPES = tuple(["IMAGE", "MASK", "VHS_FILENAMES", "STRING", "LATENT"])  # 末尾追加LATENT，保持兼容
+    RETURN_NAMES = tuple(["image", "mask", "Filenames", "text", "latent"])  # 对应名称为latent
     FUNCTION = "play_notice_sound"
     CATEGORY = "My_node/通知"
 
