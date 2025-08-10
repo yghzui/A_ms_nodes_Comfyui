@@ -11,7 +11,7 @@ from .nodes.resize_image_by_person import ResizeImageByPerson,CropInfoToNumbers
 # from .nodes.a_person_face_landmark_mask_generator_comfyui_add_nose import APersonFaceLandmarkMaskGeneratorAddNose
 # from .nodes.a_person_face_landmark_mask_generator_comfyui_by_my import APersonFaceLandmarkMaskGenerator
 from .nodes.person_and_face.a_person_face_landmark_mask_generator_comfyui import  APersonFaceLandmarkMaskGenerator
-from .nodes.math import AspectRatioAdjuster,I2VConfigureNode
+from .nodes.math import AspectRatioAdjuster,I2VConfigureNode, FramesSplitCalculator, FramesSegmentSlicer, ImagesConcatWithOverlap
 from .nodes.face_flip import FaceFlip
 from .nodes.create_color_image_mask import CreateColorImageAndMask
 # 导入新的批量加载节点
@@ -68,6 +68,9 @@ NODE_CLASS_MAPPINGS = {
     "NoticeSound": NoticeSound,
     "AspectRatioAdjuster": AspectRatioAdjuster,
     "I2VConfigureNode": I2VConfigureNode,
+    "FramesSplitCalculator": FramesSplitCalculator,
+    "FramesSegmentSlicer": FramesSegmentSlicer,
+    "ImagesConcatWithOverlap": ImagesConcatWithOverlap,
     "ImageFlipNode": FaceFlip,
     "CreateColorImageAndMask": CreateColorImageAndMask,
     "NormalizeMask": NormalizeMask,
@@ -111,6 +114,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "NoticeSound": "铃声提醒节点 by My",
     "AspectRatioAdjuster": "宽高比调整节点 by My",
     "I2VConfigureNode": "I2V配置节点 by My",
+    "FramesSplitCalculator": "循环 按帧数切分计算(含重叠) by My",
+    "FramesSegmentSlicer": "循环 按索引截取图像与遮罩段 by My",
+    "ImagesConcatWithOverlap": "循环 按重叠覆盖拼接图像 by My",
     "ImageFlipNode": "图像翻转节点 by My",
     "CreateColorImageAndMask": "创建颜色图像和遮罩节点 by My",
     "NormalizeMask": "NormalizeMask 归一化遮罩节点 by My",
