@@ -107,83 +107,83 @@ class CreateTextMask:
         # print("mask_tensor", mask_out.shape)  # 输出: torch.Size([1, height, width, channels])
         # print(masked_image.shape)  # 输出: torch.Size([1, height, width, channels])
         return (masked_image, mask_out)
-
-
-class TextMaskMy:
-    @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "image": ("IMAGE",),
-                "model": (
-                    ['DB_IC15_resnet18.onnx', 'DB_IC15_resnet50.onnx', 'DB_TD500_resnet18.onnx',
-                     'DB_TD500_resnet50.onnx'],
-                    {"default": "DB_TD500_resnet50.onnx", "tooltip": "选择检测模型"}),
-            },
-
-        }
-
-    CATEGORY = "My_node/example"
-    RETURN_TYPES = ("IMAGE", "MASK")
-    FUNCTION = "example_func"
-    
-    # @classmethod
-    # def IS_CHANGED(s, image, model):
-    #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
-    #     m = hashlib.sha256()
-        
-    #     # 对图像进行哈希
-    #     images_flat = image.reshape(-1).numpy().tobytes()
-    #     m.update(images_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
-        
-    #     # 将其他参数也加入哈希计算
-    #     m.update(str(model).encode())
-        
-    #     return m.digest().hex()
-
-    def example_func(self, image, model):
-        start_time = time.time()
-        image_np = image.squeeze(0).detach().cpu().numpy()
-        # 假设 ComfyUI 的张量像素值范围是 [0, 1]，将其转换为 [0, 255]，并将类型转换为 uint8
-        image_np = (image_np * 255).astype(np.uint8)
-        # concurrent_dir = os.path.dirname(os.path.dirname(__file__))
-        # image_np_save_path = os.path.join(concurrent_dir, "temp", "image_np_save.jpg")
-        # cv2.imwrite(image_np_save_path, image_np)
-        width, height = image_np.shape[1], image_np.shape[0]
-        # 创建一个与图像相同大小的空白蒙版，初始化为黑色
-        mask = np.zeros((height, width), dtype=np.uint8)
-
-        # 1. 加载预训练模型的权重和配置文件
-        dir_node = os.path.dirname(os.path.dirname(__file__))
-        model_dir = os.path.join(dir_node, "models", "text_det_model")
-        model_weights = os.path.join(model_dir, model)
-        model = cv2.dnn_TextDetectionModel_DB(model_weights)
-        # 2. 设置模型输入的预处理参数
-        model.setInputParams(
-            scale=1.0 / 255.0,
-            size=(736, 736),
-            mean=(122.67891434, 116.66876762, 104.00698793),
-            swapRB=True,
-        )
-        # 3. 读取图像
-        # image = cv2.imread(image_np_save_path)
-        # 4. 执行文本检测
-        boxes, scores = model.detect(image_np)
-        # 5. 可视化检测结果
-        for box in boxes:
-            points = box.astype(np.int32)
-            cv2.polylines(image_np, [points], isClosed=True, color=(0, 255, 0), thickness=2)
-            cv2.fillPoly(mask, [points], color=(255, 255, 255))
-        image_np_bgra = image_np
-        masked_image = torch.tensor(image_np_bgra).unsqueeze(0)  # 添加 batch 维度
-        masked_image = masked_image.float() / 255.0  # 如果你想标准化为 [0, 1] 的范围
-        mask_out = torch.tensor(mask).unsqueeze(0)  # 变为 [1, height, width, 1]
-        mask_out = mask_out.float() / 255.0  # 如果你想标准化为 [0, 1] 的范围
-        print(f"TextMaskMy cost time: {time.time() - start_time} s")
-        return (masked_image, mask_out)
-
-
-previous_dino_model = ""
+#
+#
+# class TextMaskMy:
+#     @classmethod
+#     def INPUT_TYPES(s):
+#         return {
+#             "required": {
+#                 "image": ("IMAGE",),
+#                 "model": (
+#                     ['DB_IC15_resnet18.onnx', 'DB_IC15_resnet50.onnx', 'DB_TD500_resnet18.onnx',
+#                      'DB_TD500_resnet50.onnx'],
+#                     {"default": "DB_TD500_resnet50.onnx", "tooltip": "选择检测模型"}),
+#             },
+#
+#         }
+#
+#     CATEGORY = "My_node/example"
+#     RETURN_TYPES = ("IMAGE", "MASK")
+#     FUNCTION = "example_func"
+#
+#     # @classmethod
+#     # def IS_CHANGED(s, image, model):
+#     #     # 计算输入的哈希值，确保只有在输入变化时才重新计算
+#     #     m = hashlib.sha256()
+#
+#     #     # 对图像进行哈希
+#     #     images_flat = image.reshape(-1).numpy().tobytes()
+#     #     m.update(images_flat[:1024])  # 只使用部分数据做哈希，避免计算过重
+#
+#     #     # 将其他参数也加入哈希计算
+#     #     m.update(str(model).encode())
+#
+#     #     return m.digest().hex()
+#
+#     def example_func(self, image, model):
+#         start_time = time.time()
+#         image_np = image.squeeze(0).detach().cpu().numpy()
+#         # 假设 ComfyUI 的张量像素值范围是 [0, 1]，将其转换为 [0, 255]，并将类型转换为 uint8
+#         image_np = (image_np * 255).astype(np.uint8)
+#         # concurrent_dir = os.path.dirname(os.path.dirname(__file__))
+#         # image_np_save_path = os.path.join(concurrent_dir, "temp", "image_np_save.jpg")
+#         # cv2.imwrite(image_np_save_path, image_np)
+#         width, height = image_np.shape[1], image_np.shape[0]
+#         # 创建一个与图像相同大小的空白蒙版，初始化为黑色
+#         mask = np.zeros((height, width), dtype=np.uint8)
+#
+#         # 1. 加载预训练模型的权重和配置文件
+#         dir_node = os.path.dirname(os.path.dirname(__file__))
+#         model_dir = os.path.join(dir_node, "models", "text_det_model")
+#         model_weights = os.path.join(model_dir, model)
+#         model = cv2.dnn_TextDetectionModel_DB(model_weights)
+#         # 2. 设置模型输入的预处理参数
+#         model.setInputParams(
+#             scale=1.0 / 255.0,
+#             size=(736, 736),
+#             mean=(122.67891434, 116.66876762, 104.00698793),
+#             swapRB=True,
+#         )
+#         # 3. 读取图像
+#         # image = cv2.imread(image_np_save_path)
+#         # 4. 执行文本检测
+#         boxes, scores = model.detect(image_np)
+#         # 5. 可视化检测结果
+#         for box in boxes:
+#             points = box.astype(np.int32)
+#             cv2.polylines(image_np, [points], isClosed=True, color=(0, 255, 0), thickness=2)
+#             cv2.fillPoly(mask, [points], color=(255, 255, 255))
+#         image_np_bgra = image_np
+#         masked_image = torch.tensor(image_np_bgra).unsqueeze(0)  # 添加 batch 维度
+#         masked_image = masked_image.float() / 255.0  # 如果你想标准化为 [0, 1] 的范围
+#         mask_out = torch.tensor(mask).unsqueeze(0)  # 变为 [1, height, width, 1]
+#         mask_out = mask_out.float() / 255.0  # 如果你想标准化为 [0, 1] 的范围
+#         print(f"TextMaskMy cost time: {time.time() - start_time} s")
+#         return (masked_image, mask_out)
+#
+#
+# previous_dino_model = ""
 
 
 class GroundingDinoGetBbox:
