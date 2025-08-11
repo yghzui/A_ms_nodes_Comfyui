@@ -153,12 +153,18 @@ class FramesSegmentSlicer:
                 "overlap": ("INT", {"default": 0, "min": 0, "max": 100000000, "tooltip": "相邻两段之间的重叠帧数，必须小于切分长度"}),
                 # 需要截取的段索引，从0开始，例如总段数为6时，索引范围0-5
                 "index": ("INT", {"default": 0, "min": 0, "max": 100000000, "tooltip": "需要截取的段索引，从0开始"}),
+                # 是否启用后处理覆盖
+                "enable_post_cover": ("BOOLEAN", {"default": False, "tooltip": "启用后，用上一段图像的尾部有效重叠帧覆盖当前片段的开头"}),
+                # 有效重叠数，必须小于等于 overlap
+                "effective_overlap": ("INT", {"default": 0, "min": 0, "max": 100000000, "tooltip": "有效重叠帧数，必须小于等于重叠数"}),
             },
             "optional": {
                 # 图像为 (n,h,w,c)，可为空
                 "images": ("IMAGE",),
                 # 遮罩为 (n,h,w)，可为空
                 "mask": ("MASK",),
+                # 上一段的图像 (n,h,w,c)，可为空
+                "prev_images": ("IMAGE",),
             }
         }
 
@@ -167,12 +173,14 @@ class FramesSegmentSlicer:
     FUNCTION = "slice_segment"
     CATEGORY = "A_my_nodes/math"
 
-    def slice_segment(self, total_frames, split_value, overlap, index, images=None, mask=None):
+    def slice_segment(self, total_frames, split_value, overlap, index, enable_post_cover, effective_overlap, images=None, mask=None, prev_images=None):
         # 规范化与健壮性
         total_frames = int(total_frames)
         split_value = int(split_value)
         overlap = int(overlap)
         index = int(index)
+        enable_post_cover = bool(enable_post_cover)
+        effective_overlap = int(effective_overlap)
 
         if split_value <= 0:
             # 切分长度无效，直接返回None与0长度
@@ -217,6 +225,59 @@ class FramesSegmentSlicer:
                     mask_segment = mask[start:end_idx_m]
             except Exception:
                 mask_segment = None
+
+        # 后处理覆盖逻辑：仅在开启、prev_images 存在、当前片段存在、有效重叠>0时生效
+        if enable_post_cover and (prev_images is not None and hasattr(prev_images, 'shape')) and (image_segment is not None and hasattr(image_segment, 'shape')):
+            # 约束有效重叠数：不得超过 overlap 与当前片段长度
+            eff = max(0, min(effective_overlap, overlap, int(image_segment.shape[0]) if hasattr(image_segment, 'shape') else 0))
+            if eff > 0:
+                import torch
+                # 计算从上一段取帧的切片：prev_images[-overlap : -overlap + eff]
+                # 若上一段长度不足以从 -overlap 开始，则降级为取末尾 eff 帧
+                try:
+                    n_prev = int(prev_images.shape[0])
+                except Exception:
+                    n_prev = 0
+                prev_slice = None
+                if n_prev > 0:
+                    if n_prev >= overlap and overlap > 0:
+                        # 常规切片，等价于 Python 负索引 prev_images[-overlap : -overlap + eff]
+                        start_idx = n_prev - overlap
+                        end_idx = start_idx + eff
+                        # 边界保护
+                        start_idx = max(0, min(start_idx, n_prev))
+                        end_idx = max(0, min(end_idx, n_prev))
+                        prev_slice = prev_images[start_idx:end_idx]
+                        # 如果切片帧数不足 eff，则退化为末尾 eff 帧
+                        if hasattr(prev_slice, 'shape') and int(prev_slice.shape[0]) < eff:
+                            prev_slice = prev_images[max(0, n_prev - eff): n_prev]
+                    else:
+                        # 无法从 -overlap 起取，退化为末尾 eff 帧
+                        prev_slice = prev_images[max(0, n_prev - eff): n_prev]
+
+                # 若 prev_slice 可用且长度与 eff 一致，执行覆盖
+                if prev_slice is not None and hasattr(prev_slice, 'shape') and int(prev_slice.shape[0]) > 0:
+                    # 对齐 dtype/device
+                    if prev_slice.dtype != image_segment.dtype:
+                        prev_slice = prev_slice.to(image_segment.dtype)
+                    if prev_slice.device != image_segment.device:
+                        prev_slice = prev_slice.to(image_segment.device)
+
+                    # 替换规则：prev_slice + image_segment[eff:]
+                    tail_image = image_segment[eff:] if int(image_segment.shape[0]) > eff else image_segment[:0]
+                    new_image = torch.cat([prev_slice, tail_image], dim=0)
+                    image_segment = new_image
+
+                    # mask 的对应处理：前 eff 帧为纯黑，后接原 mask 去掉前 eff 帧
+                    if mask_segment is not None and hasattr(mask_segment, 'shape'):
+                        m_len = int(mask_segment.shape[0])
+                        if m_len > 0:
+                            eff_mask = min(eff, m_len)
+                            h = int(mask_segment.shape[1])
+                            w = int(mask_segment.shape[2])
+                            zeros_mask = torch.zeros((eff_mask, h, w), dtype=mask_segment.dtype, device=mask_segment.device)
+                            tail_mask = mask_segment[eff_mask:] if m_len > eff_mask else mask_segment[:0]
+                            mask_segment = torch.cat([zeros_mask, tail_mask], dim=0)
 
         return (image_segment, mask_segment, int(start), int(segment_length))
 
