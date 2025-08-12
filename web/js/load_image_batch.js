@@ -1864,6 +1864,215 @@ app.registerExtension({
                 
                 const uploadWidget = node.addWidget("button", "选择图片", "select_files", () => fileInput.click());
                 uploadWidget.options.serialize = false;
+
+                // ---------------- 新增：通用工具与拖拽/粘贴支持 ----------------
+                // 判断 DataTransfer 是否包含文件
+                function hasFilesFromDataTransfer(dt) {
+                    try {
+                        if (!dt) return false;
+                        if (dt.items && dt.items.length) {
+                            for (const item of dt.items) {
+                                if (item.kind === 'file') return true;
+                            }
+                        }
+                        if (dt.files && dt.files.length) return true;
+                    } catch (e) {
+                        console.warn('检测拖拽文件失败:', e);
+                    }
+                    return false;
+                }
+
+                // 通过 DataTransfer 获取 File[]
+                function getFilesFromDataTransfer(dt) {
+                    const files = [];
+                    if (!dt) return files;
+                    if (dt.items && dt.items.length) {
+                        for (const item of dt.items) {
+                            if (item.kind === 'file') {
+                                const f = item.getAsFile();
+                                if (f) files.push(f);
+                            }
+                        }
+                    } else if (dt.files && dt.files.length) {
+                        for (const f of dt.files) files.push(f);
+                    }
+                    return files;
+                }
+
+                // 通过 ClipboardData 获取图片 File[]
+                function getImageFilesFromClipboard(clipboardData) {
+                    const files = [];
+                    if (!clipboardData || !clipboardData.items) return files;
+                    for (const item of clipboardData.items) {
+                        if (item.kind === 'file' && item.type.startsWith('image/')) {
+                            const f = item.getAsFile();
+                            if (f) files.push(f);
+                        }
+                    }
+                    return files;
+                }
+
+                // 弹出"追加/替换"选择对话框（有现有图片时）
+                function askAppendOrReplaceIfNeeded(existingList, incomingCount) {
+                    return new Promise((resolve) => {
+                        // 没有现有列表或为空，直接替换为新列表
+                        if (!existingList || existingList.length === 0) {
+                            return resolve('replace');
+                        }
+                        // 构建对话框
+                        const dialog = document.createElement('div');
+                        dialog.id = 'append-or-replace-' + node.id;
+                        dialog.style.cssText = `
+                            position: fixed;
+                            top: 50%; left: 50%; transform: translate(-50%, -50%);
+                            background: #2a2a2a; border: 2px solid #666; border-radius: 8px;
+                            padding: 20px; z-index: 10001; color: white; max-width: 420px;
+                        `;
+                        dialog.innerHTML = `
+                            <h3 style="margin:0 0 12px 0;">检测到已有图片</h3>
+                            <p style="margin:0 0 12px 0;">当前已有 <strong>${existingList.length}</strong> 张图片，将要添加 <strong>${incomingCount}</strong> 张图片。</p>
+                            <p style="margin:0 0 12px 0;">请选择如何处理：</p>
+                            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:10px;">
+                                <button id="append-btn-${node.id}" style="padding:8px 14px; background:#4CAF50; color:#fff; border:none; border-radius:4px; cursor:pointer;">追加</button>
+                                <button id="replace-btn-${node.id}" style="padding:8px 14px; background:#ff6b6b; color:#fff; border:none; border-radius:4px; cursor:pointer;">替换</button>
+                                <button id="cancel-btn-${node.id}" style="padding:8px 14px; background:#666; color:#fff; border:none; border-radius:4px; cursor:pointer;">取消</button>
+                            </div>
+                        `;
+                        const overlay = document.createElement('div');
+                        overlay.style.cssText = `position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:10000;`;
+                        document.body.appendChild(overlay);
+                        document.body.appendChild(dialog);
+                        const cleanup = (val) => {
+                            dialog.remove(); overlay.remove(); resolve(val);
+                        };
+                        document.getElementById(`append-btn-${node.id}`).onclick = () => cleanup('append');
+                        document.getElementById(`replace-btn-${node.id}`).onclick = () => cleanup('replace');
+                        document.getElementById(`cancel-btn-${node.id}`).onclick = () => cleanup('cancel');
+                        overlay.onclick = () => cleanup('cancel');
+                    });
+                }
+
+                // 上传一组文件，返回路径数组
+                async function uploadFiles(files) {
+                    const uploadPromises = files.map(file => {
+                        const formData = new FormData();
+                        formData.append("image", file, file.name);
+                        return api.fetchApi("/upload/image", { method: "POST", body: formData });
+                    });
+                    const responses = await Promise.all(uploadPromises);
+                    const paths = [];
+                    for (const response of responses) {
+                        if (response.status === 200 || response.status === 201) {
+                            const data = await response.json();
+                            const path = data.subfolder ? `${data.subfolder}/${data.name}` : data.name;
+                            paths.push(path);
+                        } else {
+                            console.error("图片上传失败:", await response.text());
+                        }
+                    }
+                    return paths;
+                }
+
+                // 将新得到的路径合并/替换进节点
+                function applyPathsToNode(newPaths, mode) {
+                    const oldStr = (pathWidget?.value || '').trim();
+                    const oldList = oldStr ? oldStr.split(',').filter(s => s.trim()) : [];
+                    let finalList = [];
+                    if (mode === 'append') {
+                        finalList = [...oldList, ...newPaths];
+                    } else { // replace
+                        finalList = newPaths;
+                    }
+                    pathWidget.value = finalList.join(',');
+                    triggerWidget.value = (triggerWidget.value || 0) + 1;
+                    populate.call(node, finalList);
+                }
+
+                // 处理拖拽/粘贴得到的文件，含"追加/替换"选择
+                async function handleIncomingFiles(files) {
+                    if (!files || files.length === 0) return;
+                    try {
+                        // 先上传
+                        const newPaths = await uploadFiles(files);
+                        if (newPaths.length === 0) return;
+                        // 根据现有列表与用户选择应用（默认有旧图则询问）
+                        const oldStr = (pathWidget?.value || '').trim();
+                        const oldList = oldStr ? oldStr.split(',').filter(s => s.trim()) : [];
+                        let mode = 'replace';
+                        if (oldList.length > 0) {
+                            const choice = await askAppendOrReplaceIfNeeded(oldList, newPaths.length);
+                            if (choice === 'cancel') return;
+                            mode = choice === 'append' ? 'append' : 'replace';
+                        }
+                        applyPathsToNode(newPaths, mode);
+                    } catch (err) {
+                        console.error('处理文件时出错:', err);
+                    }
+                }
+
+                // 拖拽命中（告知系统本节点可接收文件，触发官方高亮）
+                node.onDragOver = function (e) {
+                    try {
+                        return hasFilesFromDataTransfer(e?.dataTransfer);
+                    } catch (err) {
+                        console.warn('onDragOver 异常:', err);
+                        return false;
+                    }
+                };
+
+                // 释放到节点：拦截并上传，多图支持
+                node.onDragDrop = async function (e) {
+                    try {
+                        const files = getFilesFromDataTransfer(e?.dataTransfer);
+                        if (!files || files.length === 0) return false;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        await handleIncomingFiles(files);
+                        return true; // 返回 true 表示本节点已处理，阻止默认创建节点/工作流
+                    } catch (err) {
+                        console.warn('onDragDrop 异常:', err);
+                        return false;
+                    }
+                };
+
+                // 跟踪悬浮（用于粘贴时判断目标）
+                chainCallback(nodeType.prototype, "onMouseMove", function(e) {
+                    this._customIsHovered = true;
+                });
+                chainCallback(nodeType.prototype, "onMouseLeave", function(e) {
+                    this._customIsHovered = false;
+                });
+
+                // 文档级粘贴：若节点被选中或悬浮，并且剪贴板有图片，则拦截为本节点上传
+                if (!window.__A_MY_NODES_LOAD_IMAGE_BATCH_PASTE_INSTALLED__) {
+                    window.__A_MY_NODES_LOAD_IMAGE_BATCH_PASTE_INSTALLED__ = true;
+                    document.addEventListener('paste', async (evt) => {
+                        try {
+                            // 当前活跃的 LiteGraph 节点集合里，优先找到"选中或悬浮且类型匹配"的节点
+                            const graph = app?.graph;
+                            if (!graph || !graph._nodes) return; // 兜底
+                            const candidates = graph._nodes.filter(n => n && n.type === 'LoadImageBatchAdvanced');
+                            if (!candidates.length) return;
+
+                            // 取"被选中优先，否则悬浮"的目标节点
+                            const target = candidates.find(n => n.selected) || candidates.find(n => n._customIsHovered);
+                            if (!target) return;
+
+                            const files = getImageFilesFromClipboard(evt.clipboardData);
+                            if (!files || files.length === 0) return;
+
+                            // 拦截默认粘贴（否则会走官方创建 LoadImage 节点的逻辑）
+                            evt.preventDefault();
+                            evt.stopPropagation();
+
+                            // 在目标节点环境执行
+                            await handleIncomingFiles.call(target, files);
+                        } catch (err) {
+                            console.warn('paste 处理异常:', err);
+                        }
+                    }, true); // 捕获阶段，优先于全局处理
+                }
+                // ---------------- 新增结束 ----------------
             });
 
             // 当节点大小改变时，重新计算图片布局
@@ -1996,6 +2205,7 @@ app.registerExtension({
                 this._customInvertSelectionButtonRect = null;
                 this._customMouseX = null;
                 this._customMouseY = null;
+                this._customIsHovered = null;
                 
                 console.log("节点清理完成");
             });
