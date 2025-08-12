@@ -2072,7 +2072,58 @@ app.registerExtension({
                         }
                     }, true); // 捕获阶段，优先于全局处理
                 }
+
+                // 将内部处理方法暴露到实例，供右键菜单调用
+                this._customHandleIncomingFiles = handleIncomingFiles; // 处理文件入口
+                this._customAskAppendOrReplaceIfNeeded = askAppendOrReplaceIfNeeded; // 选择对话框
+                // 从异步 Clipboard API 读取图片文件
+                this._customReadClipboardImages = async function() {
+                    try {
+                        if (!navigator.clipboard || !navigator.clipboard.read) {
+                            console.warn('浏览器不支持 navigator.clipboard.read');
+                            return [];
+                        }
+                        const items = await navigator.clipboard.read();
+                        const out = [];
+                        for (const item of items) {
+                            for (const type of item.types) {
+                                if (type && type.startsWith('image/')) {
+                                    const blob = await item.getType(type);
+                                    const ext = (type.split('/')[1] || 'png').toLowerCase();
+                                    const file = new File([blob], `pasted-${Date.now()}.${ext}`, { type });
+                                    out.push(file);
+                                }
+                            }
+                        }
+                        return out;
+                    } catch (err) {
+                        console.warn('读取剪贴板图片失败:', err);
+                        return [];
+                    }
+                };
                 // ---------------- 新增结束 ----------------
+            });
+
+            // 新增：为节点追加右键菜单"粘贴"项（与官方 Load Image 一致的入口）
+            chainCallback(nodeType.prototype, "getExtraMenuOptions", function(_, options) {
+                const self = this;
+                options.push({
+                    content: "粘贴图像",
+                    callback: async () => {
+                        try {
+                            // 优先使用异步 Clipboard API 读取图片
+                            const files = (await self._customReadClipboardImages?.()) || [];
+                            if (!files.length) {
+                                alert('剪贴板中没有图片或浏览器不支持从右键菜单读取图片，请使用 Ctrl+V 粘贴。');
+                                return;
+                            }
+                            // 复用与拖拽/全局粘贴一致的处理逻辑（含 追加/替换 选择）
+                            await self._customHandleIncomingFiles?.(files);
+                        } catch (err) {
+                            console.error('右键粘贴处理失败:', err);
+                        }
+                    }
+                });
             });
 
             // 当节点大小改变时，重新计算图片布局
