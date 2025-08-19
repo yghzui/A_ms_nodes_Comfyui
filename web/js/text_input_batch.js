@@ -69,10 +69,8 @@ function ensureTextareas(node, layout, items) {
     if (!ds || !canvas) return;
     const rect = canvas.getBoundingClientRect();
 
-    // 初始化容器
     if (!node.__taEls) node.__taEls = [];
 
-    // 创建/更新每个 textarea
     for (let i = 0; i < items.length; i++) {
         const cell = layout[i];
         if (!cell) continue;
@@ -92,7 +90,6 @@ function ensureTextareas(node, layout, items) {
             document.body.appendChild(ta);
             node.__taEls[i] = ta;
         }
-        // 定位（两列布局→屏幕坐标）
         const sx = (node.pos[0] + cell.x + ds.offset[0]) * ds.scale + rect.left;
         const sy = (node.pos[1] + cell.y + ds.offset[1]) * ds.scale + rect.top;
         const sw = cell.w * ds.scale;
@@ -104,7 +101,6 @@ function ensureTextareas(node, layout, items) {
         ta.style.visibility = 'visible';
     }
 
-    // 移除多余的 textarea
     for (let j = items.length; j < (node.__taEls?.length || 0); j++) {
         const el = node.__taEls[j];
         if (el && el.remove) el.remove();
@@ -115,26 +111,24 @@ function ensureTextareas(node, layout, items) {
 function layoutCells(node, items) {
     const PADDING = 8;
     const GAP = 6;
-    const CELL_H = 72; // 每项高度，多行可滚动
+    const MIN_H = 48; // 每项最小高度
     const n = items.length;
+    if (n === 0) return [];
     const cols = n > 1 ? 2 : 1;
     const rows = Math.ceil(n / cols);
     const availW = node.size[0] - PADDING * 2;
     const cellW = Math.floor((availW - GAP * (cols - 1)) / cols);
     const startY = PADDING + getWidgetsBottom(node);
+    const availH = Math.max(0, node.size[1] - startY - PADDING);
+    const cellH = Math.max(MIN_H, Math.floor((availH - GAP * (rows - 1)) / rows));
+
     const cells = [];
     for (let i = 0; i < n; i++) {
         const r = Math.floor(i / cols);
         const c = i % cols;
         const x = PADDING + c * (cellW + GAP);
-        const y = startY + r * (CELL_H + GAP);
-        cells.push({ x, y, w: cellW, h: CELL_H });
-    }
-    // 动态增高节点
-    const needH = startY + rows * (CELL_H + GAP) + PADDING;
-    if (!node.__autoH || node.__autoH !== needH) {
-        node.__autoH = needH;
-        node.size[1] = Math.max(node.size[1], needH);
+        const y = startY + r * (cellH + GAP);
+        cells.push({ x, y, w: cellW, h: cellH });
     }
     return cells;
 }
@@ -143,16 +137,26 @@ function installDrawingHandlers(node) {
     if (node.__drawingInstalled) return;
     node.__drawingInstalled = true;
 
+    const relayoutAndUpdate = (ctx) => {
+        const items = getItems(node);
+        if (!items.length) return;
+        const cells = layoutCells(node, items);
+        ensureTextareas(node, cells, items);
+    };
+
     const origDraw = node.onDrawForeground;
     node.onDrawForeground = function(ctx) {
         if (origDraw) origDraw.call(this, ctx);
-        const items = getItems(this);
-        if (!items.length) return;
-        const cells = layoutCells(this, items);
-        ensureTextareas(this, cells, items);
+        relayoutAndUpdate(ctx);
     };
 
-    // 清理：节点移除时删除DOM
+    const origResize = node.onResize;
+    node.onResize = function(size) {
+        if (origResize) origResize.call(this, size);
+        // 触发布局更新
+        relayoutAndUpdate();
+    };
+
     const origRemoved = node.onRemoved;
     node.onRemoved = function() {
         if (origRemoved) origRemoved.call(this);
@@ -175,7 +179,6 @@ app.registerExtension({
             ensureStringsJsonWidget(this);
             installAddButton(this);
             installDrawingHandlers(this);
-            // 初次无数据时也同步
             setItems(this, getItems(this));
         };
 
