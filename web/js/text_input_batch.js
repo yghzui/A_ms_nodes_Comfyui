@@ -189,6 +189,9 @@ function ensureTextareas(node, layout, items) {
             }
             document.body.appendChild(ta);
             node.__taEls[i] = ta;
+        } else {
+            // 更新现有textarea的值，确保移动后内容正确显示
+            ta.value = items[i] || "";
         }
         const sx = (node.pos[0] + cell.x + ds.offset[0]) * ds.scale + rect.left;
         const sy = (node.pos[1] + cell.y + ds.offset[1]) * ds.scale + rect.top;
