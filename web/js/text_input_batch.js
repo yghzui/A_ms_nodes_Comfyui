@@ -7,9 +7,14 @@ function ensureStringsJsonWidget(node) {
     if (!w) {
         w = node.addWidget("text", "strings_json", node.properties?._strings || "[]", () => {}, { multiline: true });
         w.name = "strings_json";
-        w.disabled = true;
-        w.visible = false;
     }
+    // 前端彻底隐藏：不显示、不绘制、不占空间
+    w.disabled = true;
+    w.visible = false;
+    w.draw = () => {};
+    w.computeSize = () => [0, 0];
+    // 保持可序列化（用于工作流保存/恢复）
+    // w.options && (w.options.serialize = true); // 走默认即可
     return w;
 }
 
@@ -84,7 +89,7 @@ function getWidgetsBottom(node) {
             }
         }
     }
-    // 再加一点边距
+    // 不额外添加边距，由外部控制
     return bottom;
 }
 
