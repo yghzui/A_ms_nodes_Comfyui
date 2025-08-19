@@ -173,7 +173,7 @@ function ensureTextareas(node, layout, items) {
             ta.spellcheck = false;
             ta.wrap = 'soft';
             ta.value = items[i] || "";
-            ta.style.cssText = `position: fixed; z-index: 9998; resize: none; padding: 6px; border-radius: 4px; border: 1px solid #666; background: #1a1a1a; color: #eee; font: 12px/1.4 monospace; box-sizing: border-box; overflow: auto;`;
+            ta.style.cssText = `position: fixed; z-index: 100; resize: none; padding: 6px; border-radius: 4px; border: 1px solid #666; background: #1a1a1a; color: #eee; font: 12px/1.4 monospace; box-sizing: border-box; overflow: auto;`;
             ta.addEventListener('input', () => {
                 const arr = getItems(node);
                 if (i < arr.length) arr[i] = ta.value;
