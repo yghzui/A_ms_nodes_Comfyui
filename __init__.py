@@ -21,6 +21,10 @@ from .nodes.load_lora_batch import LoadLoraBatch
 from .nodes.wan_video_lora_batch import WanVideoLoraBatch
 from .nodes.show_result_last import ShowResultLast
 from .nodes.manual_video_input import ManualVideoInput
+from .nodes.load_video import LoadVideoFromFolder
+
+# 新增导入：图像序列与遮罩生成节点
+from .nodes.math import ImageToSequenceWithMask
 
 # 导入路由模块
 from . import routes
@@ -84,6 +88,9 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoLoraBatch": WanVideoLoraBatch,
     "ShowResultLast": ShowResultLast,
     "ManualVideoInput": ManualVideoInput,
+    "LoadVideoFromFolder": LoadVideoFromFolder,
+    # 新增注册：图像序列与遮罩生成节点
+    "ImageToSequenceWithMask": ImageToSequenceWithMask,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by My",
@@ -129,6 +136,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoLoraBatch": "WanVideoLoraBatch 批量收集WanVideo LoRA by My",
     "ShowResultLast": "Show VHS_FILENAMES by path  显示视频结果 通过路径by My",
     "ManualVideoInput": "手动输入视频文件名 by My",
+    "LoadVideoFromFolder": "批量加载视频文件 by My",
+    # 新增显示名称
+    "ImageToSequenceWithMask": "ImageToSequenceWithMask 图像序列与遮罩生成 by My",
 }
 
 WEB_DIRECTORY = "./web/js"

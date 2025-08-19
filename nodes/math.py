@@ -98,44 +98,83 @@ class FramesSplitCalculator:
                 "split_value": ("INT", {"default": 33, "min": 1, "max": 100000000, "tooltip": "每段包含的帧数（切分长度）"}),
                 # 相邻两段之间的重叠帧数，必须小于切分长度
                 "overlap": ("INT", {"default": 0, "min": 0, "max": 100000000, "tooltip": "相邻两段之间的重叠帧数，必须小于切分长度"}),
+                # 每段最大允许的帧数
+                "max_frames": ("INT", {"default": 50, "min": 1, "max": 100000000, "tooltip": "每段最大允许的帧数"}),
+                # 每段最小需要的帧数
+                "min_frames": ("INT", {"default": 16, "min": 1, "max": 100000000, "tooltip": "每段最小需要的帧数"}),
+                # 处理模式：0=合并到最后一段，1=均分到所有段
+                "merge_mode": ("INT", {"default": 0, "min": 0, "max": 1, "tooltip": "处理模式：0=合并到最后一段，1=均分到所有段"}),
             }
         }
 
-    RETURN_TYPES = ("INT", "INT", "INT")
-    RETURN_NAMES = ("split_value", "num_segments", "overlap")
+    RETURN_TYPES = ("INT", "INT", "INT", "INT", "INT", "INT")
+    RETURN_NAMES = ("split_value", "num_segments", "overlap", "max_frames", "min_frames", "merge_mode")
     FUNCTION = "calc_frames_split"
     CATEGORY = "A_my_nodes/math"
 
-    def calc_frames_split(self, total_frames, split_value, overlap):
+    def calc_frames_split(self, total_frames, split_value, overlap, max_frames, min_frames, merge_mode):
         # 规范化输入
         total_frames = int(total_frames)
         split_value = int(split_value)
         overlap = int(overlap)
+        max_frames = int(max_frames)
+        min_frames = int(min_frames)
+        merge_mode = int(merge_mode)
 
         # 基本健壮性处理
         if split_value <= 0:
             # 切分长度无效时，直接返回0
-            return (0, 0)
+            return (0, 0, 0, max_frames, min_frames, merge_mode)
 
+        # 确保最小帧数不大于最大帧数
+        min_frames = min(min_frames, max_frames)
+        # 确保基础切分长度不大于最大帧数
+        split_value = min(split_value, max_frames)
         # 限制 overlap 小于 split_value，若不满足则自动修正
         if overlap >= split_value:
             overlap = split_value - 1 if split_value > 1 else 0
 
         # 总帧数<=0，无需切分
         if total_frames <= 0:
-            return (split_value, 0)
+            return (split_value, 0, overlap, max_frames, min_frames, merge_mode)
 
         # 总帧数不超过一个切分长度，只需一次
         if total_frames <= split_value:
-            return (split_value, 1)
+            return (split_value, 1, overlap, max_frames, min_frames, merge_mode)
 
         # 步长 = 切分长度 - 重叠
         step = max(1, split_value - overlap)
 
-        # 段数计算：1 + ceil((total_frames - split_value) / step)
-        # 使用整数运算避免浮点误差
+        # 初步计算段数
         num_segments = 1 + ((total_frames - split_value + step - 1) // step)
-        return (split_value, int(num_segments), overlap)
+        
+        # 计算最后一段的帧数
+        last_segment_frames = total_frames - (num_segments - 1) * step
+        
+        # 如果最后一段小于最小帧数，需要特殊处理
+        if last_segment_frames < min_frames:
+            if merge_mode == 0:  # 合并到最后一段模式
+                if num_segments > 1:  # 确保有多于一段可以合并
+                    # 计算合并后最后一段的长度
+                    merged_last_length = last_segment_frames + step
+                    # 如果合并后超过最大帧数，则维持原状
+                    if merged_last_length <= max_frames:
+                        num_segments -= 1
+                        split_value = max(split_value, merged_last_length)
+            else:  # 均分模式
+                if num_segments > 1:
+                    # 计算需要分配的总帧数
+                    extra_frames = last_segment_frames
+                    # 计算每段可以额外分配的帧数
+                    frames_per_segment = extra_frames // num_segments
+                    # 如果分配后不会超过最大帧数，则进行分配
+                    if split_value + frames_per_segment <= max_frames:
+                        split_value += frames_per_segment
+                        # 重新计算段数
+                        step = max(1, split_value - overlap)
+                        num_segments = 1 + ((total_frames - split_value + step - 1) // step)
+
+        return (split_value, int(num_segments), overlap, max_frames, min_frames, merge_mode)
 
 class FramesSegmentSlicer:
     def __init__(self):
@@ -151,6 +190,12 @@ class FramesSegmentSlicer:
                 "split_value": ("INT", {"default": 33, "min": 1, "max": 100000000, "tooltip": "每段包含的帧数（切分长度）"}),
                 # 相邻两段之间的重叠帧数，必须小于切分长度
                 "overlap": ("INT", {"default": 0, "min": 0, "max": 100000000, "tooltip": "相邻两段之间的重叠帧数，必须小于切分长度"}),
+                # 每段最大允许的帧数
+                "max_frames": ("INT", {"default": 50, "min": 1, "max": 100000000, "tooltip": "每段最大允许的帧数"}),
+                # 每段最小需要的帧数
+                "min_frames": ("INT", {"default": 16, "min": 1, "max": 100000000, "tooltip": "每段最小需要的帧数"}),
+                # 处理模式：0=合并到最后一段，1=均分到所有段
+                "merge_mode": ("INT", {"default": 0, "min": 0, "max": 1, "tooltip": "处理模式：0=合并到最后一段，1=均分到所有段"}),
                 # 需要截取的段索引，从0开始，例如总段数为6时，索引范围0-5
                 "index": ("INT", {"default": 0, "min": 0, "max": 100000000, "tooltip": "需要截取的段索引，从0开始"}),
                 # 是否启用后处理覆盖
@@ -168,12 +213,12 @@ class FramesSegmentSlicer:
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "MASK", "INT", "INT")
-    RETURN_NAMES = ("image_segment", "mask_segment", "start_index", "length")
+    RETURN_TYPES = ("IMAGE", "MASK", "INT", "INT", "INT", "INT", "INT", "INT")
+    RETURN_NAMES = ("image_segment", "mask_segment", "start_index", "length", "max_frames", "min_frames", "merge_mode", "overlap")
     FUNCTION = "slice_segment"
     CATEGORY = "A_my_nodes/math"
 
-    def slice_segment(self, total_frames, split_value, overlap, index, enable_post_cover, effective_overlap, images=None, mask=None, prev_images=None):
+    def slice_segment(self, total_frames, split_value, overlap, max_frames, min_frames, merge_mode, index, enable_post_cover, effective_overlap, images=None, mask=None, prev_images=None):
         # 规范化与健壮性
         total_frames = int(total_frames)
         split_value = int(split_value)
@@ -184,7 +229,7 @@ class FramesSegmentSlicer:
 
         if split_value <= 0:
             # 切分长度无效，直接返回None与0长度
-            return (None, None, 0, 0)
+            return (None, None, 0, 0, max_frames, min_frames, merge_mode, overlap)
 
         # 确保 overlap < split_value
         if overlap >= split_value:
@@ -279,7 +324,7 @@ class FramesSegmentSlicer:
                             tail_mask = mask_segment[eff_mask:] if m_len > eff_mask else mask_segment[:0]
                             mask_segment = torch.cat([zeros_mask, tail_mask], dim=0)
 
-        return (image_segment, mask_segment, int(start), int(segment_length))
+        return (image_segment, mask_segment, int(start), int(segment_length), max_frames, min_frames, merge_mode, overlap)
 
 class ImagesConcatWithOverlap:
     def __init__(self):
@@ -348,4 +393,144 @@ class ImagesConcatWithOverlap:
             result = torch.cat([head_a, images_b], dim=0)
 
         return (result,)
+
+class ImageToSequenceWithMask:
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                # 是否使用“秒数*帧率+1”来计算长度；关闭则直接使用 frames
+                "use_seconds_for_length": ("BOOLEAN", {"default": True, "tooltip": "启用后，帧数 = 秒数 * 帧率 + 1；否则直接使用帧数"}),
+                # 秒数与帧率，仅在 use_seconds_for_length 为 True 时生效
+                "seconds": ("INT", {"default": 2, "min": 1, "max": 100000000, "tooltip": "视频时长（秒）"}),
+                "fps": ("INT", {"default": 16, "min": 1, "max": 100000000, "tooltip": "每秒帧数"}),
+                # 直接帧数，仅在 use_seconds_for_length 为 False 时生效
+                "frames": ("INT", {"default": 33, "min": 1, "max": 100000000, "tooltip": "直接使用的帧数（关闭秒数控制时生效）"}),
+                # 当有输入图像时，索引 [1:] 的填充策略
+                "fill_mode_when_image_present": (["repeat_input", "white", "black"], {"default": "repeat_input", "tooltip": "当存在输入图像时，后续帧的填充策略"}),
+                # 当没有输入图像时，全段颜色
+                "fallback_color_when_image_missing": (["white", "black"], {"default": "white", "tooltip": "当输入图像不存在时，整段的填充颜色"}),
+                # 当没有输入图像时用于生成分辨率
+                "output_width": ("INT", {"default": 512, "min": 1, "max": 16384, "tooltip": "当输入图像不存在时，生成图像的宽度"}),
+                "output_height": ("INT", {"default": 512, "min": 1, "max": 16384, "tooltip": "当输入图像不存在时，生成图像的高度"}),
+            },
+            "optional": {
+                # 输入图像，(n,h,w,c)，可以为空；若存在仅使用首帧作为基准
+                "images": ("IMAGE", {}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE", "MASK", "INT", "INT")
+    RETURN_NAMES = ("images", "mask", "frames", "fps")
+    FUNCTION = "build_sequence"
+    CATEGORY = "A_my_nodes/math"
+
+    def _ensure_three_channels(self, tensor):
+        """确保输入张量最后一维为3通道：
+        - 若为1通道则重复到3通道
+        - 若大于3通道则裁剪为前3通道
+        - 若介于(1,3)之间则重复最后一通道直至3
+        期望形状：(n,h,w,c)
+        """
+        try:
+            import torch
+            if tensor is None or not hasattr(tensor, 'shape'):
+                return tensor
+            if len(tensor.shape) != 4:
+                return tensor
+            c = int(tensor.shape[-1])
+            if c == 3:
+                return tensor
+            if c == 1:
+                return tensor.repeat(1, 1, 1, 3)
+            if c > 3:
+                return tensor[..., :3]
+            # c 为 2 的情况：复制最后一通道到第3通道
+            last = tensor[..., -1:]
+            return torch.cat([tensor, last], dim=-1)
+        except Exception:
+            return tensor
+
+    def _make_constant_frames(self, num_frames, height, width, value, dtype=None, device=None):
+        """构造常量帧：(num_frames, h, w, 3)，value 为 0 或 255（按需求）。"""
+        import torch
+        if dtype is None:
+            dtype = torch.float32
+        if device is None:
+            device = "cpu"
+        # 生成 [num_frames, h, w, 3] 的常量张量
+        const = torch.full((int(num_frames), int(height), int(width), 3), float(value), dtype=dtype, device=device)
+        return const
+
+    def _make_mask(self, num_frames, height, width, first_zero=True, device=None, dtype=None):
+        """生成遮罩：(num_frames, h, w)。first_zero=True 时，第0帧为0，其余为1；否则全1。"""
+        import torch
+        if dtype is None:
+            dtype = torch.float32
+        if device is None:
+            device = "cpu"
+        m = int(max(1, num_frames))
+        if first_zero and m >= 1:
+            mask = torch.ones((m, int(height), int(width)), dtype=dtype, device=device)
+            mask[0].zero_()
+        else:
+            mask = torch.ones((m, int(height), int(width)), dtype=dtype, device=device)
+        return mask
+
+    def build_sequence(self, use_seconds_for_length, seconds, fps, frames,
+                       fill_mode_when_image_present, fallback_color_when_image_missing,
+                       output_width, output_height,
+                       images=None):
+        # 计算目标帧数 m
+        if bool(use_seconds_for_length):
+            m = int(seconds) * int(fps) + 1
+        else:
+            m = int(frames)
+        m = max(1, int(m))
+
+        # 判断输入图像是否有效
+        has_image = (images is not None and hasattr(images, 'shape') and int(images.shape[0]) > 0)
+
+        if has_image:
+            # 从输入中获取首帧，并确保三通道
+            base = images[0:1]
+            base = self._ensure_three_channels(base)
+
+            # 解析尺寸与设备、dtype
+            h = int(base.shape[1])
+            w = int(base.shape[2])
+            try:
+                dtype = base.dtype
+                device = base.device
+            except Exception:
+                dtype = None
+                device = None
+
+            # 根据填充策略构造序列
+            if fill_mode_when_image_present == "repeat_input":
+                # 直接重复首帧 m 次
+                import torch
+                seq = base.repeat(int(m), 1, 1, 1)
+            else:
+                # 先放入首帧，再拼接 (m-1) 常量帧（白=255，黑=0）
+                color_value = 255 if fill_mode_when_image_present == "white" else 0
+                tail = self._make_constant_frames(max(0, m - 1), h, w, color_value, dtype=dtype, device=device)
+                import torch
+                seq = torch.cat([base, tail], dim=0) if tail.shape[0] > 0 else base
+
+            # 遮罩：首帧为0，其余为1
+            mask = self._make_mask(m, h, w, first_zero=True, device=device, dtype=None)
+            return (seq, mask, int(m), int(fps))
+        else:
+            # 无输入图像：使用给定高宽直接构造三通道常量帧
+            h = int(output_height)
+            w = int(output_width)
+            color_value = 255 if fallback_color_when_image_missing == "white" else 0
+            seq = self._make_constant_frames(m, h, w, color_value, dtype=None, device=None)
+            # 遮罩：全部为1（全部重绘）
+            mask = self._make_mask(m, h, w, first_zero=False, device=seq.device if hasattr(seq, 'device') else None, dtype=None)
+            return (seq, mask, int(m), int(fps))
 
