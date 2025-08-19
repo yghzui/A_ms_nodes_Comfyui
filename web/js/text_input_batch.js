@@ -201,6 +201,8 @@ function ensureTextareas(node, layout, items) {
         ta.style.top = `${Math.round(sy)}px`;
         ta.style.width = `${Math.max(40, Math.round(sw))}px`;
         ta.style.height = `${Math.max(32, Math.round(sh))}px`;
+        const fontPx = Math.max(10, Math.round(12 * (ds.scale || 1)));
+        ta.style.fontSize = `${fontPx}px`;
         ta.style.visibility = 'visible';
     }
 
