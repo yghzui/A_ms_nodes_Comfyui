@@ -26,8 +26,9 @@ class TextInputBatch:
             },
         }
 
-    RETURN_TYPES = ("STRING", "STRING")
-    RETURN_NAMES = ("strings", "selected")
+    RETURN_TYPES = ("STRING", "STRING", "INT")
+    RETURN_NAMES = ("strings", "selected", "count")
+    OUTPUT_IS_LIST = (True, False, False,)
     FUNCTION = "aggregate_strings"
     CATEGORY = "A_my_nodes/text"
 
@@ -60,5 +61,11 @@ class TextInputBatch:
         except Exception:
             # 兜底，防止非常规字符导致失败
             strings_out = "[]"
-
-        return (strings_out, selected)
+        #将strings_out转换为列表
+        list_out = []
+        try:
+            list_out = json.loads(strings_out)
+        except Exception:
+            list_out = []
+        #返回：完整列表(列表) 与 选中项
+        return (list_out, selected, len(list_out))
