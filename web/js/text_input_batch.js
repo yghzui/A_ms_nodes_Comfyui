@@ -109,6 +109,51 @@ function showItemContextMenu(node, index, event) {
         app.graph.setDirtyCanvas(true, true);
     };
 
+    // 新增：清空/复制/粘贴
+    const doClear = () => {
+        const arr = getItems(node);
+        if (index < arr.length) arr[index] = "";
+        setItems(node, arr);
+        const ta = node.__taEls?.[index];
+        if (ta) ta.value = "";
+        app.graph.setDirtyCanvas(true, true);
+    };
+    const doCopy = async () => {
+        try {
+            const value = (getItems(node)[index] || "");
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(value);
+            } else {
+                const tmp = document.createElement('textarea');
+                tmp.value = value;
+                document.body.appendChild(tmp);
+                tmp.select();
+                document.execCommand('copy');
+                tmp.remove();
+            }
+        } catch (e) {
+            prompt('复制失败，请手动复制:', getItems(node)[index] || "");
+        }
+    };
+    const doPaste = async () => {
+        let text = "";
+        try {
+            if (navigator.clipboard?.readText) {
+                text = await navigator.clipboard.readText();
+            } else {
+                text = prompt('粘贴文本:', "") || "";
+            }
+        } catch (e) {
+            text = prompt('粘贴文本:', "") || "";
+        }
+        const arr = getItems(node);
+        if (index < arr.length) arr[index] = text;
+        setItems(node, arr);
+        const ta = node.__taEls?.[index];
+        if (ta) ta.value = text;
+        app.graph.setDirtyCanvas(true, true);
+    };
+
     // 临时降低触发的 textarea 的指针，避免挡住菜单
     const targetEl = event?.target;
     let prevPointer = null;
@@ -123,6 +168,9 @@ function showItemContextMenu(node, index, event) {
 
     if (Lite && Lite.ContextMenu) {
         const menu = [
+            { content: `🧹 清空内容`, callback: doClear },
+            { content: `📋 复制`, callback: doCopy },
+            { content: `📥 粘贴`, callback: doPaste },
             { content: `🗑️ 删除`, callback: doDelete },
             { content: `⬆️ 上移`, disabled: !hasUp, callback: doMoveUp },
             { content: `⬇️ 下移`, disabled: !hasDown, callback: doMoveDown },
@@ -146,8 +194,11 @@ function showItemContextMenu(node, index, event) {
         }, 0);
     } else {
         // 简易回退
-        const choice = prompt(`操作: d=删除, u=上移, n=下移, m=移动到索引`, "d");
-        if (choice === 'd') doDelete();
+        const choice = prompt(`操作: c=清空, y=复制, p=粘贴, d=删除, u=上移, n=下移, m=移动到索引`, "c");
+        if (choice === 'c') doClear();
+        else if (choice === 'y') doCopy();
+        else if (choice === 'p') doPaste();
+        else if (choice === 'd') doDelete();
         else if (choice === 'u') doMoveUp();
         else if (choice === 'n') doMoveDown();
         else if (choice === 'm') doMoveTo();
