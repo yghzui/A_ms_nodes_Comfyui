@@ -25,6 +25,8 @@ from .nodes.load_video import LoadVideoFromFolder
 
 # 新增导入：图像序列与遮罩生成节点
 from .nodes.math import ImageToSequenceWithMask
+# 新增导入：文本批量输入
+from .nodes.text_input_batch import TextInputBatch
 
 # 导入路由模块
 from . import routes
@@ -91,6 +93,8 @@ NODE_CLASS_MAPPINGS = {
     "LoadVideoFromFolder": LoadVideoFromFolder,
     # 新增注册：图像序列与遮罩生成节点
     "ImageToSequenceWithMask": ImageToSequenceWithMask,
+    # 新增注册：文本批量输入
+    "TextInputBatch": TextInputBatch,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by My",
@@ -139,6 +143,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadVideoFromFolder": "批量加载视频文件 by My",
     # 新增显示名称
     "ImageToSequenceWithMask": "ImageToSequenceWithMask 图像序列与遮罩生成 by My",
+    "TextInputBatch": "TextInputBatch 批量字符串输入 by My",
 }
 
 WEB_DIRECTORY = "./web/js"
