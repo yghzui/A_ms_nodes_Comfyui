@@ -420,6 +420,8 @@ class ImageToSequenceWithMask:
             "optional": {
                 # 输入图像，(n,h,w,c)，可以为空；若存在仅使用首帧作为基准
                 "images": ("IMAGE", {}),
+                # 尾帧输入，(k,h,w,c)，可选；若存在将用其前 k 帧覆盖输出序列的末尾 k 帧
+                "tail_images": ("IMAGE", {}),
             }
         }
 
@@ -483,7 +485,7 @@ class ImageToSequenceWithMask:
     def build_sequence(self, use_seconds_for_length, seconds, fps, frames,
                        fill_mode_when_image_present, fallback_color_when_image_missing,
                        output_width, output_height,
-                       images=None):
+                       images=None, tail_images=None):
         # 计算目标帧数 m
         if bool(use_seconds_for_length):
             m = int(seconds) * int(fps) + 1
@@ -523,6 +525,34 @@ class ImageToSequenceWithMask:
 
             # 遮罩：首帧为0，其余为1
             mask = self._make_mask(m, h, w, first_zero=True, device=device, dtype=None)
+            # 追加：可选尾帧覆盖逻辑（用 tail_images 的前若干帧覆盖输出序列的末尾）
+            if tail_images is not None and hasattr(tail_images, 'shape'):
+                try:
+                    import torch
+                    tail_img = self._ensure_three_channels(tail_images)
+                    n_tail = int(tail_img.shape[0]) if hasattr(tail_img, 'shape') else 0
+                    if n_tail > 0 and hasattr(seq, 'shape') and len(seq.shape) == 4:
+                        m_len = int(seq.shape[0])
+                        h_out = int(seq.shape[1]); w_out = int(seq.shape[2])
+                        # 尺寸不一致时跳过覆盖
+                        if int(tail_img.shape[1]) == h_out and int(tail_img.shape[2]) == w_out:
+                            eff_tail = min(n_tail, m_len)
+                            if eff_tail > 0:
+                                # 对齐 dtype/device
+                                if tail_img.dtype != seq.dtype:
+                                    tail_img = tail_img.to(seq.dtype)
+                                if tail_img.device != seq.device:
+                                    tail_img = tail_img.to(seq.device)
+                                # 拼接：保留前 m-eff_tail 帧 + 尾帧的前 eff_tail 帧
+                                head_part = seq[: m_len - eff_tail] if m_len - eff_tail > 0 else seq[:0]
+                                tail_part = tail_img[: eff_tail]
+                                seq = torch.cat([head_part, tail_part], dim=0)
+                                # mask 同步：末尾 eff_tail 置 0
+                                if mask is not None and hasattr(mask, 'shape') and len(mask.shape) == 3 and int(mask.shape[0]) == m_len:
+                                    zeros = torch.zeros((eff_tail, h_out, w_out), dtype=mask.dtype, device=mask.device)
+                                    mask = torch.cat([mask[: m_len - eff_tail] if m_len - eff_tail > 0 else mask[:0], zeros], dim=0)
+                except Exception:
+                    pass
             return (seq, mask, int(m), int(fps))
         else:
             # 无输入图像：使用给定高宽直接构造三通道常量帧
@@ -532,5 +562,33 @@ class ImageToSequenceWithMask:
             seq = self._make_constant_frames(m, h, w, color_value, dtype=None, device=None)
             # 遮罩：全部为1（全部重绘）
             mask = self._make_mask(m, h, w, first_zero=False, device=seq.device if hasattr(seq, 'device') else None, dtype=None)
+            # 追加：可选尾帧覆盖逻辑（用 tail_images 的前若干帧覆盖输出序列的末尾）
+            if tail_images is not None and hasattr(tail_images, 'shape'):
+                try:
+                    import torch
+                    tail_img = self._ensure_three_channels(tail_images)
+                    n_tail = int(tail_img.shape[0]) if hasattr(tail_img, 'shape') else 0
+                    if n_tail > 0 and hasattr(seq, 'shape') and len(seq.shape) == 4:
+                        m_len = int(seq.shape[0])
+                        h_out = int(seq.shape[1]); w_out = int(seq.shape[2])
+                        # 尺寸不一致时跳过覆盖
+                        if int(tail_img.shape[1]) == h_out and int(tail_img.shape[2]) == w_out:
+                            eff_tail = min(n_tail, m_len)
+                            if eff_tail > 0:
+                                # 对齐 dtype/device
+                                if tail_img.dtype != seq.dtype:
+                                    tail_img = tail_img.to(seq.dtype)
+                                if tail_img.device != seq.device:
+                                    tail_img = tail_img.to(seq.device)
+                                # 拼接：保留前 m-eff_tail 帧 + 尾帧的前 eff_tail 帧
+                                head_part = seq[: m_len - eff_tail] if m_len - eff_tail > 0 else seq[:0]
+                                tail_part = tail_img[: eff_tail]
+                                seq = torch.cat([head_part, tail_part], dim=0)
+                                # mask 同步：末尾 eff_tail 置 0
+                                if mask is not None and hasattr(mask, 'shape') and len(mask.shape) == 3 and int(mask.shape[0]) == m_len:
+                                    zeros = torch.zeros((eff_tail, h_out, w_out), dtype=mask.dtype, device=mask.device)
+                                    mask = torch.cat([mask[: m_len - eff_tail] if m_len - eff_tail > 0 else mask[:0], zeros], dim=0)
+                except Exception:
+                    pass
             return (seq, mask, int(m), int(fps))
 
