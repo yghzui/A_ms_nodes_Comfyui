@@ -406,7 +406,8 @@ class ImageToSequenceWithMask:
                 "use_seconds_for_length": ("BOOLEAN", {"default": True, "tooltip": "启用后，帧数 = 秒数 * 帧率 + 1；否则直接使用帧数"}),
                 # 秒数与帧率，仅在 use_seconds_for_length 为 True 时生效
                 "seconds": ("INT", {"default": 2, "min": 1, "max": 100000000, "tooltip": "视频时长（秒）"}),
-                "fps": ("INT", {"default": 16, "min": 1, "max": 100000000, "tooltip": "每秒帧数"}),
+                "fps": ("FLOAT", {"default": 16, "min": 1, "max": 100000000, "tooltip": "每秒帧数"}),
+
                 # 直接帧数，仅在 use_seconds_for_length 为 False 时生效
                 "frames": ("INT", {"default": 33, "min": 1, "max": 100000000, "tooltip": "直接使用的帧数（关闭秒数控制时生效）"}),
                 # 当有输入图像时，索引 [1:] 的填充策略
@@ -425,7 +426,7 @@ class ImageToSequenceWithMask:
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "MASK", "INT", "INT")
+    RETURN_TYPES = ("IMAGE", "MASK", "INT", "FLOAT")
     RETURN_NAMES = ("images", "mask", "frames", "fps")
     FUNCTION = "build_sequence"
     CATEGORY = "A_my_nodes/math"
@@ -590,5 +591,5 @@ class ImageToSequenceWithMask:
                                     mask = torch.cat([mask[: m_len - eff_tail] if m_len - eff_tail > 0 else mask[:0], zeros], dim=0)
                 except Exception:
                     pass
-            return (seq, mask, int(m), int(fps))
+            return (seq, mask, int(m), float(fps))
 
