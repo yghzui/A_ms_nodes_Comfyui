@@ -175,9 +175,18 @@ async function handleIncomingFiles(files, node) {
         const uploadedFiles = await uploadLatentFiles(latentFiles);
         
         if (uploadedFiles.length > 0) {
-             // 刷新文件列表并选择第一个上传的文件
-             await refreshLatentFileList(node, uploadedFiles[0]);
-             // 拖拽上传成功不需要提醒
+             // 上传成功后直接更新选中名和刷新列表选项
+             const fileName = uploadedFiles[0];
+             const latentWidget = node.widgets.find(w => w.name === "latent");
+             
+             if (latentWidget) {
+                 latentWidget.value = fileName;
+                 node.setDirtyCanvas(true);
+             }
+             
+             // 刷新文件列表选项
+             await refreshLatentFileList(node, fileName);
+             // 拖拽上传成功不需要额外提醒
          }
     } catch (error) {
         console.error('处理文件时出错:', error);
