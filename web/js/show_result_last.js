@@ -134,18 +134,7 @@ app.registerExtension({
             }
             
             // 暂停并清除旧的视频元素
-            if (node.videos) {
-                node.videos.forEach(video => {
-                    if (video && !video.paused) {
-                        video.pause();
-                    }
-                    // 清除视频源，释放内存
-                    if (video.src) {
-                        video.src = '';
-                        video.load();
-                    }
-                });
-            }
+            cleanupAllVideos(node.videos);
             
             if (!videoPaths || videoPaths.length === 0) {
                 node.videos = [];
@@ -297,6 +286,87 @@ app.registerExtension({
         }
 
         /**
+         * 通用工具方法
+         */
+        
+        // 绘制删除按钮的通用方法
+        function drawDeleteButton(ctx, x, y, size, isHovered = false) {
+            // 按钮背景（悬浮效果）
+            ctx.fillStyle = isHovered ? 'rgba(255, 0, 0, 0.9)' : 'rgba(255, 0, 0, 0.7)';
+            ctx.beginPath();
+            ctx.arc(x + size/2, y + size/2, size/2, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // 按钮边框
+            ctx.strokeStyle = isHovered ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+            ctx.lineWidth = isHovered ? 2 : 1;
+            ctx.stroke();
+            
+            // 绘制删除图标 (×)
+            ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+            ctx.font = `${size - 4}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('×', x + size/2, y + size/2);
+        }
+        
+        // 绘制控制按钮的通用方法
+        function drawControlButton(ctx, x, y, size, text, isHovered = false) {
+            // 按钮背景（悬浮效果）
+            ctx.fillStyle = isHovered ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(x, y, size, size);
+            
+            // 按钮边框
+            ctx.strokeStyle = isHovered ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+            ctx.lineWidth = isHovered ? 2 : 1;
+            ctx.strokeRect(x, y, size, size);
+            
+            // 绘制文本
+            ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+            ctx.font = `${size - 4}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, x + size / 2, y + size / 2);
+        }
+        
+        // 检查点是否在矩形内的通用方法
+        function isPointInRect(x, y, rect) {
+            return x >= rect.x && x <= rect.x + rect.width &&
+                   y >= rect.y && y <= rect.y + rect.height;
+        }
+        
+        // 获取视频矩形的通用方法
+        function getVideoRect(node, index) {
+            if (!node.videoRects || index < 0 || index >= node.videoRects.length) {
+                return null;
+            }
+            return node.videoRects[index];
+        }
+        
+        // 清理单个视频的通用方法
+        function cleanupSingleVideo(video) {
+            if (video && video.element) {
+                video.element.pause();
+                video.element.remove();
+            }
+        }
+        
+        // 清理所有视频的通用方法
+        function cleanupAllVideos(videos) {
+            if (videos) {
+                videos.forEach(video => {
+                    if (video) {
+                        video.pause();
+                        if (video.src) {
+                            video.src = '';
+                            video.load();
+                        }
+                    }
+                });
+            }
+        }
+
+        /**
          * 绘制视频到节点
          */
         function drawNodeVideos(node, ctx) {
@@ -424,23 +494,8 @@ app.registerExtension({
                         const mouseInDeleteButton = node.mouseX >= deleteButtonX && node.mouseX <= deleteButtonX + buttonSize &&
                             node.mouseY >= deleteButtonY && node.mouseY <= deleteButtonY + buttonSize;
                         
-                        // 绘制删除按钮背景（悬浮效果）
-                        ctx.fillStyle = mouseInDeleteButton ? 'rgba(255, 0, 0, 0.9)' : 'rgba(255, 0, 0, 0.7)';
-                        ctx.beginPath();
-                        ctx.arc(deleteButtonX + buttonSize/2, deleteButtonY + buttonSize/2, buttonSize/2, 0, 2 * Math.PI);
-                        ctx.fill();
-                        
-                        // 绘制删除按钮边框
-                        ctx.strokeStyle = mouseInDeleteButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
-                        ctx.lineWidth = mouseInDeleteButton ? 2 : 1;
-                        ctx.stroke();
-                        
-                        // 绘制删除图标 (×)
-                        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
-                        ctx.font = `${buttonSize - 4}px Arial`;
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        ctx.fillText('×', deleteButtonX + buttonSize/2, deleteButtonY + buttonSize/2);
+                        // 绘制删除按钮
+                        drawDeleteButton(ctx, deleteButtonX, deleteButtonY, buttonSize, mouseInDeleteButton);
                         
                         // 保存删除按钮区域信息
                         if (!node.deleteButtonRects) {
@@ -587,94 +642,36 @@ app.registerExtension({
                 // 绘制上一个按钮 (‹)
                 const prevButtonX = node.size[0] - buttonSize * 3 - buttonSpacing * 2 - 10;
                 const prevButtonY = node.size[1] - buttonSize - 10;
-                
-                // 按钮背景（悬浮效果）
-                ctx.fillStyle = mouseInPrevButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
-                ctx.fillRect(prevButtonX, prevButtonY, buttonSize, buttonSize);
-                
-                // 按钮边框
-                ctx.strokeStyle = mouseInPrevButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
-                ctx.lineWidth = mouseInPrevButton ? 2 : 1;
-                ctx.strokeRect(prevButtonX, prevButtonY, buttonSize, buttonSize);
-                
-                // 绘制‹符号
-                ctx.fillStyle = 'rgba(255, 255, 255, 1)';
-                ctx.font = `${buttonSize - 4}px Arial`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('‹', prevButtonX + buttonSize / 2, prevButtonY + buttonSize / 2);
+                drawControlButton(ctx, prevButtonX, prevButtonY, buttonSize, '‹', mouseInPrevButton);
                 
                 // 绘制下一个按钮 (›)
                 const nextButtonX = node.size[0] - buttonSize * 2 - buttonSpacing - 10;
                 const nextButtonY = node.size[1] - buttonSize - 10;
-                
-                // 按钮背景（悬浮效果）
-                ctx.fillStyle = mouseInNextButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
-                ctx.fillRect(nextButtonX, nextButtonY, buttonSize, buttonSize);
-                
-                // 按钮边框
-                ctx.strokeStyle = mouseInNextButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
-                ctx.lineWidth = mouseInNextButton ? 2 : 1;
-                ctx.strokeRect(nextButtonX, nextButtonY, buttonSize, buttonSize);
-                
-                // 绘制›符号
-                ctx.fillStyle = 'rgba(255, 255, 255, 1)';
-                ctx.fillText('›', nextButtonX + buttonSize / 2, nextButtonY + buttonSize / 2);
+                drawControlButton(ctx, nextButtonX, nextButtonY, buttonSize, '›', mouseInNextButton);
                 
                 // 绘制恢复按钮 (⭯) - 放在视频区域的右上角
-                
-                // 按钮背景（悬浮效果）
-                ctx.fillStyle = mouseInRestoreButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
-                ctx.fillRect(restoreButtonX, restoreButtonY, buttonSize, buttonSize);
-                
-                // 按钮边框
-                ctx.strokeStyle = mouseInRestoreButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
-                ctx.lineWidth = mouseInRestoreButton ? 2 : 1;
-                ctx.strokeRect(restoreButtonX, restoreButtonY, buttonSize, buttonSize);
-                
-                // 绘制⭯符号
-                ctx.fillStyle = 'rgba(255, 255, 255, 1)';
-                ctx.fillText('⭯', restoreButtonX + buttonSize / 2, restoreButtonY + buttonSize / 2);
+                drawControlButton(ctx, restoreButtonX, restoreButtonY, buttonSize, '⭯', mouseInRestoreButton);
                 
                 // 绘制左下角删除按钮
                 const deleteButtonX = 10;
                 const deleteButtonY = node.size[1] - buttonSize - 10;
                 
-                // 按钮背景（固定样式，无悬浮效果）
+                // 使用特殊样式绘制删除按钮（红色背景，方形）
                 ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
                 ctx.fillRect(deleteButtonX, deleteButtonY, buttonSize, buttonSize);
-                
-                // 按钮边框
                 ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
                 ctx.lineWidth = 1;
                 ctx.strokeRect(deleteButtonX, deleteButtonY, buttonSize, buttonSize);
-                
-                        // 绘制删除图标 (×)
-        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
-        ctx.font = `${buttonSize - 4}px Arial`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('×', deleteButtonX + buttonSize / 2, deleteButtonY + buttonSize / 2);
+                ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+                ctx.font = `${buttonSize - 4}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('×', deleteButtonX + buttonSize / 2, deleteButtonY + buttonSize / 2);
         
-        // 绘制右下角全屏预览按钮
-        const fullscreenButtonX = node.size[0] - buttonSize - 10;
-        const fullscreenButtonY = node.size[1] - buttonSize - 10;
-        
-        // 按钮背景（悬浮效果）
-        ctx.fillStyle = mouseInFullscreenButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(fullscreenButtonX, fullscreenButtonY, buttonSize, buttonSize);
-        
-        // 按钮边框
-        ctx.strokeStyle = mouseInFullscreenButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
-        ctx.lineWidth = mouseInFullscreenButton ? 2 : 1;
-        ctx.strokeRect(fullscreenButtonX, fullscreenButtonY, buttonSize, buttonSize);
-        
-        // 绘制全屏图标 (⛶)
-        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
-        ctx.font = `${buttonSize - 4}px Arial`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('⛶', fullscreenButtonX + buttonSize / 2, fullscreenButtonY + buttonSize / 2);
+                // 绘制右下角全屏预览按钮
+                const fullscreenButtonX = node.size[0] - buttonSize - 10;
+                const fullscreenButtonY = node.size[1] - buttonSize - 10;
+                drawControlButton(ctx, fullscreenButtonX, fullscreenButtonY, buttonSize, '⛶', mouseInFullscreenButton);
                 
                 // 绘制底部文件名
                 if (node.videoFileNames && node.videoFileNames[node.focusedVideoIndex]) {
@@ -1343,6 +1340,53 @@ app.registerExtension({
                 }
             };
             
+        // 通用对话框样式
+        function getDialogBaseStyle(maxWidth = '500px', maxHeight = 'none') {
+            return `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: #2a2a2a;
+                border: 2px solid #666;
+                border-radius: 8px;
+                padding: 20px;
+                z-index: 10001;
+                max-width: ${maxWidth};
+                ${maxHeight !== 'none' ? `max-height: ${maxHeight}; overflow-y: auto;` : ''}
+                color: white;
+                font-family: Arial, sans-serif;
+            `;
+        }
+        
+        // 通用遮罩样式
+        function createOverlay(id) {
+            const overlay = document.createElement('div');
+            overlay.id = id;
+            overlay.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.5);
+                z-index: 10000;
+            `;
+            return overlay;
+        }
+        
+        // 通用按钮样式
+        function getButtonStyle(bgColor = '#666') {
+            return `
+                padding: 8px 16px;
+                background: ${bgColor};
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+            `;
+        }
+
             // 删除视频及其关联文件的确认对话框
             this.deleteVideoWithConfirmation = function(videoIndex) {
                 if (!this.videoPaths || !this.videoPaths[videoIndex]) {
@@ -1359,20 +1403,7 @@ app.registerExtension({
                 // 创建确认对话框
                 const confirmDialog = document.createElement('div');
                 confirmDialog.id = 'delete-confirm-dialog-' + this.id;
-                confirmDialog.style.cssText = `
-                    position: fixed;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
-                    background: #2a2a2a;
-                    border: 2px solid #666;
-                    border-radius: 8px;
-                    padding: 20px;
-                    z-index: 10001;
-                    max-width: 500px;
-                    color: white;
-                    font-family: Arial, sans-serif;
-                `;
+                confirmDialog.style.cssText = getDialogBaseStyle();
                 
                 // 构建确认消息
                 let confirmMessage = `<h3 style="margin: 0 0 15px 0; color: #ff6b6b;">⚠️ 确认删除文件</h3>`;
@@ -1395,22 +1426,8 @@ app.registerExtension({
                 // 添加按钮
                 confirmMessage += `
                     <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                        <button id="cancel-delete-${this.id}" style="
-                            padding: 8px 16px;
-                            background: #666;
-                            color: white;
-                            border: none;
-                            border-radius: 4px;
-                            cursor: pointer;
-                        ">取消</button>
-                        <button id="confirm-delete-${this.id}" style="
-                            padding: 8px 16px;
-                            background: #ff6b6b;
-                            color: white;
-                            border: none;
-                            border-radius: 4px;
-                            cursor: pointer;
-                        ">确认删除</button>
+                        <button id="cancel-delete-${this.id}" style="${getButtonStyle()}">取消</button>
+                        <button id="confirm-delete-${this.id}" style="${getButtonStyle('#ff6b6b')}">确认删除</button>
                     </div>
                 `;
                 
@@ -1418,17 +1435,7 @@ app.registerExtension({
                 document.body.appendChild(confirmDialog);
                 
                 // 添加背景遮罩
-                const overlay = document.createElement('div');
-                overlay.id = 'delete-overlay-' + this.id;
-                overlay.style.cssText = `
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    background: rgba(0, 0, 0, 0.5);
-                    z-index: 10000;
-                `;
+                const overlay = createOverlay('delete-overlay-' + this.id);
                 document.body.appendChild(overlay);
                 
                 // 绑定按钮事件
@@ -1545,20 +1552,7 @@ app.registerExtension({
             this.showDeleteProgress = function(results) {
                 const progressDialog = document.createElement('div');
                 progressDialog.id = 'delete-progress-dialog-' + this.id;
-                progressDialog.style.cssText = `
-                    position: fixed;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
-                    background: #2a2a2a;
-                    border: 2px solid #666;
-                    border-radius: 8px;
-                    padding: 20px;
-                    z-index: 10001;
-                    min-width: 300px;
-                    color: white;
-                    font-family: Arial, sans-serif;
-                `;
+                progressDialog.style.cssText = getDialogBaseStyle('300px') + 'min-width: 300px;';
                 
                 progressDialog.innerHTML = `
                     <h3 style="margin: 0 0 15px 0;">🗑️ 正在删除文件...</h3>
@@ -1597,22 +1591,7 @@ app.registerExtension({
                 // 创建结果对话框
                 const resultDialog = document.createElement('div');
                 resultDialog.id = 'delete-result-dialog-' + this.id;
-                resultDialog.style.cssText = `
-                    position: fixed;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
-                    background: #2a2a2a;
-                    border: 2px solid #666;
-                    border-radius: 8px;
-                    padding: 20px;
-                    z-index: 10001;
-                    max-width: 500px;
-                    max-height: 400px;
-                    overflow-y: auto;
-                    color: white;
-                    font-family: Arial, sans-serif;
-                `;
+                resultDialog.style.cssText = getDialogBaseStyle('500px', '400px');
                 
                 // 构建结果消息
                 let resultMessage = `<h3 style="margin: 0 0 15px 0; color: ${results.failed.length === 0 ? '#4CAF50' : '#ff6b6b'};">`;
@@ -1638,14 +1617,7 @@ app.registerExtension({
                 // 添加关闭按钮
                 resultMessage += `
                     <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                        <button id="close-result-${this.id}" style="
-                            padding: 8px 16px;
-                            background: #666;
-                            color: white;
-                            border: none;
-                            border-radius: 4px;
-                            cursor: pointer;
-                        ">关闭</button>
+                        <button id="close-result-${this.id}" style="${getButtonStyle()}">关闭</button>
                     </div>
                 `;
                 
@@ -1687,14 +1659,7 @@ app.registerExtension({
                 
                 // 暂停并清理视频元素
                 if (this.videos && this.videos[videoIndex]) {
-                    const video = this.videos[videoIndex];
-                    if (!video.paused) {
-                        video.pause();
-                    }
-                    if (video.src) {
-                        video.src = '';
-                        video.load();
-                    }
+                    cleanupSingleVideo({element: this.videos[videoIndex]});
                 }
                 
                 // 从数组中移除相关数据
@@ -1790,13 +1755,7 @@ app.registerExtension({
             }
             
             // 暂停所有视频
-            if (this.videos) {
-                this.videos.forEach(video => {
-                    if (video && !video.paused) {
-                        video.pause();
-                    }
-                });
-            }
+            cleanupAllVideos(this.videos);
             
             // 清理tooltip
             if (this.hideTooltip) {
@@ -1854,4 +1813,4 @@ app.registerExtension({
             }
         };
     }
-}); 
+});
