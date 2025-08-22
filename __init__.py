@@ -22,6 +22,7 @@ from .nodes.wan_video_lora_batch import WanVideoLoraBatch
 from .nodes.show_result_last import ShowResultLast
 from .nodes.manual_video_input import ManualVideoInput
 from .nodes.load_video import LoadVideoFromFolder
+from .nodes.load_latent_upload import LoadLatentUpload
 
 # 新增导入：图像序列与遮罩生成节点
 from .nodes.math import ImageToSequenceWithMask
@@ -91,6 +92,7 @@ NODE_CLASS_MAPPINGS = {
     "ShowResultLast": ShowResultLast,
     "ManualVideoInput": ManualVideoInput,
     "LoadVideoFromFolder": LoadVideoFromFolder,
+    "LoadLatentUpload": LoadLatentUpload,
     # 新增注册：图像序列与遮罩生成节点
     "ImageToSequenceWithMask": ImageToSequenceWithMask,
     # 新增注册：文本批量输入
@@ -141,6 +143,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ShowResultLast": "Show VHS_FILENAMES by path  显示视频结果 通过路径by My",
     "ManualVideoInput": "手动输入视频文件名 by My",
     "LoadVideoFromFolder": "批量加载视频文件 by My",
+    "LoadLatentUpload": "Load Latent (Upload) 加载Latent文件(支持上传) by My",
     # 新增显示名称
     "ImageToSequenceWithMask": "ImageToSequenceWithMask 图像序列与遮罩生成 by My",
     "TextInputBatch": "TextInputBatch 批量字符串输入 by My",

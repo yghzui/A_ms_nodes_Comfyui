@@ -1,9 +1,12 @@
+console.log('[A_my_nodes][index] 入口开始加载扩展脚本');
 import "../../js/mask_add_dynamic.js";
 import "../../js/mask_subtract_dynamic.js";
 import "../../js/analyze_mask.js";
 import "../../js/load_lora_batch.js";
-console.log("A_my_nodes extensions loaded");
-console.log("Loaded mask_add_dynamic.js");
-console.log("Loaded mask_subtract_dynamic.js");
-console.log("Loaded analyze_mask.js"); 
-console.log("Loaded load_lora_batch.js");
+import "../../js/en_load_latent.js";
+console.log('[A_my_nodes][index] A_my_nodes extensions loaded');
+console.log('[A_my_nodes][index] Loaded mask_add_dynamic.js');
+console.log('[A_my_nodes][index] Loaded mask_subtract_dynamic.js');
+console.log('[A_my_nodes][index] Loaded analyze_mask.js'); 
+console.log('[A_my_nodes][index] Loaded load_lora_batch.js');
+console.log('[A_my_nodes][index] Loaded en_load_latent.js');
