@@ -26,25 +26,58 @@ app.registerExtension({
 
             const updateLengthState = () => {
                 const useSeconds = useSecondsWidget.value;
-                const oldDisabled = lengthWidget.disabled;
                 const oldLength = lengthWidget.value;
 
-                lengthWidget.disabled = useSeconds;
-                
                 let newLength = oldLength;
                 if (useSeconds) {
                     const seconds = secondsWidget.value;
                     const fps = fpsWidget.value;
+                    // 根据公式计算新的帧数：秒数 * 帧率 + 1
                     newLength = Math.floor(seconds * fps + 1);
                     lengthWidget.value = newLength;
                     
-                    if (lengthWidget.callback) {
-                        lengthWidget.callback(newLength);
+                    // 使用只读属性而不是disabled，确保数值显示
+                    if (lengthWidget.element) {
+                        lengthWidget.element.readOnly = true;
+                        lengthWidget.element.value = newLength;
+                        lengthWidget.element.style.backgroundColor = "#f0f0f0"; // 设置背景色显示只读状态
+                        lengthWidget.element.style.color = "#666"; // 设置文字颜色
+                        lengthWidget.element.style.cursor = "not-allowed"; // 设置鼠标样式
+                    }
+                    
+                    // 阻止用户输入事件
+                    lengthWidget._originalCallback = lengthWidget.callback;
+                    lengthWidget.callback = () => {
+                        // 在禁用状态下，重新设置为计算值
+                        lengthWidget.value = newLength;
+                        if (lengthWidget.element) {
+                            lengthWidget.element.value = newLength;
+                        }
+                    };
+                } else {
+                    // 启用状态下恢复正常
+                    if (lengthWidget.element) {
+                        lengthWidget.element.readOnly = false;
+                        lengthWidget.element.style.backgroundColor = "";
+                        lengthWidget.element.style.color = "";
+                        lengthWidget.element.style.cursor = "";
+                    }
+                    
+                    // 恢复原始回调函数
+                    if (lengthWidget._originalCallback) {
+                        lengthWidget.callback = lengthWidget._originalCallback;
+                        delete lengthWidget._originalCallback;
                     }
                 }
                 
-                if (oldDisabled !== lengthWidget.disabled || oldLength !== newLength) {
+                // 强制更新UI显示状态
+                if (oldLength !== newLength) {
+                    // 标记画布需要重绘
                     node.setDirtyCanvas(true, false);
+                    // 强制触发节点更新
+                    if (node.onResize) {
+                        node.onResize();
+                    }
                 }
             };
             
@@ -55,11 +88,19 @@ app.registerExtension({
                        // 修复：使用 widget 作为 `this` 上下文来调用原始回调，以兼容其他扩展
                        originalCallback.apply(widget, [value, ...args]);
                     }
-                    updateLengthState();
+                    // 延迟执行状态更新，确保所有控件值都已更新
+                    setTimeout(() => updateLengthState(), 1);
                 };
             });
             
-            setTimeout(() => updateLengthState(), 10);
+            // 初始化时设置正确的状态
+             setTimeout(() => {
+                 updateLengthState();
+                 // 强制重绘节点以确保UI状态正确显示
+                 if (node.graph && node.graph.canvas) {
+                     node.graph.canvas.setDirty(true, false);
+                 }
+             }, 10);
         };
     },
-}); 
+});

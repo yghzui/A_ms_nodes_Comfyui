@@ -74,7 +74,14 @@ class LoadLoraBatch:
                 
                 if enabled and lora_name != "None":
                     print(f"[LoadLoraBatch] 应用LoRA: {lora_name}, 强度: {strength}")
-                    current_model, _ = nodes.LoraLoader().load_lora(current_model, None, lora_name, strength, 0)
+                    try:
+                        current_model, _ = nodes.LoraLoader().load_lora(current_model, None, lora_name, strength, 0)
+                        print(f"[LoadLoraBatch] 成功加载LoRA: {lora_name}")
+                    except Exception as e:
+                        print(f"[LoadLoraBatch] 加载LoRA失败: {lora_name}, 错误: {str(e)}")
+                        print(f"[LoadLoraBatch] 跳过损坏的LoRA文件: {lora_name}")
+                        # 继续处理下一个LoRA，不中断整个流程
+                        continue
                 else:
                     print(f"[LoadLoraBatch] 跳过LoRA: {lora_name} (未启用或名称为None)")
             else:
