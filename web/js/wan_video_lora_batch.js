@@ -285,10 +285,7 @@ class WanVideoLoraBatchNode extends LGraphNode {
         this._tempWidth = this.size[0];
         this._tempHeight = this.size[1];
         
-        // 先添加非LoRA控件（设置控件等）
-        this.addNonLoraWidgets();
-        
-        // 恢复LoRA控件
+        // 恢复LoRA控件（先恢复LoRA控件保持顺序）
         for (const widgetValue of info.widgets_values || []) {
             if (widgetValue && typeof widgetValue === 'object' && widgetValue.lora !== undefined) {
                 console.log("[WanVideoLoraBatch] 恢复LoRA控件:", widgetValue);
@@ -296,6 +293,9 @@ class WanVideoLoraBatchNode extends LGraphNode {
                 widget.value = { ...widgetValue };
             }
         }
+        
+        // 添加非LoRA控件（设置控件等）
+        this.addNonLoraWidgets();
         
         // 恢复设置控件的值
         const settingsWidget = this.widgets.find(w => w.name === "settings");
@@ -328,11 +328,12 @@ class WanVideoLoraBatchNode extends LGraphNode {
             widget.setLora(lora);
         }
         
-        // 找到设置控件的位置，将新LoRA插入到设置控件之后
-        const settingsWidgetIndex = this.widgets.findIndex(w => w.name === "settings");
-        if (settingsWidgetIndex !== -1) {
-            // 将新LoRA移动到设置控件之后
-            moveArrayItem(this.widgets, widget, settingsWidgetIndex + 1);
+        // 找到设置控件的位置，新LoRA应该插入到设置控件之前（倒数第二的位置）
+        const settingsWidget = this.widgets.find(w => w.name === "settings");
+        if (settingsWidget) {
+            const settingsIndex = this.widgets.indexOf(settingsWidget);
+            // 将新LoRA插入到设置控件之前
+            moveArrayItem(this.widgets, widget, settingsIndex);
         }
         
         return widget;
