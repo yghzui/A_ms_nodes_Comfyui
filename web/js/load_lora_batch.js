@@ -176,10 +176,10 @@ class LoadLoraBatchNode extends LGraphNode {
         }
         
         // 添加分隔线
-        const divider1 = this.addCustomWidget(new RgthreeDividerWidget({ marginTop: 4, marginBottom: 0, thickness: 0 }));
+        const divider1 = this.addCustomWidget(new RgthreeDividerWidget({ marginTop: 1, marginBottom: 0, thickness: 0 }));
         
         // 添加按钮分隔线
-        this.widgetButtonSpacer = this.addCustomWidget(new RgthreeDividerWidget({ marginTop: 4, marginBottom: 0, thickness: 0 }));
+        //this.widgetButtonSpacer = this.addCustomWidget(new RgthreeDividerWidget({ marginTop: 2, marginBottom: 0, thickness: 0 }));
         
         // 添加增加LoRA按钮
         const addButton = new RgthreeBetterButtonWidget("➕ 增加LoRA", (event, pos, node) => {
