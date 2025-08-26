@@ -1,4 +1,5 @@
 import { app } from "../../../scripts/app.js";
+import { rgthree } from "./rgthree.js"; // 统一右键菜单定位使用的事件来源
 
 console.log("Patching node: text_input_batch.js");
 
@@ -176,8 +177,10 @@ function showItemContextMenu(node, index, event) {
             { content: `⬇️ 下移`, disabled: !hasDown, callback: doMoveDown },
             { content: `↔ 移动到索引…`, callback: doMoveTo },
         ];
+        // 右键菜单定位改为优先使用 lastContextMenuEvent，其次使用传入 event，确保位置为当前右键点击处
+        const useEvent = rgthree.lastContextMenuEvent || event;
         const cm = new Lite.ContextMenu(menu, {
-            event,
+            event: useEvent,
             title: `文本 ${index+1}`,
             className: "dark",
             scale: Math.max(1, app?.canvas?.ds?.scale || 1),
@@ -353,4 +356,4 @@ app.registerExtension({
             setItems(this, getItems(this));
         };
     },
-}); 
+});

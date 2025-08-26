@@ -265,24 +265,52 @@ class LoadLoraBatchNode extends LGraphNode {
             const canvasRect = canvas.canvas.getBoundingClientRect();
             const transform = canvas.ds || { scale: 1, offset: [0, 0] };
             
-            // 获取当前鼠标位置或使用最后记录的位置
-            const mouseEvent = rgthree.lastCanvasMouseEvent;
+            // 获取当前鼠标位置或使用最后记录的位置（优先使用右键事件）
+            const mouseEvent = rgthree.lastContextMenuEvent || rgthree.lastCanvasMouseEvent;
             let menuEvent = mouseEvent;
+            let targetX, targetY;
             
             if (mouseEvent && mouseEvent.clientX !== undefined) {
-                // 确保菜单显示在鼠标右侧，避免位置跳动
-                menuEvent = {
-                    clientX: mouseEvent.clientX + 10, // 向右偏移10像素
-                    clientY: mouseEvent.clientY,
-                    preventDefault: () => {},
-                    stopPropagation: () => {}
-                };
+                targetX = mouseEvent.clientX + 10; // 向右偏移10像素
+                targetY = mouseEvent.clientY;
+                menuEvent = new MouseEvent('contextmenu', {
+                    clientX: targetX,
+                    clientY: targetY,
+                    bubbles: true,
+                    cancelable: true,
+                    view: window,
+                });
             }
             
-            new LiteGraph.ContextMenu(menuItems, {
+            const cm = new LiteGraph.ContextMenu(menuItems, {
                 title: "LORA WIDGET",
                 event: menuEvent,
+                className: "dark",
+                scale: Math.max(1, app?.canvas?.ds?.scale || 1),
             });
+
+            if (cm && (targetX !== undefined) && (targetY !== undefined)) {
+                requestAnimationFrame(() => {
+                    const root = cm.root || cm.element || cm.menu || cm;
+                    if (!root || !root.style) return;
+                    const rect = root.getBoundingClientRect();
+                    const bodyRect = document.body.getBoundingClientRect();
+
+                    root.style.left = targetX + 'px';
+                    let finalY = targetY;
+                    if (bodyRect.height && finalY + rect.height > bodyRect.height - 10) {
+                        finalY = Math.max(10, bodyRect.height - rect.height - 10);
+                    }
+                    root.style.top = finalY + 'px';
+
+                    if (bodyRect.width && targetX + rect.width > bodyRect.width - 10) {
+                        const adjustedX = Math.max(10, bodyRect.width - rect.width - 10);
+                        root.style.left = adjustedX + 'px';
+                    }
+
+                    try { root.style.zIndex = '10050'; } catch(e) {}
+                });
+            }
             return undefined;
         }
         return null;
