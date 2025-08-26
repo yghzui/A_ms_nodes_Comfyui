@@ -8,8 +8,8 @@ import { rgthree } from "./rgthree.js";
 console.log("Patching node: wan_video_lora_batch.js");
 console.log("Loaded wan_video_lora_batch.js");
 
-// 改进的LoRA选择器，支持搜索功能
-async function showLoraChooser(event, callback, parentMenu, loras) {
+// 改进的LoRA选择器，基于官方实现修复位置定位问题
+async function showLoraChooser(event, callback, parentMenu, loras, buttonNode, buttonWidget) {
     const canvas = app.canvas;
     if (!loras) {
         loras = ["None", ...(await rgthreeApi.getLoras().then((loras) => loras.map((l) => l.file)))];
@@ -21,14 +21,84 @@ async function showLoraChooser(event, callback, parentMenu, loras) {
         callback: () => callback(lora)
     }));
     
-    new LiteGraph.ContextMenu(menuItems, {
-        event: event,
+    // 计算菜单位置，按用户要求：左侧与点击点x轴对齐，顶部以点击点为基准
+    let menuEvent = event;
+    let targetX, targetY;
+    
+    if (buttonNode && buttonWidget) {
+        // 获取画布的变换信息
+        const canvasRect = canvas.canvas.getBoundingClientRect();
+        const ds = canvas.ds || { scale: 1, offset: [0, 0] };
+        
+        // 节点与控件在画布坐标系中的位置
+        const nodeX = buttonNode.pos[0];
+        const nodeY = buttonNode.pos[1];
+        const widgetY = buttonWidget.last_y || 0;
+        const widgetLeftMargin = 15; // 按钮绘制时使用的左边距，与utils_widgets中drawWidgetButton一致
+        
+        // 使用官方公式：client = (canvasPos + offset) * scale + canvasBoundingLeft/Top
+        const anchorCanvasX = nodeX + widgetLeftMargin; // 以按钮左侧作为x锚点
+        const anchorCanvasY = nodeY + widgetY;          // 以控件顶部作为y锚点（搜索框顶端）
+        
+        targetX = (anchorCanvasX + ds.offset[0]) * ds.scale + canvasRect.left;
+        targetY = (anchorCanvasY + ds.offset[1]) * ds.scale + canvasRect.top;
+        
+        // 创建标准的MouseEvent对象，确保ContextMenu按该位置定位
+        menuEvent = new MouseEvent('contextmenu', {
+            clientX: targetX,
+            clientY: targetY,
+            bubbles: true,
+            cancelable: true,
+            view: window
+        });
+    } else if (event && event.clientX !== undefined) {
+        // 对于重新选择的情况，直接使用真实鼠标事件的client坐标，避免二次换算误差
+        targetX = event.clientX;
+        targetY = event.clientY;
+        
+        menuEvent = new MouseEvent('contextmenu', {
+            clientX: targetX,
+            clientY: targetY,
+            bubbles: true,
+            cancelable: true,
+            view: window
+        });
+    }
+    
+    // 创建上下文菜单，使用官方推荐的选项格式
+    const contextMenu = new LiteGraph.ContextMenu(menuItems, {
+        event: menuEvent,
         parentMenu: parentMenu || undefined,
         title: "选择LoRA",
         scale: Math.max(1, canvas.ds?.scale || 1),
         className: "dark",
         callback,
     });
+    
+    // 应用用户要求的位置调整逻辑：左侧与点击点x轴对齐，顶部以点击点为基准
+    if (contextMenu && contextMenu.root && targetX !== undefined && targetY !== undefined) {
+        requestAnimationFrame(() => {
+            const rect = contextMenu.root.getBoundingClientRect();
+            const bodyRect = document.body.getBoundingClientRect();
+            
+            // 设置左侧与点击点x轴对齐
+            contextMenu.root.style.left = targetX + 'px';
+            
+            // 设置顶部以点击点为基准，但如果选项较多超出屏幕底部，则向上调整
+            let finalY = targetY;
+            if (bodyRect.height && targetY + rect.height > bodyRect.height - 10) {
+                // 选项较多时，向上调整，确保搜索框顶部仍以初始点为基准
+                finalY = Math.max(10, bodyRect.height - rect.height - 10);
+            }
+            contextMenu.root.style.top = finalY + 'px';
+            
+            // 如果菜单超出屏幕右侧，向左调整
+            if (bodyRect.width && targetX + rect.width > bodyRect.width - 10) {
+                const adjustedX = Math.max(10, bodyRect.width - rect.width - 10);
+                contextMenu.root.style.left = adjustedX + 'px';
+            }
+        });
+    }
 }
 
 // WanVideoLoraBatchDualToggleWidget控件类 - 用于在同一行显示两个开关
@@ -285,6 +355,7 @@ class WanVideoLoraBatchNode extends LGraphNode {
         
         // 添加增加LoRA按钮
         const addButton = new RgthreeBetterButtonWidget("➕ 增加LoRA", (event, pos, node) => {
+            // 传入节点和按钮控件信息以实现正确的位置定位
             showLoraChooser(rgthree.lastCanvasMouseEvent || event, (value) => {
                 if (typeof value === "string") {
                     if (value !== "NONE") {
@@ -294,7 +365,7 @@ class WanVideoLoraBatchNode extends LGraphNode {
                         this.setDirtyCanvas(true, true);
                     }
                 }
-            }, null, null); // 传入null让showLoraChooser自动获取loras
+            }, null, null, this, addButton); // 传入节点和按钮控件信息
             return true;
         });
         addButton.serializeValue = () => undefined; // 阻止按钮被序列化
@@ -361,9 +432,28 @@ class WanVideoLoraBatchNode extends LGraphNode {
                 },
             ];
             
+            // 计算正确的右键菜单位置，确保显示在鼠标附近
+            const canvas = app.canvas;
+            const canvasRect = canvas.canvas.getBoundingClientRect();
+            const transform = canvas.ds || { scale: 1, offset: [0, 0] };
+            
+            // 获取当前鼠标位置或使用最后记录的位置
+            const mouseEvent = rgthree.lastCanvasMouseEvent;
+            let menuEvent = mouseEvent;
+            
+            if (mouseEvent && mouseEvent.clientX !== undefined) {
+                // 确保菜单显示在鼠标右侧，避免位置跳动
+                menuEvent = {
+                    clientX: mouseEvent.clientX + 10, // 向右偏移10像素
+                    clientY: mouseEvent.clientY,
+                    preventDefault: () => {},
+                    stopPropagation: () => {}
+                };
+            }
+            
             new LiteGraph.ContextMenu(menuItems, {
                 title: "LORA WIDGET",
-                event: rgthree.lastCanvasMouseEvent,
+                event: menuEvent,
             });
             return undefined;
         }
@@ -479,12 +569,13 @@ class WanVideoLoraBatchWidget extends RgthreeBaseWidget {
     }
 
     onLoraClick(event, pos, node) {
+        // 传入节点和控件信息以实现正确的位置定位
         showLoraChooser(rgthree.lastCanvasMouseEvent || event, (value) => {
             if (typeof value === "string") {
                 this.value.lora = value;
             }
             node.setDirtyCanvas(true, true);
-        }, null, null);
+        }, null, null, node, this);
         this.cancelMouseDown();
     }
 
@@ -559,4 +650,4 @@ app.registerExtension({
             this.setDirtyCanvas(true, true);
         };
     }
-}); 
+});

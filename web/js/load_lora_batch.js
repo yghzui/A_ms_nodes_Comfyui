@@ -8,27 +8,83 @@ import { rgthree } from "./rgthree.js";
 console.log("Patching node: load_lora_batch.js");
 console.log("Loaded load_lora_batch.js");
 
-// 改进的LoRA选择器，支持搜索功能
-async function showLoraChooser(event, callback, parentMenu, loras) {
+// 改进的LoRA选择器，基于官方实现修复位置定位问题
+async function showLoraChooser(event, callback, parentMenu, loras, buttonNode, buttonWidget) {
     const canvas = app.canvas;
     if (!loras) {
         loras = ["None", ...(await rgthreeApi.getLoras().then((loras) => loras.map((l) => l.file)))];
     }
-    
-    // 转换为LiteGraph.ContextMenu需要的格式
+
     const menuItems = loras.map(lora => ({
         content: lora,
         callback: () => callback(lora)
     }));
-    
-    new LiteGraph.ContextMenu(menuItems, {
-        event: event,
+
+    let menuEvent = event;
+    let targetX, targetY;
+
+    if (buttonNode && buttonWidget) {
+        const canvasRect = canvas.canvas.getBoundingClientRect();
+        const ds = canvas.ds || { scale: 1, offset: [0, 0] };
+
+        const nodeX = buttonNode.pos[0];
+        const nodeY = buttonNode.pos[1];
+        const widgetY = buttonWidget.last_y || 0;
+        const widgetLeftMargin = 15; // 与按钮绘制保持一致
+
+        const anchorCanvasX = nodeX + widgetLeftMargin;
+        const anchorCanvasY = nodeY + widgetY;
+
+        targetX = (anchorCanvasX + ds.offset[0]) * ds.scale + canvasRect.left;
+        targetY = (anchorCanvasY + ds.offset[1]) * ds.scale + canvasRect.top;
+
+        menuEvent = new MouseEvent('contextmenu', {
+            clientX: targetX,
+            clientY: targetY,
+            bubbles: true,
+            cancelable: true,
+            view: window
+        });
+    } else if (event && event.clientX !== undefined) {
+        targetX = event.clientX;
+        targetY = event.clientY;
+        menuEvent = new MouseEvent('contextmenu', {
+            clientX: targetX,
+            clientY: targetY,
+            bubbles: true,
+            cancelable: true,
+            view: window
+        });
+    }
+
+    const contextMenu = new LiteGraph.ContextMenu(menuItems, {
+        event: menuEvent,
         parentMenu: parentMenu || undefined,
         title: "选择LoRA",
         scale: Math.max(1, canvas.ds?.scale || 1),
         className: "dark",
         callback,
     });
+
+    if (contextMenu && contextMenu.root && targetX !== undefined && targetY !== undefined) {
+        requestAnimationFrame(() => {
+            const rect = contextMenu.root.getBoundingClientRect();
+            const bodyRect = document.body.getBoundingClientRect();
+
+            contextMenu.root.style.left = targetX + 'px';
+
+            let finalY = targetY;
+            if (bodyRect.height && targetY + rect.height > bodyRect.height - 10) {
+                finalY = Math.max(10, bodyRect.height - rect.height - 10);
+            }
+            contextMenu.root.style.top = finalY + 'px';
+
+            if (bodyRect.width && targetX + rect.width > bodyRect.width - 10) {
+                const adjustedX = Math.max(10, bodyRect.width - rect.width - 10);
+                contextMenu.root.style.left = adjustedX + 'px';
+            }
+        });
+    }
 }
 
 // LoadLoraBatch节点类
@@ -127,6 +183,7 @@ class LoadLoraBatchNode extends LGraphNode {
         
         // 添加增加LoRA按钮
         const addButton = new RgthreeBetterButtonWidget("➕ 增加LoRA", (event, pos, node) => {
+            // 传入节点和按钮控件信息以实现正确的位置定位
             showLoraChooser(rgthree.lastCanvasMouseEvent || event, (value) => {
                 if (typeof value === "string") {
                     if (value !== "NONE") {
@@ -136,7 +193,7 @@ class LoadLoraBatchNode extends LGraphNode {
                         this.setDirtyCanvas(true, true);
                     }
                 }
-            }, null, null); // 传入null让showLoraChooser自动获取loras
+            }, null, null, this, addButton); // 传入节点和按钮控件信息
             return true;
         });
         addButton.serializeValue = () => undefined; // 阻止按钮被序列化
@@ -203,9 +260,28 @@ class LoadLoraBatchNode extends LGraphNode {
                 },
             ];
             
+            // 计算正确的右键菜单位置，确保显示在鼠标附近
+            const canvas = app.canvas;
+            const canvasRect = canvas.canvas.getBoundingClientRect();
+            const transform = canvas.ds || { scale: 1, offset: [0, 0] };
+            
+            // 获取当前鼠标位置或使用最后记录的位置
+            const mouseEvent = rgthree.lastCanvasMouseEvent;
+            let menuEvent = mouseEvent;
+            
+            if (mouseEvent && mouseEvent.clientX !== undefined) {
+                // 确保菜单显示在鼠标右侧，避免位置跳动
+                menuEvent = {
+                    clientX: mouseEvent.clientX + 10, // 向右偏移10像素
+                    clientY: mouseEvent.clientY,
+                    preventDefault: () => {},
+                    stopPropagation: () => {}
+                };
+            }
+            
             new LiteGraph.ContextMenu(menuItems, {
                 title: "LORA WIDGET",
-                event: rgthree.lastCanvasMouseEvent,
+                event: menuEvent,
             });
             return undefined;
         }
@@ -321,12 +397,13 @@ class LoadLoraBatchWidget extends RgthreeBaseWidget {
     }
 
     onLoraClick(event, pos, node) {
+        // 传入节点和控件信息以实现正确的位置定位
         showLoraChooser(rgthree.lastCanvasMouseEvent || event, (value) => {
             if (typeof value === "string") {
                 this.value.lora = value;
             }
             node.setDirtyCanvas(true, true);
-        }, null, null);
+        }, null, null, node, this);
         this.cancelMouseDown();
     }
 
@@ -403,4 +480,4 @@ app.registerExtension({
             this.setDirtyCanvas(true, true);
         };
     }
-}); 
+});
