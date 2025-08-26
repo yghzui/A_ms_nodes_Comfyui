@@ -388,7 +388,7 @@ class WanVideoLoraBatchNode extends LGraphNode {
         return null;
     }
 
-    getSlotMenuOptions(slot) {
+    getSlotMenuOptions(slot, event) {
         if (slot && slot.widget && slot.widget.name && slot.widget.name.startsWith("LORA_")) {
             const widget = slot.widget;
             const index = this.widgets.indexOf(widget);
@@ -432,65 +432,14 @@ class WanVideoLoraBatchNode extends LGraphNode {
                 },
             ];
             
-            // 计算正确的右键菜单位置，确保显示在鼠标附近
-            const canvas = app.canvas;
-            const canvasRect = canvas.canvas.getBoundingClientRect();
-            const transform = canvas.ds || { scale: 1, offset: [0, 0] };
-            
-            // 获取当前鼠标位置或使用最后记录的位置（优先使用右键事件）
-            const mouseEvent = rgthree.lastContextMenuEvent || rgthree.lastCanvasMouseEvent;
-            let menuEvent = mouseEvent;
-            let targetX, targetY;
-            
-            if (mouseEvent && mouseEvent.clientX !== undefined) {
-                // 使用真实的 MouseEvent，确保LiteGraph.ContextMenu的定位逻辑完整可用
-                targetX = mouseEvent.clientX + 10; // 向右偏移10像素，保证在鼠标右侧
-                targetY = mouseEvent.clientY;
-                menuEvent = new MouseEvent('contextmenu', {
-                    clientX: targetX,
-                    clientY: targetY,
-                    bubbles: true,
-                    cancelable: true,
-                    view: window,
-                });
-            }
-            
+            // 直接使用LiteGraph.ContextMenu，参考rgthree官方实现
             const cm = new LiteGraph.ContextMenu(menuItems, {
                 title: "LORA WIDGET",
-                event: menuEvent,
+                event: rgthree.lastCanvasMouseEvent,
                 className: "dark",
                 // 传入缩放，匹配ComfyUI官方的行为，避免缩放下的尺寸/位置异常
                 scale: Math.max(1, app?.canvas?.ds?.scale || 1),
             });
-
-            // 创建后再进行一次位置校正，确保严格在鼠标右侧，并做屏幕边界回退
-            if (cm && (targetX !== undefined) && (targetY !== undefined)) {
-                requestAnimationFrame(() => {
-                    const root = cm.root || cm.element || cm.menu || cm;
-                    if (!root || !root.style) return;
-                    const rect = root.getBoundingClientRect();
-                    const bodyRect = document.body.getBoundingClientRect();
-
-                    // 设置左/上，左侧在鼠标右侧，顶部与鼠标对齐
-                    root.style.left = targetX + 'px';
-                    let finalY = targetY;
-
-                    // 如果底部溢出，向上回退
-                    if (bodyRect.height && finalY + rect.height > bodyRect.height - 10) {
-                        finalY = Math.max(10, bodyRect.height - rect.height - 10);
-                    }
-                    root.style.top = finalY + 'px';
-
-                    // 如果右侧溢出，向左回退
-                    if (bodyRect.width && targetX + rect.width > bodyRect.width - 10) {
-                        const adjustedX = Math.max(10, bodyRect.width - rect.width - 10);
-                        root.style.left = adjustedX + 'px';
-                    }
-
-                    // 提升层级，避免被其他元素遮挡
-                    try { root.style.zIndex = '10050'; } catch(e) {}
-                });
-            }
             return undefined;
         }
         return null;
