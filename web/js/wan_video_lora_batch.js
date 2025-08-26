@@ -404,6 +404,32 @@ class WanVideoLoraBatchNode extends LGraphNode {
                     },
                 },
                 {
+                    content: `📋 复制模型路径`,
+                    disabled: !widget.value.lora || widget.value.lora === "None",
+                    callback: () => {
+                        if (widget.value.lora && widget.value.lora !== "None") {
+                            // 复制LoRA模型路径到剪贴板
+                            navigator.clipboard.writeText(widget.value.lora).then(() => {
+                                console.log(`[WanVideoLoraBatch] 已复制模型路径: ${widget.value.lora}`);
+                                // 可选：显示提示信息
+                                if (app.ui && app.ui.dialog) {
+                                    app.ui.dialog.show(`已复制模型路径:\n${widget.value.lora}`);
+                                }
+                            }).catch(err => {
+                                console.error('[WanVideoLoraBatch] 复制失败:', err);
+                                // 降级方案：使用旧的复制方法
+                                const textArea = document.createElement('textarea');
+                                textArea.value = widget.value.lora;
+                                document.body.appendChild(textArea);
+                                textArea.select();
+                                document.execCommand('copy');
+                                document.body.removeChild(textArea);
+                                console.log(`[WanVideoLoraBatch] 已复制模型路径(降级): ${widget.value.lora}`);
+                            });
+                        }
+                    },
+                },
+                {
                     content: `⬆️ 上移`,
                     disabled: !canMoveUp,
                     callback: () => {
