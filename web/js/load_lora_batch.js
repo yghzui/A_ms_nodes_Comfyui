@@ -2,7 +2,7 @@ import { app } from "../../../scripts/app.js";
 import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, isLowQuality, } from "./utils_canvas.js";
 import { RgthreeBaseWidget, RgthreeBetterButtonWidget, RgthreeDividerWidget, } from "./utils_widgets.js";
 import { rgthreeApi } from "./rgthree_api.js";
-import { moveArrayItem, removeArrayItem } from "./shared_utils.js";
+import { moveArrayItem, removeArrayItem, showTopNotification } from "./shared_utils.js";
 import { rgthree } from "./rgthree.js";
 
 console.log("Patching node: load_lora_batch.js");
@@ -238,20 +238,24 @@ class LoadLoraBatchNode extends LGraphNode {
                             // 复制LoRA模型路径到剪贴板
                             navigator.clipboard.writeText(widget.value.lora).then(() => {
                                 console.log(`[LoadLoraBatch] 已复制模型路径: ${widget.value.lora}`);
-                                // 可选：显示提示信息
-                                if (app.ui && app.ui.dialog) {
-                                    app.ui.dialog.show(`已复制模型路径:\n${widget.value.lora}`);
-                                }
+                                // 显示顶部提示信息
+                                showTopNotification(`已复制模型路径: ${widget.value.lora}`, 'success');
                             }).catch(err => {
                                 console.error('[LoadLoraBatch] 复制失败:', err);
                                 // 降级方案：使用旧的复制方法
-                                const textArea = document.createElement('textarea');
-                                textArea.value = widget.value.lora;
-                                document.body.appendChild(textArea);
-                                textArea.select();
-                                document.execCommand('copy');
-                                document.body.removeChild(textArea);
-                                console.log(`[LoadLoraBatch] 已复制模型路径(降级): ${widget.value.lora}`);
+                                try {
+                                    const textArea = document.createElement('textarea');
+                                    textArea.value = widget.value.lora;
+                                    document.body.appendChild(textArea);
+                                    textArea.select();
+                                    document.execCommand('copy');
+                                    document.body.removeChild(textArea);
+                                    console.log(`[LoadLoraBatch] 已复制模型路径(降级): ${widget.value.lora}`);
+                                    showTopNotification(`已复制模型路径: ${widget.value.lora}`, 'success');
+                                } catch (fallbackErr) {
+                                    console.error('[LoadLoraBatch] 降级复制也失败:', fallbackErr);
+                                    showTopNotification('复制失败，请手动复制', 'error');
+                                }
                             });
                         }
                     },

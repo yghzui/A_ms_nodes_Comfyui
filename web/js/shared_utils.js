@@ -369,4 +369,72 @@ export function broadcastOnChannel(channel, action, payload) {
     if (window.opener) {
         window.opener.postMessage(message, "*");
     }
-} 
+}
+
+/**
+ * 显示顶部通知消息，3秒后自动消失
+ * @param {string} message - 要显示的消息
+ * @param {string} type - 消息类型：'success', 'error', 'info', 'warning'
+ */
+export function showTopNotification(message, type = 'info') {
+    // 移除已存在的通知
+    const existingNotification = document.getElementById('top-notification');
+    if (existingNotification) {
+        existingNotification.remove();
+    }
+
+    // 创建通知元素
+    const notification = document.createElement('div');
+    notification.id = 'top-notification';
+    notification.textContent = message;
+    
+    // 设置样式
+    const baseStyles = {
+        position: 'fixed',
+        top: '20px',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        padding: '12px 24px',
+        borderRadius: '6px',
+        color: '#fff',
+        fontSize: '14px',
+        fontWeight: '500',
+        zIndex: '10000',
+        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+        transition: 'all 0.3s ease',
+        maxWidth: '80%',
+        textAlign: 'center',
+        wordBreak: 'break-word'
+    };
+    
+    // 根据类型设置背景色
+    const typeColors = {
+        success: '#4CAF50',
+        error: '#f44336',
+        warning: '#ff9800',
+        info: '#2196F3'
+    };
+    
+    const backgroundColor = typeColors[type] || typeColors.info;
+    
+    // 应用样式
+    Object.assign(notification.style, baseStyles, {
+        backgroundColor: backgroundColor
+    });
+    
+    // 添加到页面
+    document.body.appendChild(notification);
+    
+    // 3秒后自动移除
+    setTimeout(() => {
+        if (notification && notification.parentNode) {
+            notification.style.opacity = '0';
+            notification.style.transform = 'translateX(-50%) translateY(-20px)';
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                }
+            }, 300);
+        }
+    }, 3000);
+}
