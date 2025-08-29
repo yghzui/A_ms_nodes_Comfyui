@@ -30,6 +30,8 @@ from .nodes.math import ImageToSequenceWithMask
 from .nodes.text_input_batch import TextInputBatch
 # 新增导入：图像扩展节点
 from .nodes.image_expand import ImageExpand
+# 新增导入：增强版图像混合节点
+from .nodes.ImageBlendAdvance_my import ImageBlendAdvanceMy
 
 # 导入路由模块
 from . import routes
@@ -101,6 +103,8 @@ NODE_CLASS_MAPPINGS = {
     "TextInputBatch": TextInputBatch,
     # 新增注册：图像扩展节点
     "ImageExpand": ImageExpand,
+    # 新增注册：增强版图像混合节点
+    "ImageBlendAdvanceMy": ImageBlendAdvanceMy,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by My",
@@ -152,6 +156,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageToSequenceWithMask": "ImageToSequenceWithMask 图像序列与遮罩生成 by My",
     "TextInputBatch": "TextInputBatch 批量字符串输入 by My",
     "ImageExpand": "ImageExpand 图像扩展节点 by My",
+    "ImageBlendAdvanceMy": "ImageBlendAdvanceMy 增强版图像混合节点 by My",
 }
 
 WEB_DIRECTORY = "./web/js"
