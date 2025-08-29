@@ -71,27 +71,27 @@ def image_rotate_extend_with_alpha(image, angle, alpha=None, method="lanczos", S
         _alpha = Image.new('L', _image.size, 255)
     return (_image, _alpha.convert('L'), ret_image)
 
-def chop_image_v2(image, mask, invert_mask, blend_mode, opacity):
-    """图像混合处理"""
-    # 简化的混合模式实现
+def chop_image_v2(background_image, layer_image, blend_mode, opacity):
+    """图像混合处理 - 与原函数签名一致"""
+    # 简化的混合模式实现，主要支持normal模式
     if blend_mode == "normal":
-        # 正常混合模式
-        if invert_mask:
-            # 反转遮罩
-            mask_array = np.array(mask)
-            mask_array = 255 - mask_array
-            mask = Image.fromarray(mask_array)
+        # 将图像转换为RGBA格式
+        bg = background_image.convert('RGBA')
+        layer = layer_image.convert('RGBA')
         
         # 应用透明度
         if opacity < 100:
-            mask_array = np.array(mask).astype(np.float32)
-            mask_array = mask_array * (opacity / 100.0)
-            mask = Image.fromarray(mask_array.astype(np.uint8))
+            # 调整图层的alpha通道
+            r, g, b, a = layer.split()
+            a = a.point(lambda x: int(x * opacity / 100))
+            layer = Image.merge('RGBA', (r, g, b, a))
         
-        return RGB2RGBA(image, mask)
+        # 使用PIL的alpha合成
+        result = Image.alpha_composite(bg, layer)
+        return result.convert('RGB')
     else:
         # 其他混合模式暂时使用正常模式
-        return chop_image_v2(image, mask, invert_mask, "normal", opacity)
+        return chop_image_v2(background_image, layer_image, "normal", opacity)
 
 # 混合模式列表
 chop_mode_v2 = [
@@ -106,31 +106,31 @@ class ImageBlendAdvanceMy:
     """增强版图像混合节点 - 基于ComfyUI_LayerStyle的ImageBlendAdvanceV3，新增背景遮罩功能"""
     
     def __init__(self):
-        pass
+        self.NODE_NAME = 'ImageBlendAdvanceMy'
     
     @classmethod
     def INPUT_TYPES(cls):
+        mirror_mode = ['None', 'horizontal', 'vertical']
+        method_mode = ['lanczos', 'bicubic', 'hamming', 'bilinear', 'box', 'nearest']
         return {
             "required": {
+                "background_image": ("IMAGE",),  # 背景图排在第一位且必须存在
                 "layer_image": ("IMAGE",),
-                "invert_mask": (["False", "True"],),
+                "invert_mask": ("BOOLEAN", {"default": True}),  # 修正为BOOLEAN类型
                 "blend_mode": (chop_mode_v2,),
                 "opacity": ("INT", {"default": 100, "min": 0, "max": 100, "step": 1}),
-                "x_percent": ("INT", {"default": 50, "min": -999, "max": 999, "step": 1}),
-                "y_percent": ("INT", {"default": 50, "min": -999, "max": 999, "step": 1}),
-                "mirror": (["None", "horizontal", "vertical", "both"],),
-                "scale": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 100.0, "step": 0.01}),
-                "aspect_ratio": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 100.0, "step": 0.01}),
-                "rotate": ("FLOAT", {"default": 0, "min": -999, "max": 999, "step": 0.1}),
-                "transform_method": (["lanczos", "bicubic", "hamming", "bilinear", "box", "nearest"],),
+                "x_percent": ("FLOAT", {"default": 50, "min": -999, "max": 999, "step": 0.01}),  # 修正为FLOAT类型
+                "y_percent": ("FLOAT", {"default": 50, "min": -999, "max": 999, "step": 0.01}),  # 修正为FLOAT类型
+                "mirror": (mirror_mode,),  # 移除both选项，与原函数保持一致
+                "scale": ("FLOAT", {"default": 1, "min": 0.01, "max": 100, "step": 0.01}),
+                "aspect_ratio": ("FLOAT", {"default": 1, "min": 0.01, "max": 100, "step": 0.01}),
+                "rotate": ("FLOAT", {"default": 0, "min": -999999, "max": 999999, "step": 0.01}),
+                "transform_method": (method_mode,),
                 "anti_aliasing": ("INT", {"default": 0, "min": 0, "max": 16, "step": 1}),
-                # 新增背景遮罩参数
-                "background_mask": ("MASK",),
-                "invert_background_mask": (["False", "True"],),
             },
             "optional": {
-                "background_image": ("IMAGE",),
                 "layer_mask": ("MASK",),
+                "background_mask": ("MASK",),  # 移到optional中
             }
         }
     
@@ -139,121 +139,101 @@ class ImageBlendAdvanceMy:
     FUNCTION = "image_blend_advance_my"
     CATEGORY = "😺dzNodes/LayerUtility"
     
-    def image_blend_advance_my(self, layer_image, invert_mask, blend_mode, opacity,
+    def image_blend_advance_my(self, background_image, layer_image, invert_mask, blend_mode, opacity,
                               x_percent, y_percent, mirror, scale, aspect_ratio, rotate,
-                              transform_method, anti_aliasing, background_mask, invert_background_mask,
-                              background_image=None, layer_mask=None):
+                              transform_method, anti_aliasing, layer_mask=None, background_mask=None):
         
-        # 处理背景图像
-        if background_image is not None:
-            background = tensor2pil(background_image)
-        else:
-            background = tensor2pil(layer_image).convert('RGB')
+        # 背景图像必须存在且排在第一位
+        _canvas = tensor2pil(background_image).convert('RGBA')
+        _layer = tensor2pil(layer_image)
         
-        # 处理图层图像和遮罩
-        layer = tensor2pil(layer_image).convert('RGB')
+        # 处理图层遮罩
         if layer_mask is not None:
-            mask = mask2image(layer_mask)
+            if invert_mask:
+                _mask = tensor2pil(1 - layer_mask).convert('L')
+            else:
+                _mask = tensor2pil(layer_mask).convert('L')
         else:
-            mask = Image.new('L', layer.size, 255)
+            # 如果没有提供遮罩，从图层的alpha通道提取或创建白色遮罩
+            if _layer.mode == 'RGBA':
+                _mask = _layer.split()[-1]
+            else:
+                _mask = Image.new('L', _layer.size, 'white')
         
-        # 处理背景遮罩
-        bg_mask = mask2image(background_mask)
-        if invert_background_mask == "True":
-            bg_mask_array = np.array(bg_mask)
-            bg_mask_array = 255 - bg_mask_array
-            bg_mask = Image.fromarray(bg_mask_array)
+        # 确保遮罩尺寸匹配
+        if _mask.size != _layer.size:
+            _mask = Image.new('L', _layer.size, 'white')
+            print(f"Warning: {self.NODE_NAME} mask mismatch, dropped!")
         
-        # 调整图层尺寸以匹配背景
-        if layer.size != background.size:
-            layer = layer.resize(background.size, Image.LANCZOS)
-            mask = mask.resize(background.size, Image.LANCZOS)
+        # 记录原始图层尺寸
+        orig_layer_width = _layer.width
+        orig_layer_height = _layer.height
+        _mask = _mask.convert("RGBA")
+        
+        # 计算目标尺寸
+        target_layer_width = int(orig_layer_width * scale)
+        target_layer_height = int(orig_layer_height * scale * aspect_ratio)
         
         # 处理镜像
-        if mirror == "horizontal":
-            layer = layer.transpose(Image.FLIP_LEFT_RIGHT)
-            mask = mask.transpose(Image.FLIP_LEFT_RIGHT)
-        elif mirror == "vertical":
-            layer = layer.transpose(Image.FLIP_TOP_BOTTOM)
-            mask = mask.transpose(Image.FLIP_TOP_BOTTOM)
-        elif mirror == "both":
-            layer = layer.transpose(Image.FLIP_LEFT_RIGHT).transpose(Image.FLIP_TOP_BOTTOM)
-            mask = mask.transpose(Image.FLIP_LEFT_RIGHT).transpose(Image.FLIP_TOP_BOTTOM)
+        if mirror == 'horizontal':
+            _layer = _layer.transpose(Image.FLIP_LEFT_RIGHT)
+            _mask = _mask.transpose(Image.FLIP_LEFT_RIGHT)
+        elif mirror == 'vertical':
+            _layer = _layer.transpose(Image.FLIP_TOP_BOTTOM)
+            _mask = _mask.transpose(Image.FLIP_TOP_BOTTOM)
         
-        # 处理缩放和宽高比
-        if scale != 1.0 or aspect_ratio != 1.0:
-            new_width = int(layer.width * scale * aspect_ratio)
-            new_height = int(layer.height * scale)
-            layer = layer.resize((new_width, new_height), Image.LANCZOS)
-            mask = mask.resize((new_width, new_height), Image.LANCZOS)
+        # 缩放
+        _layer = _layer.resize((target_layer_width, target_layer_height))
+        _mask = _mask.resize((target_layer_width, target_layer_height))
         
-        # 处理旋转
-        if rotate != 0:
-            layer, mask, _ = image_rotate_extend_with_alpha(layer, rotate, mask, transform_method, anti_aliasing)
+        # 旋转
+        _layer, _mask, _ = image_rotate_extend_with_alpha(_layer, rotate, _mask, transform_method, anti_aliasing)
         
-        # 处理位置
-        if layer.size != background.size or x_percent != 50 or y_percent != 50:
-            # 创建新的图层和遮罩，尺寸与背景相同
-            new_layer = Image.new('RGB', background.size, (0, 0, 0))
-            new_mask = Image.new('L', background.size, 0)
+        # 计算位置
+        x = int(_canvas.width * x_percent / 100 - _layer.width / 2)
+        y = int(_canvas.height * y_percent / 100 - _layer.height / 2)
+        
+        # 合成图层 - 按照原函数逻辑
+        import copy
+        _comp = copy.copy(_canvas)
+        _compmask = Image.new("RGBA", _comp.size, color='black')
+        _comp.paste(_layer, (x, y))
+        _compmask.paste(_mask, (x, y))
+        _compmask = _compmask.convert('L')
+        
+        # 应用混合模式和透明度 - 修正参数顺序
+        _comp = chop_image_v2(_canvas, _comp, blend_mode, opacity)
+        
+        # 如果有背景遮罩，应用背景遮罩逻辑
+        if background_mask is not None:
+            bg_mask = tensor2pil(background_mask).convert('L')
+            if bg_mask.size != _canvas.size:
+                bg_mask = bg_mask.resize(_canvas.size, Image.LANCZOS)
             
-            # 计算位置
-            x = int((background.width - layer.width) * x_percent / 100)
-            y = int((background.height - layer.height) * y_percent / 100)
+            # 背景遮罩区域：白色区域使用合成结果，黑色区域保持原背景
+            bg_mask_array = np.array(bg_mask).astype(np.float32) / 255.0
+            canvas_array = np.array(_canvas.convert('RGB')).astype(np.float32)
+            comp_array = np.array(_comp.convert('RGB')).astype(np.float32)
             
-            # 粘贴图层和遮罩
-            new_layer.paste(layer, (x, y))
-            new_mask.paste(mask, (x, y))
+            final_image_array = np.zeros_like(canvas_array)
+            for c in range(3):
+                final_image_array[:, :, c] = (
+                    bg_mask_array * comp_array[:, :, c] + 
+                    (1 - bg_mask_array) * canvas_array[:, :, c]
+                )
             
-            layer = new_layer
-            mask = new_mask
-        
-        # 图层合成
-        invert_mask_bool = invert_mask == "True"
-        composite_image = chop_image_v2(layer, mask, invert_mask_bool, blend_mode, opacity)
-        
-        # 背景合成 - 新增功能：在背景遮罩为黑色的区域显示原始背景
-        final_image = Image.new('RGB', background.size, (0, 0, 0))
-        final_mask = Image.new('L', background.size, 0)
-        
-        # 将composite_image转换为RGB用于合成
-        if composite_image.mode == 'RGBA':
-            comp_rgb = composite_image.convert('RGB')
-            comp_alpha = composite_image.split()[3]
+            _canvas = Image.fromarray(final_image_array.astype(np.uint8))
+            
+            # 最终遮罩结合图层遮罩和背景遮罩
+            comp_mask_array = np.array(_compmask).astype(np.float32) / 255.0
+            final_mask_array = bg_mask_array * comp_mask_array
+            _compmask = Image.fromarray((final_mask_array * 255).astype(np.uint8), mode='L')
         else:
-            comp_rgb = composite_image.convert('RGB')
-            comp_alpha = mask
+            # 没有背景遮罩时，直接合成到背景
+            _canvas.paste(_comp, mask=_compmask)
         
-        # 确保所有图像尺寸一致
-        if bg_mask.size != background.size:
-            bg_mask = bg_mask.resize(background.size, Image.LANCZOS)
-        if comp_rgb.size != background.size:
-            comp_rgb = comp_rgb.resize(background.size, Image.LANCZOS)
-        if comp_alpha.size != background.size:
-            comp_alpha = comp_alpha.resize(background.size, Image.LANCZOS)
-        
-        # 使用背景遮罩进行合成
-        bg_mask_array = np.array(bg_mask).astype(np.float32) / 255.0
-        comp_alpha_array = np.array(comp_alpha).astype(np.float32) / 255.0
-        
-        # 在背景遮罩为白色的区域使用合成图像，黑色区域使用原始背景
-        final_image_array = np.array(background).astype(np.float32)
-        comp_rgb_array = np.array(comp_rgb).astype(np.float32)
-        
-        # 应用背景遮罩
-        for c in range(3):
-            final_image_array[:, :, c] = (
-                bg_mask_array * comp_rgb_array[:, :, c] + 
-                (1 - bg_mask_array) * final_image_array[:, :, c]
-            )
-        
-        final_image = Image.fromarray(final_image_array.astype(np.uint8))
-        
-        # 更新最终遮罩：结合图层遮罩和背景遮罩
-        final_mask_array = bg_mask_array * comp_alpha_array
-        final_mask = Image.fromarray((final_mask_array * 255).astype(np.uint8), mode='L')
-        
-        return (pil2tensor(final_image), image2mask(final_mask))
+        print(f"{self.NODE_NAME} Processed 1 image.")
+        return (pil2tensor(_canvas), image2mask(_compmask))
 
 # 节点映射
 NODE_CLASS_MAPPINGS = {
