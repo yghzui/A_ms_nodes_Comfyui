@@ -233,7 +233,12 @@ class ImageBlendAdvanceMy:
             _canvas.paste(_comp, mask=_compmask)
         
         print(f"{self.NODE_NAME} Processed 1 image.")
-        return (pil2tensor(_canvas), image2mask(_compmask))
+        # 修正mask维度：确保输出为(n,h,w)格式，符合ComfyUI标准
+        mask_output = image2mask(_compmask)
+        if mask_output.dim() == 4 and mask_output.shape[1] == 1:
+            # 如果是(1,1,h,w)格式，去掉多余的通道维度，保持(1,h,w)
+            mask_output = mask_output.squeeze(1)
+        return (pil2tensor(_canvas), mask_output)
 
 # 节点映射
 NODE_CLASS_MAPPINGS = {
