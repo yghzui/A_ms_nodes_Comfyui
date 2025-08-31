@@ -15,7 +15,7 @@ from .nodes.math import AspectRatioAdjuster,I2VConfigureNode, FramesSplitCalcula
 from .nodes.face_flip import FaceFlip
 from .nodes.create_color_image_mask import CreateColorImageAndMask
 # 导入新的批量加载节点
-from .nodes.load_image_batch import LoadImageBatchAdvanced
+from .nodes.load_image_batch import LoadImageBatchAdvanced, LoadImageByIndex
 from .nodes.image_mix import ImageMaskedColorFill,ImageBlackColorFill,ImageLayerMix, ImageDualMaskColorFill
 from .nodes.load_lora_batch import LoadLoraBatch
 from .nodes.wan_video_lora_batch import WanVideoLoraBatch
@@ -87,6 +87,7 @@ NODE_CLASS_MAPPINGS = {
     "AnalyzeMask": AnalyzeMask,
     # 注册新的节点
     "LoadImageBatchAdvanced": LoadImageBatchAdvanced,
+    "LoadImageByIndex": LoadImageByIndex,
     "ImageMaskedColorFill": ImageMaskedColorFill,
     "ImageBlackColorFill": ImageBlackColorFill,
     "ImageLayerMix": ImageLayerMix,
@@ -144,6 +145,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "AnalyzeMask": "AnalyzeMask 分析遮罩节点 by My",
     # 为新节点添加显示名称
     "LoadImageBatchAdvanced": "Load Image Batch (Advanced) 批量加载 by my",
+    "LoadImageByIndex": "Load Image By Index 按索引加载图像 by My",
     "ImageMaskedColorFill": "ImageMaskedColorFill 图像颜色填充 by My",
     "ImageBlackColorFill": "ImageBlackColorFill 图像黑色填充 by My",
     "ImageLayerMix": "ImageLayerMix 图层混合 by My",

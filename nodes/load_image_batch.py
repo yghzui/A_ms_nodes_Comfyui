@@ -31,9 +31,9 @@ class LoadImageBatchAdvanced:
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "MASK", "STRING",)
-    RETURN_NAMES = ("image", "mask", "image_paths",)
-    OUTPUT_IS_LIST = (True, True, True,)
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "INT", "STRING",)
+    RETURN_NAMES = ("image", "mask", "image_paths", "image_count", "paths_string",)
+    OUTPUT_IS_LIST = (True, True, True, False, False,)
     FUNCTION = "load_images"
     CATEGORY = "A_my_nodes/Image"
 
@@ -117,8 +117,126 @@ class LoadImageBatchAdvanced:
             except Exception as e:
                 print(f"错误: 加载文件失败 {image_path}, 原因: {e}")
         
-        # 返回图像列表、mask列表和路径列表
-        return (image_list, mask_list, path_list)
+        # 计算图片数量
+        image_count = len(image_list)
+        
+        # 将路径列表转换为字符串（用逗号分隔）
+        paths_string = ','.join(path_list) if path_list else ""
+        
+        # 返回图像列表、mask列表、路径列表、图片数量和路径字符串
+        return (image_list, mask_list, path_list, image_count, paths_string)
+
+class LoadImageByIndex:
+    """
+    根据索引从路径字符串中加载指定的图像
+    接收LoadImageBatchAdvanced的paths_string输出和索引，返回对应的单张图像
+    """
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "paths_string": ("STRING", {"default": "", "multiline": False}),
+                "index": ("INT", {"default": 0, "min": 0, "max": 999999}),
+                # 添加遮罩归一化选项
+                "normalize_mask": ("BOOLEAN", {"default": True, "label": "归一化遮罩"}),
+                # 是否将透明通道应用到图像
+                "apply_alpha_to_image": ("BOOLEAN", {"default": False, "label": "应用透明到图像"}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING",)
+    RETURN_NAMES = ("image", "mask", "image_path",)
+    OUTPUT_IS_LIST = (False, False, False,)
+    FUNCTION = "load_image_by_index"
+    CATEGORY = "A_my_nodes/Image"
+
+    def load_image_by_index(self, paths_string, index, normalize_mask=True, apply_alpha_to_image=False):
+        if not paths_string:
+            # 如果没有路径字符串，返回空的tensor
+            empty_image = torch.zeros((1, 64, 64, 3), dtype=torch.float32)
+            empty_mask = torch.zeros((1, 64, 64), dtype=torch.float32)
+            return (empty_image, empty_mask, "")
+
+        # 将路径字符串转换为路径列表
+        paths = [path.strip() for path in paths_string.split(',') if path.strip()]
+        
+        if not paths or index >= len(paths) or index < 0:
+            # 索引超出范围，返回空的tensor
+            empty_image = torch.zeros((1, 64, 64, 3), dtype=torch.float32)
+            empty_mask = torch.zeros((1, 64, 64), dtype=torch.float32)
+            return (empty_image, empty_mask, "")
+        
+        # 获取指定索引的路径
+        target_path = paths[index]
+        
+        if not os.path.exists(target_path):
+            print(f"警告: 文件不存在 {target_path}")
+            empty_image = torch.zeros((1, 64, 64, 3), dtype=torch.float32)
+            empty_mask = torch.zeros((1, 64, 64), dtype=torch.float32)
+            return (empty_image, empty_mask, target_path)
+        
+        try:
+            img = Image.open(target_path)
+
+            # 处理特殊模式（与LoadImageBatchAdvanced保持一致）
+            if img.mode == 'I':
+                # 将 32-bit 整型图近似归一化到 0..1
+                img = img.point(lambda i: i * (1 / 255))
+
+            # 透明通道与调色板透明
+            mask_np = None
+            has_alpha = False
+            if 'A' in img.getbands():
+                # 直接从 alpha 读取
+                alpha = img.getchannel('A')
+                mask_np = np.array(alpha).astype(np.float32) / 255.0
+                has_alpha = True
+            elif img.mode == 'P' and 'transparency' in img.info:
+                # 调色板带透明，转 RGBA 后取 alpha
+                rgba = img.convert('RGBA')
+                alpha = rgba.getchannel('A')
+                mask_np = np.array(alpha).astype(np.float32) / 255.0
+                img = rgba  # 后续从 RGBA 转 RGB
+                has_alpha = True
+
+            # 始终输出 RGB 图像（与 Comfy IMAGE 类型一致）
+            rgb_img = img.convert("RGB")
+
+            # 生成遮罩：如果没有透明信息则输出全零遮罩
+            if mask_np is None:
+                mask_np = np.zeros((rgb_img.height, rgb_img.width), dtype=np.float32)
+            else:
+                # 与原生一致：mask = 1 - alpha
+                mask_np = 1.0 - mask_np
+                if normalize_mask:
+                    # 仍保持 0..1 区间
+                    mask_np = np.clip(mask_np, 0.0, 1.0)
+
+            # 处理RGB图像（图像始终归一化）
+            image_np = np.array(rgb_img).astype(np.float32) / 255.0
+
+            # 可选：将透明通道应用到图像
+            if apply_alpha_to_image and has_alpha:
+                # 上面 mask_np = 1 - alpha，因此 alpha = 1 - mask
+                alpha_np = 1.0 - mask_np
+                if alpha_np.ndim == 2:
+                    alpha_np = alpha_np[:, :, None]
+                image_np = image_np * alpha_np
+
+            image_tensor = torch.from_numpy(image_np)
+            mask_tensor = torch.from_numpy(mask_np)
+            
+            # 添加batch维度
+            image_tensor = image_tensor.unsqueeze(0)
+            mask_tensor = mask_tensor.unsqueeze(0)
+            
+            return (image_tensor, mask_tensor, target_path)
+            
+        except Exception as e:
+            print(f"错误: 加载文件失败 {target_path}, 原因: {e}")
+            empty_image = torch.zeros((1, 64, 64, 3), dtype=torch.float32)
+            empty_mask = torch.zeros((1, 64, 64), dtype=torch.float32)
+            return (empty_image, empty_mask, target_path)
 
 # 注意: NODE_CLASS_MAPPINGS 和 NODE_DISPLAY_NAME_MAPPINGS
 # 将在 __init__.py 文件中进行管理，以避免冲突和保持代码整洁。
