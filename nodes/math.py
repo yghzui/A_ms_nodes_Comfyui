@@ -593,3 +593,50 @@ class ImageToSequenceWithMask:
                     pass
             return (seq, mask, int(m), float(fps))
 
+class ImageTakeLast:
+    """从输入的图像批次中获取后m张图像的节点"""
+    def __init__(self):
+        pass
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE", {"tooltip": "输入图像张量 (n, h, w, c)"}),
+                "count": ("INT", {"default": 1, "min": 1, "max": 1000, "tooltip": "要截取的图像张数m"}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE", "INT")
+    RETURN_NAMES = ("image", "actual_count")
+    FUNCTION = "take_last_images"
+    CATEGORY = "A_my_nodes/math"
+
+    def take_last_images(self, image, count):
+        """从输入图像中获取后count张图像
+        
+        Args:
+            image: 输入图像张量 (n, h, w, c)
+            count: 要截取的图像张数
+            
+        Returns:
+            tuple: (截取后的图像张量, 实际截取的图像数量)
+        """
+        # 获取图像批次大小
+        batch_size = image.shape[0]
+        
+        # 如果输入图像数量为1，直接返回该图像
+        if batch_size == 1:
+            return (image, 1)
+        
+        # 计算起始索引，确保不会超出范围
+        start_index = max(0, batch_size - count)
+        
+        # 截取后count张图像
+        result_images = image[start_index:]
+        
+        # 计算实际截取的图像数量
+        actual_count = result_images.shape[0]
+        
+        return (result_images, actual_count)
+

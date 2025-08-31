@@ -11,7 +11,7 @@ from .nodes.resize_image_by_person import ResizeImageByPerson,CropInfoToNumbers
 # from .nodes.a_person_face_landmark_mask_generator_comfyui_add_nose import APersonFaceLandmarkMaskGeneratorAddNose
 # from .nodes.a_person_face_landmark_mask_generator_comfyui_by_my import APersonFaceLandmarkMaskGenerator
 from .nodes.person_and_face.a_person_face_landmark_mask_generator_comfyui import  APersonFaceLandmarkMaskGenerator
-from .nodes.math import AspectRatioAdjuster,I2VConfigureNode, FramesSplitCalculator, FramesSegmentSlicer, ImagesConcatWithOverlap
+from .nodes.math import AspectRatioAdjuster,I2VConfigureNode, FramesSplitCalculator, FramesSegmentSlicer, ImagesConcatWithOverlap, ImageTakeLast
 from .nodes.face_flip import FaceFlip
 from .nodes.create_color_image_mask import CreateColorImageAndMask
 # 导入新的批量加载节点
@@ -105,6 +105,8 @@ NODE_CLASS_MAPPINGS = {
     "ImageExpand": ImageExpand,
     # 新增注册：增强版图像混合节点
     "ImageBlendAdvanceMy": ImageBlendAdvanceMy,
+    # 新增注册：图像截取节点
+    "ImageTakeLast": ImageTakeLast,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by My",
@@ -157,6 +159,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "TextInputBatch": "TextInputBatch 批量字符串输入 by My",
     "ImageExpand": "ImageExpand 图像扩展节点 by My",
     "ImageBlendAdvanceMy": "ImageBlendAdvanceMy 增强版图像混合节点 by My",
+    # 新增显示名称：图像截取节点
+    "ImageTakeLast": "ImageTakeLast 图像截取(后N张) by My",
 }
 
 WEB_DIRECTORY = "./web/js"
