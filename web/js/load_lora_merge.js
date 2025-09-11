@@ -118,6 +118,84 @@ class LoadLoraMergeDualToggleWidget extends RgthreeBaseWidget {
     onToggle2Down() { this._value2 = !this._value2; this.cancelMouseDown(); return true; }
 }
 
+// Triple Toggle Widget for settings
+class LoadLoraMergeTripleToggleWidget extends RgthreeBaseWidget {
+    constructor(name, label1, label2, label3, defaultValue1, defaultValue2, defaultValue3) {
+        super(name);
+        this.type = "custom";
+        this.label1 = label1;
+        this.label2 = label2;
+        this.label3 = label3;
+        this.hitAreas = {
+            toggle1: { bounds: [0, 0], onDown: this.onToggle1Down.bind(this) },
+            toggle2: { bounds: [0, 0], onDown: this.onToggle2Down.bind(this) },
+            toggle3: { bounds: [0, 0], onDown: this.onToggle3Down.bind(this) },
+        };
+        this._value1 = defaultValue1;
+        this._value2 = defaultValue2;
+        this._value3 = defaultValue3;
+    }
+
+    set value(v) {
+        if (typeof v === 'object' && v !== null) {
+            this._value1 = v.value1 !== undefined ? v.value1 : this._value1;
+            this._value2 = v.value2 !== undefined ? v.value2 : this._value2;
+            this._value3 = v.value3 !== undefined ? v.value3 : this._value3;
+        }
+    }
+
+    get value() {
+        return {
+            value1: this._value1,
+            value2: this._value2,
+            value3: this._value3,
+        };
+    }
+
+    draw(ctx, node, w, posY, height) {
+        ctx.save();
+        const margin = 10, innerMargin = margin * 0.33, lowQuality = isLowQuality(), midY = posY + height * 0.5;
+        let posX = margin;
+        drawRoundedRectangle(ctx, { pos: [posX, posY], size: [node.size[0] - margin * 2, height] });
+        
+        // Toggle 1 (Toggle All)
+        this.hitAreas.toggle1.bounds = drawTogglePart(ctx, { posX, posY, height, value: this._value1 });
+        posX += this.hitAreas.toggle1.bounds[1] + innerMargin;
+        if (lowQuality) { ctx.restore(); return; }
+        ctx.fillStyle = LiteGraph.WIDGET_TEXT_COLOR;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillText(this.label1, posX, midY);
+        posX += ctx.measureText(this.label1).width + innerMargin * 2;
+
+        // Toggle 2 (Low Mem)
+        this.hitAreas.toggle2.bounds = drawTogglePart(ctx, { posX, posY, height, value: this._value2 });
+        posX += this.hitAreas.toggle2.bounds[1] + innerMargin;
+        ctx.fillText(this.label2, posX, midY);
+        posX += ctx.measureText(this.label2).width + innerMargin * 2;
+
+        // Toggle 3 (Merge)
+        this.hitAreas.toggle3.bounds = drawTogglePart(ctx, { posX, posY, height, value: this._value3 });
+        posX += this.hitAreas.toggle3.bounds[1] + innerMargin;
+        ctx.fillText(this.label3, posX, midY);
+
+        ctx.restore();
+    }
+
+    serializeValue(node, index) { return this.value; }
+    onToggle1Down() { 
+        this._value1 = !this._value1; 
+        this.cancelMouseDown(); 
+        if (this.properties && typeof this.properties.onToggle1 === 'function') {
+            this.properties.onToggle1(this._value1);
+        }
+        return true; 
+    }
+    onToggle2Down() { this._value2 = !this._value2; this.cancelMouseDown(); return true; }
+    onToggle3Down() { this._value3 = !this._value3; this.cancelMouseDown(); return true; }
+}
+
+
 // Main Lora Widget
 class LoadLoraMergeWidget extends RgthreeBaseWidget {
     constructor(name) {
@@ -262,7 +340,18 @@ app.registerExtension({
                         if (combinedData.settings) {
                             const settingsWidget = this.widgets.find(w => w.name === 'settings');
                             if (settingsWidget) {
-                                settingsWidget.value = combinedData.settings;
+                                const settings = combinedData.settings;
+                                // Handle old data where there were only two toggles (value1: low_mem, value2: merge)
+                                // and map to new three-toggle widget (value1: toggle_all, value2: low_mem, value3: merge)
+                                if (settings.value3 === undefined) {
+                                    settingsWidget.value = {
+                                        value1: false, // toggle all - default off for old saves
+                                        value2: settings.value1 !== undefined ? settings.value1 : false, // low mem
+                                        value3: settings.value2 !== undefined ? settings.value2 : true, // merge
+                                    };
+                                } else {
+                                    settingsWidget.value = settings;
+                                }
                             }
                         }
                     }
@@ -274,7 +363,15 @@ app.registerExtension({
 
         // Add the static widgets and the button
         nodeType.prototype.addNonLoraWidgets = function() {
-            this.addCustomWidget(new LoadLoraMergeDualToggleWidget("settings", "Low Mem", "Merge", false, true));
+            const settingsWidget = this.addCustomWidget(new LoadLoraMergeTripleToggleWidget("settings", "Toggle All", "Low Mem", "Merge", false, false, true));
+            settingsWidget.properties = {
+                onToggle1: (value) => {
+                    const loraWidgets = this.widgets.filter(w => w.name?.startsWith("LORA_"));
+                    for (const widget of loraWidgets) {
+                        widget.value.on = value;
+                    }
+                }
+            };
             this.addCustomWidget(new RgthreeDividerWidget({ marginTop: 1, marginBottom: 0, thickness: 0 }));
             const addButton = new RgthreeBetterButtonWidget("➕ Add LoRA", (e,p,n) => {
                 showLoraChooser(rgthree.lastCanvasMouseEvent || e, (value) => {

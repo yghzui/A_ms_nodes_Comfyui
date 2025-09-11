@@ -79,7 +79,7 @@ class LoadLoraMerge:
             if not enabled or lora_name == "None" or strength == 0.0:
                 continue
 
-            print(f"[LoadLoraMerge] 💡Enabled LoRA: {lora_name}, Strength: {strength}")
+            print(f"[LoadLoraMerge] 🛰️Enabled LoRA: {lora_name}, Strength: {strength}")
             use_lora_num += 1
 
             # --- Part 1: Apply LoRA to model (if model is provided) ---
