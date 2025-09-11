@@ -19,6 +19,7 @@ from .nodes.load_image_batch import LoadImageBatchAdvanced, LoadImageByIndex
 from .nodes.image_mix import ImageMaskedColorFill,ImageBlackColorFill,ImageLayerMix, ImageDualMaskColorFill
 from .nodes.load_lora_batch import LoadLoraBatch
 from .nodes.wan_video_lora_batch import WanVideoLoraBatch
+from .nodes.load_lora_merge import LoadLoraMerge
 from .nodes.show_result_last import ShowResultLast
 from .nodes.manual_video_input import ManualVideoInput
 from .nodes.load_video import LoadVideoFromFolder
@@ -108,6 +109,7 @@ NODE_CLASS_MAPPINGS = {
     "ImageBlendAdvanceMy": ImageBlendAdvanceMy,
     # 新增注册：图像截取节点
     "ImageTakeLast": ImageTakeLast,
+    "LoadLoraMerge": LoadLoraMerge,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by My",
@@ -163,6 +165,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageBlendAdvanceMy": "ImageBlendAdvanceMy 增强版图像混合节点 by My",
     # 新增显示名称：图像截取节点
     "ImageTakeLast": "ImageTakeLast 图像截取(后N张) by My",
+    "LoadLoraMerge": "LoadLoraMerge 合并加载LoRA by My",
 }
 
 WEB_DIRECTORY = "./web/js"
