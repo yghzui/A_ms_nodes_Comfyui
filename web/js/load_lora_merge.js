@@ -77,18 +77,30 @@ class LoadLoraMergeDualToggleWidget extends RgthreeBaseWidget {
             toggle1: { bounds: [0, 0], onDown: this.onToggle1Down.bind(this) },
             toggle2: { bounds: [0, 0], onDown: this.onToggle2Down.bind(this) },
         };
-        this._value = { value1: defaultValue1, value2: defaultValue2 };
+        this._value1 = defaultValue1;
+        this._value2 = defaultValue2;
     }
 
-    set value(v) { this._value = v; }
-    get value() { return this._value; }
+    set value(v) {
+        if (typeof v === 'object' && v !== null) {
+            this._value1 = v.value1 !== undefined ? v.value1 : this._value1;
+            this._value2 = v.value2 !== undefined ? v.value2 : this._value2;
+        }
+    }
+
+    get value() {
+        return {
+            value1: this._value1,
+            value2: this._value2
+        };
+    }
 
     draw(ctx, node, w, posY, height) {
         ctx.save();
         const margin = 10, innerMargin = margin * 0.33, lowQuality = isLowQuality(), midY = posY + height * 0.5;
         let posX = margin;
         drawRoundedRectangle(ctx, { pos: [posX, posY], size: [node.size[0] - margin * 2, height] });
-        this.hitAreas.toggle1.bounds = drawTogglePart(ctx, { posX, posY, height, value: this.value.value1 });
+        this.hitAreas.toggle1.bounds = drawTogglePart(ctx, { posX, posY, height, value: this._value1 });
         posX += this.hitAreas.toggle1.bounds[1] + innerMargin;
         if (lowQuality) { ctx.restore(); return; }
         ctx.fillStyle = LiteGraph.WIDGET_TEXT_COLOR;
@@ -96,15 +108,15 @@ class LoadLoraMergeDualToggleWidget extends RgthreeBaseWidget {
         ctx.textBaseline = "middle";
         ctx.fillText(this.label1, posX, midY);
         posX += ctx.measureText(this.label1).width + innerMargin * 2;
-        this.hitAreas.toggle2.bounds = drawTogglePart(ctx, { posX, posY, height, value: this.value.value2 });
+        this.hitAreas.toggle2.bounds = drawTogglePart(ctx, { posX, posY, height, value: this._value2 });
         posX += this.hitAreas.toggle2.bounds[1] + innerMargin;
         ctx.fillText(this.label2, posX, midY);
         ctx.restore();
     }
 
     serializeValue(node, index) { return this.value; }
-    onToggle1Down() { this.value.value1 = !this.value.value1; this.cancelMouseDown(); return true; }
-    onToggle2Down() { this.value.value2 = !this.value.value2; this.cancelMouseDown(); return true; }
+    onToggle1Down() { this._value1 = !this._value1; this.cancelMouseDown(); return true; }
+    onToggle2Down() { this._value2 = !this._value2; this.cancelMouseDown(); return true; }
 }
 
 // Main Lora Widget
@@ -201,14 +213,24 @@ app.registerExtension({
         // Main serialization logic
         const onSerialize = nodeType.prototype.onSerialize;
         nodeType.prototype.onSerialize = function(o) {
-            onSerialize?.apply(this, arguments);
             const loraWidgets = this.widgets.filter(w => w.name?.startsWith("LORA_"));
             const loraData = loraWidgets.map(w => w.value);
-            // Find the hidden loras_info widget and update its value
+            
+            const settingsWidget = this.widgets.find(w => w.name === 'settings');
+            const settingsData = settingsWidget ? settingsWidget.value : {};
+
+            const combinedData = {
+                loras: loraData,
+                settings: settingsData,
+            };
+
+            // Find the hidden loras_info widget and update its value before serializing
             const lorasInfoWidget = this.widgets.find(w => w.name === 'loras_info');
             if (lorasInfoWidget) {
-                lorasInfoWidget.value = JSON.stringify(loraData);
+                lorasInfoWidget.value = JSON.stringify(combinedData);
             }
+            // Now, call the original serialization which will pick up all widget values.
+            onSerialize?.apply(this, arguments);
         };
 
         // Main configuration/deserialization logic
@@ -220,14 +242,30 @@ app.registerExtension({
             this.loraWidgetsCounter = 0;
 
             const lorasInfoWidget = this.widgets.find(w => w.name === 'loras_info');
-            if (lorasInfoWidget && lorasInfoWidget.value) {
+            if (lorasInfoWidget && lorasInfoWidget.value && lorasInfoWidget.value !== '[]') {
                 try {
-                    const loraData = JSON.parse(lorasInfoWidget.value);
-                    if (Array.isArray(loraData)) {
-                        loraData.forEach(loraInfo => {
+                    const combinedData = JSON.parse(lorasInfoWidget.value);
+                    
+                    // Handle legacy format (just an array of loras)
+                    if (Array.isArray(combinedData)) {
+                        combinedData.forEach(loraInfo => {
                             const widget = this.addNewLoraWidget();
                             widget.value = loraInfo;
                         });
+                    } else if (typeof combinedData === 'object' && combinedData !== null) {
+                        // New format
+                        if (Array.isArray(combinedData.loras)) {
+                            combinedData.loras.forEach(loraInfo => {
+                                const widget = this.addNewLoraWidget();
+                                widget.value = loraInfo;
+                            });
+                        }
+                        if (combinedData.settings) {
+                            const settingsWidget = this.widgets.find(w => w.name === 'settings');
+                            if (settingsWidget) {
+                                settingsWidget.value = combinedData.settings;
+                            }
+                        }
                     }
                 } catch (e) {
                     console.error("[LoadLoraMerge] Error parsing loras_info:", e);

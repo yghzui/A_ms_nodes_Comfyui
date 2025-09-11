@@ -40,28 +40,35 @@ class LoadLoraMerge:
 
     def process(self, model=None, prev_lora=None, blocks={}, loras_info="[]", **kwargs):
         output_model = model
+        print(f"[LoadLoraMerge] model is {'✅' if model is not None else '❌'}.")
         
-        # --- Get settings from the dual toggle widget ---
-        settings_data = kwargs.get("settings", {})
-        if isinstance(settings_data, dict):
-            low_mem_load = settings_data.get("value1", False)
-            merge_loras = settings_data.get("value2", True)
-        else:
-            # Fallback if settings are not present
-            low_mem_load = False
-            merge_loras = True
-        
+        # --- Get settings and loras from loras_info ---
+        low_mem_load = False
+        merge_loras = True
+        loras_data = []
+
+        try:
+            data = json.loads(loras_info)
+            # print(f"[LoadLoraMerge] data: \n{data}")
+            if isinstance(data, dict):
+                settings_data = data.get('settings', {})
+                if isinstance(settings_data, dict):
+                    low_mem_load = settings_data.get("value1", False)
+                    merge_loras = settings_data.get("value2", True)
+                
+                loras_data = data.get('loras', [])
+        except (json.JSONDecodeError, TypeError):
+            print(f"[LoadLoraMerge] Failed to parse loras_info, it might be empty or invalid JSON. Value: {loras_info}")
+
         if not merge_loras:
             low_mem_load = False
             
+        print(f"[LoadLoraMerge] Settings: low_mem_load={'✅' if low_mem_load else '❌'}, merge_loras={'✅' if merge_loras else '❌'}")
+            
         # --- Process LoRAs ---
         loras_list_for_wan = list(prev_lora) if prev_lora else []
-        
-        # Sort keys to ensure LoRAs are processed in the UI order
-        lora_keys = sorted([k for k in kwargs if k.startswith("LORA_")])
-
-        for key in lora_keys:
-            value = kwargs.get(key)
+        use_lora_num = 0
+        for value in loras_data:
             if not isinstance(value, dict):
                 continue
 
@@ -72,13 +79,16 @@ class LoadLoraMerge:
             if not enabled or lora_name == "None" or strength == 0.0:
                 continue
 
+            print(f"[LoadLoraMerge] 💡Enabled LoRA: {lora_name}, Strength: {strength}")
+            use_lora_num += 1
+
             # --- Part 1: Apply LoRA to model (if model is provided) ---
             if output_model is not None:
                 try:
                     output_model, _ = nodes.LoraLoader().load_lora(output_model, None, lora_name, strength, 0)
-                    print(f"[LoadLoraMerge] Applied LoRA to model: {lora_name}")
+                    print(f"[LoadLoraMerge] 💡Applied LoRA to model: {lora_name}")
                 except Exception as e:
-                    print(f"[LoadLoraMerge] Failed to apply LoRA to model: {lora_name}, {e}")
+                    print(f"[LoadLoraMerge] ❌ Failed to apply LoRA to model: {lora_name}, {e}")
                     # Continue to next LoRA even if one fails
                     continue
 
@@ -94,9 +104,10 @@ class LoadLoraMerge:
                     "low_mem_load": low_mem_load,
                     "merge_loras": merge_loras,
                 })
-                print(f"[LoadLoraMerge] Collected LoRA for WanVideo: {lora_name}")
+                print(f"[LoadLoraMerge] 💡Collected LoRA for WanVideo: {lora_name}")
             except Exception as e:
-                print(f"[LoadLoraMerge] Failed to find LoRA path for WanVideo part: {lora_name}, {e}")
+                print(f"[LoadLoraMerge] ❌ Failed to find LoRA path for WanVideo part: {lora_name}, {e}")
 
         # If no model was input, the first output will be None.
+        print(f"[LoadLoraMerge] 💡Use LoRA num: {use_lora_num}")
         return (output_model, loras_list_for_wan,)
