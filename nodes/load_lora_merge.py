@@ -19,6 +19,9 @@ class LoadLoraMerge:
     @classmethod
     def INPUT_TYPES(cls):
         return {
+            "required": {
+                "enabled": ("BOOLEAN", {"default": True}),
+            },
             "optional": {
                 "model": ("MODEL",),
                 "prev_lora": ("WANVIDLORA",),
@@ -38,7 +41,11 @@ class LoadLoraMerge:
     FUNCTION = "process"
     CATEGORY = "A_my_nodes/loaders"
 
-    def process(self, model=None, prev_lora=None, blocks={}, loras_info="[]", **kwargs):
+    def process(self, enabled, model=None, prev_lora=None, blocks={}, loras_info="[]", **kwargs):
+        if not enabled:
+            print(f"[LoadLoraMerge] Node is disabled. Bypassing.")
+            return (model, [],)
+
         output_model = model
         print(f"[LoadLoraMerge] model is {'✅' if model is not None else '❌'}.")
         

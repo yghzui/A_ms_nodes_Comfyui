@@ -285,6 +285,10 @@ app.registerExtension({
             this.serialize_widgets = true; // Important for kwargs
             this.addNonLoraWidgets();
             this.lorasInfoWidget = this.widgets.find(w => w.name === 'loras_info');
+            if (this.lorasInfoWidget) {
+                // 重写computeSize以隐藏小部件
+                this.lorasInfoWidget.computeSize = () => [0, -4];
+            }
         };
 
         // Main serialization logic
