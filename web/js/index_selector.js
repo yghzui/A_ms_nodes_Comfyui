@@ -92,6 +92,21 @@ app.registerExtension({
                     };
                 }
             };
+
+            // 包装 onExecuted 以处理来自后端的数据
+            const originalOnExecuted = nodeType.prototype.onExecuted;
+            nodeType.prototype.onExecuted = function(data) {
+                originalOnExecuted?.apply(this, arguments);
+
+                // 在执行后，将后端返回的单个列表输出分配给多个前端输出
+                if (data.bool_outputs && this.outputs) {
+                    data.bool_outputs.forEach((value, i) => {
+                        if (this.outputs[i]) {
+                            this.setOutputData(i, value);
+                        }
+                    });
+                }
+            };
         }
     },
 });
