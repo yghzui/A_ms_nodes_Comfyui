@@ -46,7 +46,6 @@ async function showLoraChooser(event, callback, parentMenu, loras, buttonNode, b
         title: "Select LoRA",
         scale: Math.max(1, canvas.ds?.scale || 1),
         className: "dark",
-        callback,
     });
 
     if (contextMenu && contextMenu.root && targetX !== undefined && targetY !== undefined) {
@@ -279,7 +278,7 @@ app.registerExtension({
             this.addCustomWidget(new RgthreeDividerWidget({ marginTop: 1, marginBottom: 0, thickness: 0 }));
             const addButton = new RgthreeBetterButtonWidget("➕ Add LoRA", (e,p,n) => {
                 showLoraChooser(rgthree.lastCanvasMouseEvent || e, (value) => {
-                    if (value && value !== "None") this.addNewLoraWidget(value);
+                    if (typeof value === "string" && value && value !== "None") this.addNewLoraWidget(value);
                 }, null, null, this, addButton);
             });
             addButton.serializeValue = () => undefined;
