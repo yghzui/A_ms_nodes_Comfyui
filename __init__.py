@@ -160,7 +160,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadLatentUpload": "Load Latent (Upload) 加载Latent文件(支持上传) by My",
     # 新增显示名称
     "ImageToSequenceWithMask": "ImageToSequenceWithMask 图像序列与遮罩生成 by My",
-    "TextInputBatch": "TextInputBatch 批量字符串输入 by My",
+    "TextInputBatch": "PromptInputBatch 提示词 by My",
     "ImageExpand": "ImageExpand 图像扩展节点 by My",
     "ImageBlendAdvanceMy": "ImageBlendAdvanceMy 增强版图像混合节点 by My",
     # 新增显示名称：图像截取节点
