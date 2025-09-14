@@ -462,8 +462,8 @@ class APersonFaceLandmarkMaskGenerator:
                                 # 根据扩展值扩展范围
                                 expanded_min_along = min_along - lips_expand_left
                                 expanded_max_along = max_along + lips_expand_right
-                                expanded_min_perp = min_perp - lips_expand_up
-                                expanded_max_perp = max_perp + lips_expand_down
+                                expanded_min_perp = min_perp - lips_expand_down  # 修正：向下扩展应该减小min值
+                                expanded_max_perp = max_perp + lips_expand_up    # 修正：向上扩展应该增大max值
                                 
                                 # 计算旋转矩形的四个顶点
                                 corners = np.array([
