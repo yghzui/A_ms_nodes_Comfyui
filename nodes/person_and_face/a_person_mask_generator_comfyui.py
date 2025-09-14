@@ -413,4 +413,29 @@ class APersonMaskGenerator:
         body_masks = torch.cat([m for m in body_tensor_masks if m is not None], dim=0) if any(m is not None for m in body_tensor_masks) else None
         clothes_masks = torch.cat([m for m in clothes_tensor_masks if m is not None], dim=0) if any(m is not None for m in clothes_tensor_masks) else None
 
-        return (merged_masks, face_masks, background_masks, hair_masks, body_masks, clothes_masks)
+        # 始终返回6个值，但根据前端动态接口逻辑分配遮罩到正确位置
+        # 前端按照固定顺序检查并创建接口：face_mask, background_mask, hair_mask, body_mask, clothes_mask
+        
+        # 构建启用的遮罩列表（按前端检查顺序）
+        enabled_masks = []
+        mask_order = [
+            (face_mask, face_masks),
+            (background_mask, background_masks), 
+            (hair_mask, hair_masks),
+            (body_mask, body_masks),
+            (clothes_mask, clothes_masks)
+        ]
+        
+        for is_enabled, mask_data in mask_order:
+            if is_enabled:
+                enabled_masks.append(mask_data)
+        
+        # 始终返回6个值：合并遮罩 + 启用的遮罩（按前端接口顺序） + None填充
+        result = [merged_masks]  # 第一个始终是合并遮罩
+        result.extend(enabled_masks)  # 添加启用的遮罩
+        
+        # 用None填充到6个返回值
+        while len(result) < 6:
+            result.append(None)
+        
+        return tuple(result)
