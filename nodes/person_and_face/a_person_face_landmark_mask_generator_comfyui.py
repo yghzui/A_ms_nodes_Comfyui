@@ -197,20 +197,20 @@ class APersonFaceLandmarkMaskGenerator:
                     {"default": True, "label_on": "fill", "label_off": "outline"},
                 ),
                 "lips_expand_up": (
-                    "INT",
-                    {"default": 0, "min": 0, "max": 1000, "step": 1},
+                    "FLOAT",
+                    {"default": 0.0, "min": 0.0, "max": 10.0, "step": 0.01},
                 ),
                 "lips_expand_down": (
-                    "INT",
-                    {"default": 0, "min": 0, "max": 1000, "step": 1},
+                    "FLOAT",
+                    {"default": 0.0, "min": 0.0, "max": 10.0, "step": 0.01},
                 ),
                 "lips_expand_left": (
-                    "INT",
-                    {"default": 0, "min": 0, "max": 1000, "step": 1},
+                    "FLOAT",
+                    {"default": 0.0, "min": 0.0, "max": 10.0, "step": 0.01},
                 ),
                 "lips_expand_right": (
-                    "INT",
-                    {"default": 0, "min": 0, "max": 1000, "step": 1},
+                    "FLOAT",
+                    {"default": 0.0, "min": 0.0, "max": 10.0, "step": 0.01},
                 ),
                 "nose": true_widget,
                 "number_of_faces": (
@@ -459,11 +459,21 @@ class APersonFaceLandmarkMaskGenerator:
                                 min_perp = np.min(projections_perp)
                                 max_perp = np.max(projections_perp)
                                 
-                                # 根据扩展值扩展范围
-                                expanded_min_along = min_along - lips_expand_left
-                                expanded_max_along = max_along + lips_expand_right
-                                expanded_min_perp = min_perp - lips_expand_down  # 修正：向下扩展应该减小min值
-                                expanded_max_perp = max_perp + lips_expand_up    # 修正：向上扩展应该增大max值
+                                # 计算嘴唇的基准尺寸（用于相对扩展）
+                                lip_width = max_along - min_along  # 嘴唇沿连线方向的宽度
+                                lip_height = max_perp - min_perp   # 嘴唇沿垂直方向的高度
+                                
+                                # 根据扩展比例计算实际扩展像素值
+                                left_expand_pixels = lips_expand_left * lip_width
+                                right_expand_pixels = lips_expand_right * lip_width
+                                up_expand_pixels = lips_expand_up * lip_height
+                                down_expand_pixels = lips_expand_down * lip_height
+                                
+                                # 根据扩展值扩展范围（现在使用相对比例）
+                                expanded_min_along = min_along - left_expand_pixels
+                                expanded_max_along = max_along + right_expand_pixels
+                                expanded_min_perp = min_perp - down_expand_pixels  # 修正：向下扩展应该减小min值
+                                expanded_max_perp = max_perp + up_expand_pixels    # 修正：向上扩展应该增大max值
                                 
                                 # 计算旋转矩形的四个顶点
                                 corners = np.array([
