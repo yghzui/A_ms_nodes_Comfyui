@@ -6,6 +6,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from functools import reduce
 import cv2
+
 import torch
 import numpy as np
 from PIL import Image
@@ -27,12 +28,12 @@ def get_a_person_mask_generator_model_path() -> str:
     model_file_path = os.path.join(model_folder_path, model_name)
 
     if not os.path.exists(model_file_path):
-        import wget
+        import urllib.request
 
         model_url = f"https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/{model_name}"
         print(f"Downloading '{model_name}' model")
         os.makedirs(model_folder_path, exist_ok=True)
-        wget.download(model_url, model_file_path)
+        urllib.request.urlretrieve(model_url, model_file_path)
 
     return model_file_path
 
@@ -73,8 +74,9 @@ class APersonMaskGenerator:
         }
 
     CATEGORY = "A Person Mask Generator - David Bielejeski"
-    RETURN_TYPES = ("MASK",)
-    RETURN_NAMES = ("masks",)
+    # 预先定义所有可能的输出：合并遮罩 + 各个区域的单独遮罩
+    RETURN_TYPES = ("MASK", "MASK", "MASK", "MASK", "MASK", "MASK")
+    RETURN_NAMES = ("merged_mask", "face_mask", "background_mask", "hair_mask", "body_mask", "clothes_mask")
 
     FUNCTION = "generate_mask"
 
@@ -141,7 +143,7 @@ class APersonMaskGenerator:
             clothes_mask: bool,
             confidence: float,
             refine_mask: bool,
-    ) -> Image:
+    ) -> tuple[Image, dict]:
         # Retrieve the masks for the segmented image
         media_pipe_image = self.get_mediapipe_image(image=image)
         if any(
@@ -156,17 +158,18 @@ class APersonMaskGenerator:
         # 3 - face - skin
         # 4 - clothes
         # 5 - others(accessories)
-        masks = []
-        if background_mask:
-            masks.append(segmented_masks.confidence_masks[0])
-        if hair_mask:
-            masks.append(segmented_masks.confidence_masks[1])
-        if body_mask:
-            masks.append(segmented_masks.confidence_masks[2])
-        if face_mask:
-            masks.append(segmented_masks.confidence_masks[3])
-        if clothes_mask:
-            masks.append(segmented_masks.confidence_masks[4])
+        
+        # 存储各个区域的遮罩
+        individual_masks = {
+            'face': None,
+            'background': None,
+            'hair': None,
+            'body': None,
+            'clothes': None
+        }
+        
+        # 用于合并的遮罩列表
+        masks_for_merge = []
 
         image_data = media_pipe_image.numpy_view()
         image_shape = image_data.shape
@@ -181,23 +184,57 @@ class APersonMaskGenerator:
         mask_foreground_array = np.zeros(image_shape, dtype=np.uint8)
         mask_foreground_array[:] = (255, 255, 255, 255)
 
-        mask_arrays = []
+        # 生成各个区域的单独遮罩
+        if background_mask:
+            condition = (
+                np.stack((segmented_masks.confidence_masks[0].numpy_view(),) * image_shape[-1], axis=-1)
+                > confidence
+            )
+            mask_array = np.where(condition, mask_foreground_array, mask_background_array)
+            individual_masks['background'] = Image.fromarray(mask_array)
+            masks_for_merge.append(mask_array)
+            
+        if hair_mask:
+            condition = (
+                np.stack((segmented_masks.confidence_masks[1].numpy_view(),) * image_shape[-1], axis=-1)
+                > confidence
+            )
+            mask_array = np.where(condition, mask_foreground_array, mask_background_array)
+            individual_masks['hair'] = Image.fromarray(mask_array)
+            masks_for_merge.append(mask_array)
+            
+        if body_mask:
+            condition = (
+                np.stack((segmented_masks.confidence_masks[2].numpy_view(),) * image_shape[-1], axis=-1)
+                > confidence
+            )
+            mask_array = np.where(condition, mask_foreground_array, mask_background_array)
+            individual_masks['body'] = Image.fromarray(mask_array)
+            masks_for_merge.append(mask_array)
+            
+        if face_mask:
+            condition = (
+                np.stack((segmented_masks.confidence_masks[3].numpy_view(),) * image_shape[-1], axis=-1)
+                > confidence
+            )
+            mask_array = np.where(condition, mask_foreground_array, mask_background_array)
+            individual_masks['face'] = Image.fromarray(mask_array)
+            masks_for_merge.append(mask_array)
+            
+        if clothes_mask:
+            condition = (
+                np.stack((segmented_masks.confidence_masks[4].numpy_view(),) * image_shape[-1], axis=-1)
+                > confidence
+            )
+            mask_array = np.where(condition, mask_foreground_array, mask_background_array)
+            individual_masks['clothes'] = Image.fromarray(mask_array)
+            masks_for_merge.append(mask_array)
 
-        if len(masks) == 0:
-            mask_arrays.append(mask_background_array)
+        # 合并选中的遮罩
+        if len(masks_for_merge) == 0:
+            merged_mask_arrays = mask_background_array
         else:
-            for i, mask in enumerate(masks):
-                condition = (
-                        np.stack((mask.numpy_view(),) * image_shape[-1], axis=-1)
-                        > confidence
-                )
-                mask_array = np.where(
-                    condition, mask_foreground_array, mask_background_array
-                )
-                mask_arrays.append(mask_array)
-
-        # Merge our masks taking the maximum from each
-        merged_mask_arrays = reduce(np.maximum, mask_arrays)
+            merged_mask_arrays = reduce(np.maximum, masks_for_merge)
 
         # Create the image
         mask_image = Image.fromarray(merged_mask_arrays)
@@ -208,7 +245,7 @@ class APersonMaskGenerator:
             if bbox != None:
                 cropped_image_pil = image.crop(bbox)
 
-                cropped_mask_image = self.__get_mask(image=cropped_image_pil,
+                cropped_mask_image, cropped_individual_masks = self.__get_mask(image=cropped_image_pil,
                                                    segmenter=segmenter,
                                                    face_mask=face_mask,
                                                    background_mask=background_mask,
@@ -219,11 +256,19 @@ class APersonMaskGenerator:
                                                    refine_mask=False,
                                                    )
 
+                # 更新合并遮罩
                 updated_mask_image = Image.new('RGBA', image.size, (0, 0, 0))
                 updated_mask_image.paste(cropped_mask_image, bbox)
                 mask_image = updated_mask_image
+                
+                # 更新各个区域的遮罩
+                for key, cropped_mask in cropped_individual_masks.items():
+                    if cropped_mask is not None:
+                        updated_individual_mask = Image.new('RGBA', image.size, (0, 0, 0))
+                        updated_individual_mask.paste(cropped_mask, bbox)
+                        individual_masks[key] = updated_individual_mask
 
-        return mask_image
+        return mask_image, individual_masks
 
     def get_mask_images(
             self,
@@ -235,7 +280,7 @@ class APersonMaskGenerator:
             clothes_mask: bool,
             confidence: float,
             refine_mask: bool,
-    ) -> list[Image]:
+    ) -> tuple[list[Image], list[dict]]:
         a_person_mask_generator_model_path = get_a_person_mask_generator_model_path()
         a_person_mask_generator_model_buffer = None
 
@@ -252,6 +297,7 @@ class APersonMaskGenerator:
         )
 
         mask_images: list[Image] = []
+        individual_masks_list: list[dict] = []
 
         # Create the image segmenter
         with ImageSegmenter.create_from_options(options) as segmenter:
@@ -265,7 +311,7 @@ class APersonMaskGenerator:
                     i = np.dstack((i, np.full((i.shape[0], i.shape[1]), 255)))  # Create an RGBA image
 
                 image_pil = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
-                mask_image = self.__get_mask(
+                mask_image, individual_masks = self.__get_mask(
                     image=image_pil,
                     segmenter=segmenter,
                     face_mask=face_mask,
@@ -277,8 +323,9 @@ class APersonMaskGenerator:
                     refine_mask=refine_mask,
                 )
                 mask_images.append(mask_image)
+                individual_masks_list.append(individual_masks)
 
-        return mask_images
+        return mask_images, individual_masks_list
 
     def generate_mask(
             self,
@@ -307,7 +354,7 @@ class APersonMaskGenerator:
             torch.Tensor: The segmentation masks.
         """
 
-        mask_images = self.get_mask_images(
+        mask_images, individual_masks_list = self.get_mask_images(
             images=images,
             face_mask=face_mask,
             background_mask=background_mask,
@@ -318,14 +365,52 @@ class APersonMaskGenerator:
             refine_mask=refine_mask,
         )
 
-        tensor_masks = []
+        # 转换合并遮罩为tensor
+        merged_tensor_masks = []
         for mask_image in mask_images:
-            # convert PIL image to tensor image
             tensor_mask = mask_image.convert("RGB")
             tensor_mask = np.array(tensor_mask).astype(np.float32) / 255.0
             tensor_mask = torch.from_numpy(tensor_mask)[None,]
             tensor_mask = tensor_mask.squeeze(3)[..., 0]
+            merged_tensor_masks.append(tensor_mask)
 
-            tensor_masks.append(tensor_mask)
+        # 转换各个区域遮罩为tensor
+        def convert_mask_to_tensor(mask_image):
+            if mask_image is None:
+                # 返回空的遮罩tensor
+                return None
+            tensor_mask = mask_image.convert("RGB")
+            tensor_mask = np.array(tensor_mask).astype(np.float32) / 255.0
+            tensor_mask = torch.from_numpy(tensor_mask)[None,]
+            tensor_mask = tensor_mask.squeeze(3)[..., 0]
+            return tensor_mask
 
-        return (torch.cat(tensor_masks, dim=0),)
+        # 收集各个区域的tensor遮罩
+        face_tensor_masks = []
+        background_tensor_masks = []
+        hair_tensor_masks = []
+        body_tensor_masks = []
+        clothes_tensor_masks = []
+
+        for individual_masks in individual_masks_list:
+            face_mask_tensor = convert_mask_to_tensor(individual_masks['face'])
+            background_mask_tensor = convert_mask_to_tensor(individual_masks['background'])
+            hair_mask_tensor = convert_mask_to_tensor(individual_masks['hair'])
+            body_mask_tensor = convert_mask_to_tensor(individual_masks['body'])
+            clothes_mask_tensor = convert_mask_to_tensor(individual_masks['clothes'])
+            
+            face_tensor_masks.append(face_mask_tensor)
+            background_tensor_masks.append(background_mask_tensor)
+            hair_tensor_masks.append(hair_mask_tensor)
+            body_tensor_masks.append(body_mask_tensor)
+            clothes_tensor_masks.append(clothes_mask_tensor)
+
+        # 合并tensor遮罩，如果某个区域没有遮罩则返回None
+        merged_masks = torch.cat(merged_tensor_masks, dim=0) if merged_tensor_masks else None
+        face_masks = torch.cat([m for m in face_tensor_masks if m is not None], dim=0) if any(m is not None for m in face_tensor_masks) else None
+        background_masks = torch.cat([m for m in background_tensor_masks if m is not None], dim=0) if any(m is not None for m in background_tensor_masks) else None
+        hair_masks = torch.cat([m for m in hair_tensor_masks if m is not None], dim=0) if any(m is not None for m in hair_tensor_masks) else None
+        body_masks = torch.cat([m for m in body_tensor_masks if m is not None], dim=0) if any(m is not None for m in body_tensor_masks) else None
+        clothes_masks = torch.cat([m for m in clothes_tensor_masks if m is not None], dim=0) if any(m is not None for m in clothes_tensor_masks) else None
+
+        return (merged_masks, face_masks, background_masks, hair_masks, body_masks, clothes_masks)
