@@ -281,7 +281,8 @@ class APersonFaceLandmarkMaskGenerator:
         face_masks = None
         if refine_mask:
             a_person_mask_generator = APersonMaskGenerator()
-            face_masks = a_person_mask_generator.get_mask_images(
+            # get_mask_images返回(mask_images, individual_masks_list)元组，我们只需要mask_images
+            face_masks, _ = a_person_mask_generator.get_mask_images(
                 images=images,
                 face_mask=True,
                 background_mask=False,
@@ -437,65 +438,59 @@ class APersonFaceLandmarkMaskGenerator:
                                 # 只绘制轮廓
                                 cv.polylines(temp_mask, [np.array(upper_lip_coords + lower_lip_coords[::-1], dtype=np.int32)], True, 255, thickness=2)
                             
-                            # 如果需要扩展
+                            # 如果需要扩展 - 使用旋转矩形区域计算
                             if any([lips_expand_up, lips_expand_down, lips_expand_left, lips_expand_right]):
-                                # 获取原始mask的非零点坐标
-                                y_coords, x_coords = np.nonzero(temp_mask)
-                                points = np.column_stack((x_coords, y_coords))
+                                # 获取嘴唇的边界框
+                                all_lip_coords = upper_lip_coords + lower_lip_coords
+                                lip_points = np.array(all_lip_coords, dtype=np.int32)
                                 
-                                # 创建新的mask
+                                # 计算嘴唇中心点
+                                center_x = np.mean(lip_points[:, 0])
+                                center_y = np.mean(lip_points[:, 1])
+                                center = np.array([center_x, center_y])
+                                
+                                # 计算沿嘴角连线方向的投影范围
+                                projections_along = np.dot(lip_points - center, direction)
+                                projections_perp = np.dot(lip_points - center, perpendicular)
+                                
+                                # 获取原始嘴唇在两个方向上的范围
+                                min_along = np.min(projections_along)
+                                max_along = np.max(projections_along)
+                                min_perp = np.min(projections_perp)
+                                max_perp = np.max(projections_perp)
+                                
+                                # 根据扩展值扩展范围
+                                expanded_min_along = min_along - lips_expand_left
+                                expanded_max_along = max_along + lips_expand_right
+                                expanded_min_perp = min_perp - lips_expand_up
+                                expanded_max_perp = max_perp + lips_expand_down
+                                
+                                # 计算旋转矩形的四个顶点
+                                corners = np.array([
+                                    [expanded_min_along, expanded_min_perp],
+                                    [expanded_max_along, expanded_min_perp],
+                                    [expanded_max_along, expanded_max_perp],
+                                    [expanded_min_along, expanded_max_perp]
+                                ])
+                                
+                                # 将局部坐标转换回图像坐标
+                                rotated_corners = []
+                                for corner in corners:
+                                    world_point = center + corner[0] * direction + corner[1] * perpendicular
+                                    rotated_corners.append([int(world_point[0]), int(world_point[1])])
+                                
+                                rotated_corners = np.array(rotated_corners, dtype=np.int32)
+                                
+                                # 创建扩展后的mask
                                 expanded_mask = temp_mask.copy()
-                                
-                                # 先进行左右扩展
-                                horizontal_expanded_points = set()  # 用于存储左右扩展后的所有点
-                                
-                                for point in points:
-                                    # 添加原始点
-                                    horizontal_expanded_points.add((point[0], point[1]))
-                                    
-                                    # 左扩展
-                                    if lips_expand_left > 0:
-                                        for i in range(1, lips_expand_left + 1):
-                                            new_point = point - direction * i
-                                            new_point = new_point.astype(np.int32)
-                                            if 0 <= new_point[0] < img_width and 0 <= new_point[1] < img_height:
-                                                horizontal_expanded_points.add((new_point[0], new_point[1]))
-                                                expanded_mask[new_point[1], new_point[0]] = 255
-                                    
-                                    # 右扩展s
-                                    if lips_expand_right > 0:
-                                        for i in range(1, lips_expand_right + 1):
-                                            new_point = point + direction * i
-                                            new_point = new_point.astype(np.int32)
-                                            logging.info(f"右扩展_new_point: {new_point}")
-                                            if 0 <= new_point[0] < img_width and 0 <= new_point[1] < img_height:
-                                                horizontal_expanded_points.add((new_point[0], new_point[1]))
-                                                expanded_mask[new_point[1], new_point[0]] = 255
-                                
-                                # 在左右扩展的基础上进行上下扩展
-                                if lips_expand_up > 0 or lips_expand_down > 0:
-                                    vertical_expanded_mask = expanded_mask.copy()
-                                    
-                                    for point_x, point_y in horizontal_expanded_points:
-                                        point = np.array([point_x, point_y])
-                                        
-                                        # 上扩展
-                                        if lips_expand_up > 0:
-                                            for i in range(1, lips_expand_up + 1):
-                                                new_point = point + perpendicular * i
-                                                new_point = new_point.astype(np.int32)
-                                                if 0 <= new_point[0] < img_width and 0 <= new_point[1] < img_height:
-                                                    vertical_expanded_mask[new_point[1], new_point[0]] = 255
-                                        
-                                        # 下扩展
-                                        if lips_expand_down > 0:
-                                            for i in range(1, lips_expand_down + 1):
-                                                new_point = point - perpendicular * i
-                                                new_point = new_point.astype(np.int32)
-                                                if 0 <= new_point[0] < img_width and 0 <= new_point[1] < img_height:
-                                                    vertical_expanded_mask[new_point[1], new_point[0]] = 255
-                                    
-                                    expanded_mask = vertical_expanded_mask
+                                if fill_lips:
+                                    # 如果是填充模式，填充旋转矩形
+                                    cv.fillPoly(expanded_mask, [rotated_corners], 255)
+                                else:
+                                    # 如果是轮廓模式，绘制旋转矩形轮廓并与原掩码合并
+                                    cv.polylines(expanded_mask, [rotated_corners], True, 255, 2)
+                                    # 保持原有的嘴唇轮廓
+                                    expanded_mask = cv.bitwise_or(expanded_mask, temp_mask)
                                 
                                 temp_mask = expanded_mask
                             
