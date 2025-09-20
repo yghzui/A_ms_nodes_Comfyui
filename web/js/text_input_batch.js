@@ -113,26 +113,36 @@ function updateTextareaStyles(node) {
     node.__taEls.forEach((ta, index) => {
         if (ta && ta.style) {
             if (index === currentIndex) {
-                // 当前选中的文本框显示蓝色边框
+                // 当前选中的内容框显示蓝色边框，保持下圆角
                 ta.style.border = '2px solid #4a9eff';
-                ta.style.boxShadow = '0 0 5px rgba(74, 158, 255, 0.5)';
+                ta.style.borderTop = 'none'; // 保持与标题框的连接
+                ta.style.borderRadius = '0 0 6px 6px';
+                ta.style.boxShadow = '0 0 8px rgba(74, 158, 255, 0.3)';
             } else {
-                // 其他文本框恢复默认样式
+                // 其他内容框恢复默认样式
                 ta.style.border = '1px solid #666';
+                ta.style.borderTop = 'none';
+                ta.style.borderRadius = '0 0 6px 6px';
                 ta.style.boxShadow = 'none';
             }
         }
     });
     
-    // 同样更新标题输入框的样式
+    // 同样更新标题输入框的样式，确保整体性
     if (node.__titleEls) {
         node.__titleEls.forEach((titleEl, index) => {
             if (titleEl && titleEl.style) {
                 if (index === currentIndex) {
+                    // 当前选中的标题框显示蓝色边框，保持上圆角
                     titleEl.style.border = '2px solid #4a9eff';
-                    titleEl.style.boxShadow = '0 0 5px rgba(74, 158, 255, 0.5)';
+                    titleEl.style.borderBottom = 'none'; // 保持与内容框的连接
+                    titleEl.style.borderRadius = '6px 6px 0 0';
+                    titleEl.style.boxShadow = '0 0 8px rgba(74, 158, 255, 0.3)';
                 } else {
+                    // 其他标题框恢复默认样式
                     titleEl.style.border = '1px solid #666';
+                    titleEl.style.borderBottom = 'none';
+                    titleEl.style.borderRadius = '6px 6px 0 0';
                     titleEl.style.boxShadow = 'none';
                 }
             }
@@ -369,7 +379,7 @@ function ensureTextareas(node, layout, items) {
             titleEl.type = 'text';
             titleEl.placeholder = `标题 ${i+1}`;
             titleEl.value = item.title || `prompt_${i}`;
-            titleEl.style.cssText = `position: fixed; z-index: 1; padding: 4px 6px; border-radius: 3px; border: 1px solid #666; background: #2a2a2a; color: #eee; font: 11px/1.2 monospace; box-sizing: border-box; margin-bottom: 2px;`;
+            titleEl.style.cssText = `position: fixed; z-index: 1; padding: 4px 6px; border-radius: 6px 6px 0 0; border: 1px solid #666; border-bottom: none; background: #3a3a3a; color: #eee; font: 11px/1.2 monospace; box-sizing: border-box;`;
             
             // 标题输入框事件处理
             titleEl.addEventListener('input', () => {
@@ -405,7 +415,7 @@ function ensureTextareas(node, layout, items) {
             ta.spellcheck = false;
             ta.wrap = 'soft';
             ta.value = item.content || "";
-            ta.style.cssText = `position: fixed; z-index: 1; resize: none; padding: 6px; border-radius: 4px; border: 1px solid #666; background: #1a1a1a; color: #eee; font: 12px/1.4 monospace; box-sizing: border-box; overflow: auto;`;
+            ta.style.cssText = `position: fixed; z-index: 1; resize: none; padding: 6px; border-radius: 0 0 6px 6px; border: 1px solid #666; border-top: none; background: #222; color: #eee; font: 12px/1.4 monospace; box-sizing: border-box; overflow: auto;`;
             
             // 内容文本框事件处理
             ta.addEventListener('input', () => {
@@ -441,16 +451,17 @@ function ensureTextareas(node, layout, items) {
         
         // 标题输入框位置（在内容框上方）
         const titleHeight = 24;
+        // 设置标题输入框位置和大小
         titleEl.style.left = `${Math.round(sx)}px`;
         titleEl.style.top = `${Math.round(sy)}px`;
         titleEl.style.width = `${Math.max(40, Math.round(sw))}px`;
-        titleEl.style.height = `${titleHeight}px`;
+        titleEl.style.height = `${Math.round(titleHeight)}px`;
         
-        // 内容文本框位置（在标题下方）
+        // 设置内容文本框位置和大小 - 移除间距，紧密连接
         ta.style.left = `${Math.round(sx)}px`;
-        ta.style.top = `${Math.round(sy + titleHeight + 2)}px`;
+        ta.style.top = `${Math.round(sy + titleHeight)}px`;
         ta.style.width = `${Math.max(40, Math.round(sw))}px`;
-        ta.style.height = `${Math.max(32, Math.round(sh - titleHeight - 2))}px`;
+        ta.style.height = `${Math.max(32, Math.round(sh - titleHeight))}px`;
         
         // 字体大小缩放
         const fontPx = Math.max(10, Math.round(12 * (ds.scale || 1)));
