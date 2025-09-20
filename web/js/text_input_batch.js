@@ -366,11 +366,14 @@ function ensureTextareas(node, layout, items) {
     if (!node.__taEls) node.__taEls = [];
     if (!node.__titleEls) node.__titleEls = [];
 
+    const currentIndex = getCurrentIndex(node);
+
     for (let i = 0; i < items.length; i++) {
         const cell = layout[i];
         if (!cell) continue;
         
         const item = items[i];
+        const isSelected = i === currentIndex;
         
         // 创建或更新标题输入框
         let titleEl = node.__titleEls[i];
@@ -469,9 +472,10 @@ function ensureTextareas(node, layout, items) {
         titleEl.style.fontSize = `${titleFontPx}px`;
         ta.style.fontSize = `${fontPx}px`;
         
-        // 显示元素
-        titleEl.style.visibility = 'visible';
-        ta.style.visibility = 'visible';
+        // 设置可见性 - 显示所有项目，但只有在节点未折叠时
+        const shouldShow = node.flags?.collapsed !== true;
+        titleEl.style.visibility = shouldShow ? 'visible' : 'hidden';
+        ta.style.visibility = shouldShow ? 'visible' : 'hidden';
     }
 
     // 清理多余的元素
@@ -548,6 +552,11 @@ function installDrawingHandlers(node) {
         if (this.__taEls) {
             for (const el of this.__taEls) { try { el.remove(); } catch(e) {} }
             this.__taEls = [];
+        }
+        // 清理标题输入框
+        if (this.__titleEls) {
+            for (const el of this.__titleEls) { try { el.remove(); } catch(e) {} }
+            this.__titleEls = [];
         }
     };
 }
