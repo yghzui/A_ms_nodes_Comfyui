@@ -16,7 +16,7 @@ class TextDictChecker:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "dict_input": ("STRING", {"default": "{}", "multiline": True, "tooltip": "输入包含标题、内容、启用状态的字典"}),
+                "dict_input": ("STRING", {"default": "{}", "tooltip": "输入包含标题、内容、启用状态的字典"}),
                 "key_to_check": ("STRING", {"default": "", "tooltip": "要检查的字符串key"}),
             },
         }
