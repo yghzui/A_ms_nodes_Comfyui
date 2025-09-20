@@ -36,6 +36,53 @@ function setItems(node, arr) {
     node.properties._strings = json;
 }
 
+// 获取当前选中的索引值 - 使用节点自身的index widget
+function getCurrentIndex(node) {
+    // 查找节点自身的 index widget
+    const indexWidget = node.widgets?.find(w => w.name === "index");
+    return indexWidget ? indexWidget.value : 0;
+}
+
+// 设置节点自身的索引值
+function setIndexSelectorValue(node, index) {
+    // 查找节点自身的 index widget
+    const indexWidget = node.widgets?.find(w => w.name === "index");
+    if (indexWidget) {
+        // 确保索引值在有效范围内
+        const items = getItems(node);
+        const maxIndex = Math.max(0, items.length - 1);
+        indexWidget.value = Math.max(0, Math.min(index, maxIndex));
+        
+        // 触发节点更新
+        if (node.onWidgetChanged) {
+            node.onWidgetChanged("index", indexWidget.value, indexWidget.value, indexWidget);
+        }
+        app.graph.setDirtyCanvas(true, true);
+        return true;
+    }
+    return false;
+}
+
+// 更新文本框样式，高亮当前选中的索引
+function updateTextareaStyles(node) {
+    if (!node.__taEls) return;
+    const currentIndex = getCurrentIndex(node);
+    
+    node.__taEls.forEach((ta, index) => {
+        if (ta && ta.style) {
+            if (index === currentIndex) {
+                // 当前选中的文本框显示蓝色边框
+                ta.style.border = '2px solid #4a9eff';
+                ta.style.boxShadow = '0 0 5px rgba(74, 158, 255, 0.5)';
+            } else {
+                // 其他文本框恢复默认样式
+                ta.style.border = '1px solid #666';
+                ta.style.boxShadow = 'none';
+            }
+        }
+    });
+}
+
 function installAddButton(node) {
     if (node.__addButtonInstalled) return;
     const addBtn = node.addWidget("button", "➕ 添加字符串", null, () => {
@@ -155,6 +202,17 @@ function showItemContextMenu(node, index, event) {
         app.graph.setDirtyCanvas(true, true);
     };
 
+    // 新增：使用该提示词功能
+    const doUseThisPrompt = () => {
+        const success = setIndexSelectorValue(node, index);
+        if (success) {
+            // 更新文本框样式
+            setTimeout(() => updateTextareaStyles(node), 50);
+        } else {
+            alert('未找到节点的 index 控件');
+        }
+    };
+
     // 临时降低触发的 textarea 的指针，避免挡住菜单
     const targetEl = event?.target;
     let prevPointer = null;
@@ -169,6 +227,8 @@ function showItemContextMenu(node, index, event) {
 
     if (Lite && Lite.ContextMenu) {
         const menu = [
+            { content: `✨ 使用该提示词`, callback: doUseThisPrompt },
+            null, // 分隔线
             { content: `🧹 清空内容`, callback: doClear },
             { content: `📋 复制`, callback: doCopy },
             { content: `📥 粘贴`, callback: doPaste },
@@ -197,12 +257,13 @@ function showItemContextMenu(node, index, event) {
         }, 0);
     } else {
         // 简易回退
-        const choice = prompt(`操作: c=清空, y=复制, p=粘贴, d=删除, u=上移, n=下移, m=移动到索引`, "c");
-        if (choice === 'c') doClear();
+        const choice = prompt(`操作: u=使用该提示词, c=清空, y=复制, p=粘贴, d=删除, up=上移, n=下移, m=移动到索引`, "u");
+        if (choice === 'u') doUseThisPrompt();
+        else if (choice === 'c') doClear();
         else if (choice === 'y') doCopy();
         else if (choice === 'p') doPaste();
         else if (choice === 'd') doDelete();
-        else if (choice === 'u') doMoveUp();
+        else if (choice === 'up') doMoveUp();
         else if (choice === 'n') doMoveDown();
         else if (choice === 'm') doMoveTo();
         restorePointer();
@@ -265,6 +326,9 @@ function ensureTextareas(node, layout, items) {
         if (el && el.remove) el.remove();
     }
     node.__taEls.length = items.length;
+    
+    // 更新文本框样式以反映当前选中的索引
+    updateTextareaStyles(node);
 }
 
 function layoutCells(node, items) {
@@ -326,6 +390,39 @@ function installDrawingHandlers(node) {
     };
 }
 
+// 监听图形变化，当连接的 IndexSelector 节点的索引值改变时更新样式
+function installIndexChangeListener(node) {
+    if (node.__indexListenerInstalled) return;
+    node.__indexListenerInstalled = true;
+
+    // 定期检查索引值变化
+    let lastIndex = -1;
+    const checkIndexChange = () => {
+        const currentIndex = getCurrentIndex(node);
+        if (currentIndex !== lastIndex) {
+            lastIndex = currentIndex;
+            updateTextareaStyles(node);
+        }
+    };
+
+    // 使用定时器定期检查（更轻量级的方式）
+    node.__indexCheckInterval = setInterval(checkIndexChange, 100);
+
+    // 在节点移除时清理定时器
+    const origRemoved = node.onRemoved;
+    node.onRemoved = function() {
+        if (origRemoved) origRemoved.call(this);
+        if (this.__indexCheckInterval) {
+            clearInterval(this.__indexCheckInterval);
+            this.__indexCheckInterval = null;
+        }
+        if (this.__taEls) {
+            for (const el of this.__taEls) { try { el.remove(); } catch(e) {} }
+            this.__taEls = [];
+        }
+    };
+}
+
 app.registerExtension({
     name: "A_my_nodes.TextInputBatch.UI",
     async beforeRegisterNodeDef(nodeType, nodeData) {
@@ -338,6 +435,7 @@ app.registerExtension({
             ensureStringsJsonWidget(this);
             installAddButton(this);
             installDrawingHandlers(this);
+            installIndexChangeListener(this); // 安装索引变化监听器
             setItems(this, getItems(this));
         };
 
@@ -347,6 +445,7 @@ app.registerExtension({
             ensureStringsJsonWidget(this);
             installAddButton(this);
             installDrawingHandlers(this);
+            installIndexChangeListener(this); // 安装索引变化监听器
             if (info && info.properties && typeof info.properties._strings === 'string') {
                 this.properties = this.properties || {};
                 this.properties._strings = info.properties._strings;
