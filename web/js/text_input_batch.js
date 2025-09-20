@@ -17,19 +17,61 @@ function ensureStringsJsonWidget(node) {
     return w;
 }
 
+// {{ AURA-X: Modify - 更新数据结构支持标题+内容格式，兼容旧版数据. }}
+// {{ AURA-X: Modify - 更新getItems函数，确保启用状态只有当前选中索引对应项目为true，其他为false. }}
 function getItems(node) {
     try {
-        const hidden = ensureStringsJsonWidget(node);
-        const raw = String(hidden.value || node.properties?._strings || "[]");
-        const arr = JSON.parse(raw);
-        return Array.isArray(arr) ? arr.map(v => String(v ?? "")) : [];
+        const widget = node.widgets.find(w => w.name === "strings_json");
+        if (!widget) return [];
+        
+        const arr = JSON.parse(widget.value || "[]");
+        const currentIndex = getCurrentIndex(node); // 获取当前选中索引
+        
+        return arr.map((item, index) => {
+            if (typeof item === 'object' && item !== null && 'title' in item && 'content' in item) {
+                // 新格式数据，根据当前索引设置启用状态
+                return {
+                    title: String(item.title || `prompt_${index}`),
+                    content: String(item.content || ""),
+                    enabled: index === currentIndex // 只有当前选中索引的项目启用
+                };
+            } else {
+                // 旧格式数据，自动转换，根据当前索引设置启用状态
+                return {
+                    title: `prompt_${index}`,
+                    content: String(item || ""),
+                    enabled: index === currentIndex // 只有当前选中索引的项目启用
+                };
+            }
+        });
     } catch (e) {
         return [];
     }
 }
 
+// {{ AURA-X: Modify - 更新setItems函数，在保存数据时根据当前选中索引设置启用状态. }}
 function setItems(node, arr) {
-    const json = JSON.stringify(arr);
+    const currentIndex = getCurrentIndex(node); // 获取当前选中索引
+    
+    // 确保数组中的每个项目都是正确的格式，并设置启用状态
+    const formattedArr = arr.map((item, index) => {
+        if (typeof item === 'object' && item !== null) {
+            return {
+                title: String(item.title || `prompt_${index}`),
+                content: String(item.content || ""),
+                enabled: index === currentIndex // 只有当前选中索引的项目启用
+            };
+        } else {
+            // 兼容旧格式
+            return {
+                title: `prompt_${index}`,
+                content: String(item || ""),
+                enabled: index === currentIndex // 只有当前选中索引的项目启用
+            };
+        }
+    });
+    
+    const json = JSON.stringify(formattedArr);
     const hidden = ensureStringsJsonWidget(node);
     hidden.value = json;
     node.properties = node.properties || {};
@@ -81,15 +123,41 @@ function updateTextareaStyles(node) {
             }
         }
     });
+    
+    // 同样更新标题输入框的样式
+    if (node.__titleEls) {
+        node.__titleEls.forEach((titleEl, index) => {
+            if (titleEl && titleEl.style) {
+                if (index === currentIndex) {
+                    titleEl.style.border = '2px solid #4a9eff';
+                    titleEl.style.boxShadow = '0 0 5px rgba(74, 158, 255, 0.5)';
+                } else {
+                    titleEl.style.border = '1px solid #666';
+                    titleEl.style.boxShadow = 'none';
+                }
+            }
+        });
+    }
 }
 
+// {{ AURA-X: Modify - 修复添加按钮功能，创建新的标题+内容数据项并调用ensureTextareas更新UI. }}
 function installAddButton(node) {
     if (node.__addButtonInstalled) return;
     const addBtn = node.addWidget("button", "➕ 添加字符串", null, () => {
         const items = getItems(node);
-        items.push("");
+        const newIndex = items.length;
+        // {{ AURA-X: Modify - 创建新的数据项，包含标题和内容，修复UI更新问题. }}
+        items.push({
+            title: `prompt_${newIndex}`,
+            content: ""
+        });
         setItems(node, items);
-        node.setDirtyCanvas(true, true);
+        
+        // {{ AURA-X: Add - 立即更新UI显示新添加的输入框，修复按钮点击无反应问题. }}
+        const layout = layoutCells(node, items);
+        ensureTextareas(node, layout, items);
+        
+        app.graph.setDirtyCanvas(true, true);
         return true;
     });
     addBtn.options.serialize = false;
@@ -123,28 +191,32 @@ function moveItem(arr, from, to) {
     return copy;
 }
 
+// {{ AURA-X: Modify - 更新右键菜单功能，适配新的数据结构. }}
 function showItemContextMenu(node, index, event) {
     const items = getItems(node);
     const n = items.length;
     const hasUp = index > 0;
     const hasDown = index < n - 1;
-    const Lite = window.LiteGraph || window?.app?.canvas?.graph?.constructor; // 尝试拿到LiteGraph
+    const Lite = window.LiteGraph || window?.app?.canvas?.graph?.constructor;
 
     const doDelete = () => {
         const next = items.slice(0, index).concat(items.slice(index + 1));
         setItems(node, next);
+        if (node.ensureTextareas) node.ensureTextareas();
         app.graph.setDirtyCanvas(true, true);
     };
     const doMoveUp = () => {
         if (!hasUp) return;
         const next = moveItem(items, index, index - 1);
         setItems(node, next);
+        if (node.ensureTextareas) node.ensureTextareas();
         app.graph.setDirtyCanvas(true, true);
     };
     const doMoveDown = () => {
         if (!hasDown) return;
         const next = moveItem(items, index, index + 1);
         setItems(node, next);
+        if (node.ensureTextareas) node.ensureTextareas();
         app.graph.setDirtyCanvas(true, true);
     };
     const doMoveTo = () => {
@@ -154,21 +226,25 @@ function showItemContextMenu(node, index, event) {
         if (!Number.isFinite(to)) return;
         const next = moveItem(items, index, to);
         setItems(node, next);
+        if (node.ensureTextareas) node.ensureTextareas();
         app.graph.setDirtyCanvas(true, true);
     };
 
-    // 新增：清空/复制/粘贴
+    // 清空/复制/粘贴功能
     const doClear = () => {
         const arr = getItems(node);
-        if (index < arr.length) arr[index] = "";
-        setItems(node, arr);
-        const ta = node.__taEls?.[index];
-        if (ta) ta.value = "";
-        app.graph.setDirtyCanvas(true, true);
+        if (index < arr.length) {
+            arr[index].content = "";
+            setItems(node, arr);
+            const ta = node.__taEls?.[index];
+            if (ta) ta.value = "";
+            app.graph.setDirtyCanvas(true, true);
+        }
     };
     const doCopy = async () => {
         try {
-            const value = (getItems(node)[index] || "");
+            const item = getItems(node)[index];
+            const value = item ? item.content : "";
             if (navigator.clipboard?.writeText) {
                 await navigator.clipboard.writeText(value);
             } else {
@@ -180,7 +256,8 @@ function showItemContextMenu(node, index, event) {
                 tmp.remove();
             }
         } catch (e) {
-            prompt('复制失败，请手动复制:', getItems(node)[index] || "");
+            const item = getItems(node)[index];
+            prompt('复制失败，请手动复制:', item ? item.content : "");
         }
     };
     const doPaste = async () => {
@@ -195,18 +272,19 @@ function showItemContextMenu(node, index, event) {
             text = prompt('粘贴文本:', "") || "";
         }
         const arr = getItems(node);
-        if (index < arr.length) arr[index] = text;
-        setItems(node, arr);
-        const ta = node.__taEls?.[index];
-        if (ta) ta.value = text;
-        app.graph.setDirtyCanvas(true, true);
+        if (index < arr.length) {
+            arr[index].content = text;
+            setItems(node, arr);
+            const ta = node.__taEls?.[index];
+            if (ta) ta.value = text;
+            app.graph.setDirtyCanvas(true, true);
+        }
     };
 
-    // 新增：使用该提示词功能
+    // 使用该提示词功能
     const doUseThisPrompt = () => {
         const success = setIndexSelectorValue(node, index);
         if (success) {
-            // 更新文本框样式
             setTimeout(() => updateTextareaStyles(node), 50);
         } else {
             alert('未找到节点的 index 控件');
@@ -237,7 +315,6 @@ function showItemContextMenu(node, index, event) {
             { content: `⬇️ 下移`, disabled: !hasDown, callback: doMoveDown },
             { content: `↔ 移动到索引…`, callback: doMoveTo },
         ];
-        // 右键菜单定位改为优先使用 lastContextMenuEvent，其次使用传入 event，确保位置为当前右键点击处
         const useEvent = rgthree.lastContextMenuEvent || event;
         const cm = new Lite.ContextMenu(menu, {
             event: useEvent,
@@ -245,12 +322,10 @@ function showItemContextMenu(node, index, event) {
             className: "dark",
             scale: Math.max(1, app?.canvas?.ds?.scale || 1),
         });
-        // 提升菜单z-index，确保浮在textarea之上
         try {
             const root = cm.root || cm.element || cm.menu || cm;
             if (root && root.style) root.style.zIndex = '10050';
         } catch(e) {}
-        // 点击一次任意处后恢复
         setTimeout(() => {
             const once = () => { document.removeEventListener('mousedown', once, true); restorePointer(); };
             document.addEventListener('mousedown', once, true);
@@ -270,73 +345,149 @@ function showItemContextMenu(node, index, event) {
     }
 }
 
+// {{ AURA-X: Add - 创建标题和内容的UI元素，在输入框上方添加标题输入. }}
 function ensureTextareas(node, layout, items) {
     const ds = app?.canvas?.ds;
     const canvas = app?.canvas?.canvas;
     if (!ds || !canvas) return;
     const rect = canvas.getBoundingClientRect();
 
+    // 初始化元素数组
     if (!node.__taEls) node.__taEls = [];
+    if (!node.__titleEls) node.__titleEls = [];
 
     for (let i = 0; i < items.length; i++) {
         const cell = layout[i];
         if (!cell) continue;
+        
+        const item = items[i];
+        
+        // 创建或更新标题输入框
+        let titleEl = node.__titleEls[i];
+        if (!titleEl) {
+            titleEl = document.createElement('input');
+            titleEl.type = 'text';
+            titleEl.placeholder = `标题 ${i+1}`;
+            titleEl.value = item.title || `prompt_${i}`;
+            titleEl.style.cssText = `position: fixed; z-index: 1; padding: 4px 6px; border-radius: 3px; border: 1px solid #666; background: #2a2a2a; color: #eee; font: 11px/1.2 monospace; box-sizing: border-box; margin-bottom: 2px;`;
+            
+            // 标题输入框事件处理
+            titleEl.addEventListener('input', () => {
+                const arr = getItems(node);
+                if (i < arr.length) {
+                    arr[i].title = titleEl.value || `prompt_${i}`;
+                    setItems(node, arr);
+                }
+            });
+            
+            // 支持Enter键确认，Escape键取消
+            titleEl.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    titleEl.blur();
+                } else if (e.key === 'Escape') {
+                    titleEl.value = item.title || `prompt_${i}`;
+                    titleEl.blur();
+                }
+            });
+            
+            document.body.appendChild(titleEl);
+            node.__titleEls[i] = titleEl;
+        } else {
+            // 更新现有标题输入框的值
+            titleEl.value = item.title || `prompt_${i}`;
+        }
+
+        // 创建或更新内容文本框
         let ta = node.__taEls[i];
         if (!ta) {
             ta = document.createElement('textarea');
-            ta.placeholder = `文本 ${i+1}`;
+            ta.placeholder = `内容 ${i+1}`;
             ta.spellcheck = false;
             ta.wrap = 'soft';
-            ta.value = items[i] || "";
+            ta.value = item.content || "";
             ta.style.cssText = `position: fixed; z-index: 1; resize: none; padding: 6px; border-radius: 4px; border: 1px solid #666; background: #1a1a1a; color: #eee; font: 12px/1.4 monospace; box-sizing: border-box; overflow: auto;`;
+            
+            // 内容文本框事件处理
             ta.addEventListener('input', () => {
                 const arr = getItems(node);
-                if (i < arr.length) arr[i] = ta.value;
-                setItems(node, arr);
+                if (i < arr.length) {
+                    arr[i].content = ta.value;
+                    setItems(node, arr);
+                }
             });
+            
             // 右键菜单
             if (!ta.__ctxInstalled) {
                 ta.addEventListener('contextmenu', (e) => {
-                    e.preventDefault(); e.stopPropagation();
+                    e.preventDefault(); 
+                    e.stopPropagation();
                     showItemContextMenu(node, i, e);
                 });
                 ta.__ctxInstalled = true;
             }
+            
             document.body.appendChild(ta);
             node.__taEls[i] = ta;
         } else {
-            // 更新现有textarea的值，确保移动后内容正确显示
-            ta.value = items[i] || "";
+            // 更新现有textarea的值
+            ta.value = item.content || "";
         }
+
+        // 计算位置和大小
         const sx = (node.pos[0] + cell.x + ds.offset[0]) * ds.scale + rect.left;
         const sy = (node.pos[1] + cell.y + ds.offset[1]) * ds.scale + rect.top;
         const sw = cell.w * ds.scale;
         const sh = cell.h * ds.scale;
+        
+        // 标题输入框位置（在内容框上方）
+        const titleHeight = 24;
+        titleEl.style.left = `${Math.round(sx)}px`;
+        titleEl.style.top = `${Math.round(sy)}px`;
+        titleEl.style.width = `${Math.max(40, Math.round(sw))}px`;
+        titleEl.style.height = `${titleHeight}px`;
+        
+        // 内容文本框位置（在标题下方）
         ta.style.left = `${Math.round(sx)}px`;
-        ta.style.top = `${Math.round(sy)}px`;
+        ta.style.top = `${Math.round(sy + titleHeight + 2)}px`;
         ta.style.width = `${Math.max(40, Math.round(sw))}px`;
-        ta.style.height = `${Math.max(32, Math.round(sh))}px`;
+        ta.style.height = `${Math.max(32, Math.round(sh - titleHeight - 2))}px`;
+        
+        // 字体大小缩放
         const fontPx = Math.max(10, Math.round(12 * (ds.scale || 1)));
+        const titleFontPx = Math.max(9, Math.round(11 * (ds.scale || 1)));
+        titleEl.style.fontSize = `${titleFontPx}px`;
         ta.style.fontSize = `${fontPx}px`;
+        
+        // 显示元素
+        titleEl.style.visibility = 'visible';
         ta.style.visibility = 'visible';
     }
 
+    // 清理多余的元素
     for (let j = items.length; j < (node.__taEls?.length || 0); j++) {
         const el = node.__taEls[j];
         if (el && el.remove) el.remove();
     }
-    node.__taEls.length = items.length;
+    for (let j = items.length; j < (node.__titleEls?.length || 0); j++) {
+        const el = node.__titleEls[j];
+        if (el && el.remove) el.remove();
+    }
     
-    // 更新文本框样式以反映当前选中的索引
+    node.__taEls.length = items.length;
+    node.__titleEls.length = items.length;
+    
+    // 更新样式以反映当前选中的索引
     updateTextareaStyles(node);
 }
 
+// {{ AURA-X: Add - 计算布局单元格位置，为标题+内容预留更多垂直空间. }}
 function layoutCells(node, items) {
     const PADDING = 8;
     const GAP = 6;
-    const MIN_H = 48; // 每项最小高度
+    const MIN_H = 72; // 增加最小高度以容纳标题+内容
     const n = items.length;
     if (n === 0) return [];
+    
     const cols = n > 1 ? 2 : 1;
     const rows = Math.ceil(n / cols);
     const availW = node.size[0] - PADDING * 2;
@@ -391,6 +542,7 @@ function installDrawingHandlers(node) {
 }
 
 // 监听图形变化，当连接的 IndexSelector 节点的索引值改变时更新样式
+// {{ AURA-X: Modify - 修改索引变化监听器，确保在索引变化时重新保存数据以更新启用状态. }}
 function installIndexChangeListener(node) {
     if (node.__indexListenerInstalled) return;
     node.__indexListenerInstalled = true;
@@ -402,6 +554,10 @@ function installIndexChangeListener(node) {
         if (currentIndex !== lastIndex) {
             lastIndex = currentIndex;
             updateTextareaStyles(node);
+            
+            // 重新保存数据以更新启用状态
+            const items = getItems(node);
+            setItems(node, items);
         }
     };
 

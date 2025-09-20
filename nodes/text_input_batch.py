@@ -4,6 +4,7 @@
 # - 提供一个可选的 index 输入（INT），用于选择返回第几个字符串
 # - 字符串列表通过前端动态控件聚合为 JSON 写入 strings_json（隐藏/内部容器）
 # - 输出：字符串列表（JSON 字符串）与根据 index 选中的字符串；当 index 无效或越界时回退到第一个；当列表为空返回空串
+# - 新增：支持标题编辑和启用状态管理，输出包含标题、内容、启用状态的字典
 
 import json
 
@@ -26,9 +27,9 @@ class TextInputBatch:
             },
         }
 
-    RETURN_TYPES = ("STRING", "STRING", "INT")
-    RETURN_NAMES = ("strings", "selected", "count")
-    OUTPUT_IS_LIST = (True, False, False,)
+    RETURN_TYPES = ("STRING", "STRING", "INT", "STRING", "STRING")
+    RETURN_NAMES = ("strings", "selected", "count", "dict_output", "selected_title")
+    OUTPUT_IS_LIST = (True, False, False, False, False)
     FUNCTION = "aggregate_strings"
     CATEGORY = "A_my_nodes/text"
 
@@ -39,21 +40,49 @@ class TextInputBatch:
         except Exception:
             data = []
 
-        # 仅保留字符串类型，并保持顺序
-        strings_list = [str(x) for x in data if isinstance(x, (str, int, float)) or x is None]
-        # 将 None 转为空串，数字转字符串
-        strings_list = ["" if x is None else str(x) for x in strings_list]
+        # {{ AURA-X: Modify - 修改启用状态逻辑，确保只有当前选中索引对应项目启用. }}
+        # 处理新的数据结构，支持标题和启用状态
+        strings_list = []
+        titles_dict = {}
+        
+        # 获取当前选中索引
+        try:
+            current_index = int(index) if index is not None else 0
+        except Exception:
+            current_index = 0
+        
+        if isinstance(data, list):
+            # 兼容旧版本数据结构
+            for i, item in enumerate(data):
+                if isinstance(item, dict) and "title" in item and "content" in item:
+                    # 新版本数据结构
+                    title = item.get("title", f"prompt_{i}")
+                    content = str(item.get("content", ""))
+                    # 启用状态：只有当前选中索引对应的项目为True
+                    enabled = (i == current_index)
+                    strings_list.append(content)
+                    titles_dict[title] = {"prompt": content, "enable": enabled}
+                else:
+                    # 旧版本数据结构，自动生成标题
+                    content = str(item) if item is not None else ""
+                    title = f"prompt_{i}"
+                    # 启用状态：只有当前选中索引对应的项目为True
+                    enabled = (i == current_index)
+                    strings_list.append(content)
+                    titles_dict[title] = {"prompt": content, "enable": enabled}
 
-        # 计算选中值
+        # 计算选中值和选中标题
         selected = ""
+        selected_title = ""
         if len(strings_list) > 0:
-            try:
-                i = int(index) if index is not None else 0
-            except Exception:
-                i = 0
-            if i < 0 or i >= len(strings_list):
-                i = 0
-            selected = strings_list[i]
+            # 确保索引在有效范围内
+            if current_index < 0 or current_index >= len(strings_list):
+                current_index = 0
+            selected = strings_list[current_index]
+            # 获取对应的标题
+            title_keys = list(titles_dict.keys())
+            if current_index < len(title_keys):
+                selected_title = title_keys[current_index]
 
         # 返回：完整列表(JSON字符串) 与 选中项
         try:
@@ -61,11 +90,19 @@ class TextInputBatch:
         except Exception:
             # 兜底，防止非常规字符导致失败
             strings_out = "[]"
-        #将strings_out转换为列表
+        
+        # 将strings_out转换为列表
         list_out = []
         try:
             list_out = json.loads(strings_out)
         except Exception:
             list_out = []
-        #返回：完整列表(列表) 与 选中项
-        return (list_out, selected, len(list_out))
+        
+        # 生成字典输出
+        try:
+            dict_output = json.dumps(titles_dict, ensure_ascii=False)
+        except Exception:
+            dict_output = "{}"
+        
+        # 返回：完整列表(列表)、选中项、数量、字典输出、选中标题
+        return (list_out, selected, len(list_out), dict_output, selected_title)
