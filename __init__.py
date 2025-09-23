@@ -11,7 +11,7 @@ from .nodes.resize_image_by_person import ResizeImageByPerson,CropInfoToNumbers
 # from .nodes.a_person_face_landmark_mask_generator_comfyui_add_nose import APersonFaceLandmarkMaskGeneratorAddNose
 # from .nodes.a_person_face_landmark_mask_generator_comfyui_by_my import APersonFaceLandmarkMaskGenerator
 from .nodes.person_and_face.a_person_face_landmark_mask_generator_comfyui import  APersonFaceLandmarkMaskGenerator
-from .nodes.person_and_face.a_person_mask_generator_comfyui import APersonMaskGenerator
+from .nodes.person_and_face.a_person_mask_generator_comfyui import APersonMaskGeneratorMs
 
 from .nodes.math import AspectRatioAdjuster,I2VConfigureNode, FramesSplitCalculator, FramesSegmentSlicer, ImagesConcatWithOverlap, ImageTakeLast
 from .nodes.face_flip import FaceFlip
@@ -82,7 +82,7 @@ NODE_CLASS_MAPPINGS = {
     "RemoveGlassesFaceMask": RemoveGlassesFaceMask,
     "AdjustMaskValues": AdjustMaskValues,
     "APersonFaceLandmarkMaskGeneratorByMy":APersonFaceLandmarkMaskGenerator,
-    "APersonMaskGenerator":APersonMaskGenerator,
+    "APersonMaskGeneratorMs":APersonMaskGeneratorMs,
     "NoticeSound": NoticeSound,
     "AspectRatioAdjuster": AspectRatioAdjuster,
     "I2VConfigureNode": I2VConfigureNode,
@@ -145,7 +145,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "RemoveGlassesFaceMask": "RemoveGlassesFaceMask 去除眼镜 by My",
     "AdjustMaskValues": "AdjustMaskValues 调整遮罩值 by My",
     "APersonFaceLandmarkMaskGeneratorByMy":"APersonFaceLandmarkMaskGeneratorByMy 生成面部遮罩 by My",
-    "APersonMaskGenerator":"APersonMaskGenerator 生成人物遮罩 by My",
+    "APersonMaskGeneratorMs":"APersonMaskGeneratorMs 生成人物遮罩 by My",
     "NoticeSound": "铃声提醒节点 by My",
     "AspectRatioAdjuster": "宽高比调整节点 by My",
     "I2VConfigureNode": "I2V配置节点 by My",

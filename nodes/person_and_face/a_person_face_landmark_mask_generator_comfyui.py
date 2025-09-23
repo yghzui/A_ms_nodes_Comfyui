@@ -8,7 +8,7 @@ import torch
 import numpy as np
 from PIL import Image
 import mediapipe as mp
-from .a_person_mask_generator_comfyui import APersonMaskGenerator
+from .a_person_mask_generator_comfyui import APersonMaskGeneratorMs
 import logging
 
 class APersonFaceLandmarkMaskGenerator:
@@ -280,7 +280,7 @@ class APersonFaceLandmarkMaskGenerator:
         a_person_mask_generator = None
         face_masks = None
         if refine_mask:
-            a_person_mask_generator = APersonMaskGenerator()
+            a_person_mask_generator = APersonMaskGeneratorMs()
             # get_mask_images返回(mask_images, individual_masks_list)元组，我们只需要mask_images
             face_masks, _ = a_person_mask_generator.get_mask_images(
                 images=images,
