@@ -19,11 +19,10 @@ import folder_paths
 
 
 def get_a_person_mask_generator_model_path() -> str:
-    model_folder_name = "mediapipe"
-    model_name = "selfie_multiclass_256x256.onnx"
-
-    model_folder_path = os.path.join(folder_paths.models_dir, model_folder_name)
-    model_file_path = os.path.join(model_folder_path, model_name)
+    # 使用相对路径，基于当前节点目录
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    model_file_path = os.path.join(current_dir, "..", "..", "models", "face_person", "selfie_multiclass_256x256.onnx")
+    model_file_path = os.path.normpath(model_file_path)
 
     if not os.path.exists(model_file_path):
         print(f"ONNX model not found at {model_file_path}")
