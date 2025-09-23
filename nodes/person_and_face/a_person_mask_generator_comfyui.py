@@ -374,10 +374,22 @@ class APersonMaskGenerator:
             tensor_mask = tensor_mask.squeeze(3)[..., 0]
             merged_tensor_masks.append(tensor_mask)
 
-        # 转换各个区域遮罩为tensor
+        # 获取图像尺寸用于创建纯黑遮罩
+        batch_size = len(images)
+        if batch_size > 0:
+            image_height, image_width = images[0].shape[:2]
+        else:
+            image_height, image_width = 256, 256  # 默认尺寸
+
+        # 创建纯黑遮罩的函数
+        def create_black_mask():
+            """创建纯黑遮罩tensor"""
+            black_mask = torch.zeros((batch_size, image_height, image_width), dtype=torch.float32)
+            return black_mask
+
+        # 转换各个区域遮罩为tensor的函数
         def convert_mask_to_tensor(mask_image):
             if mask_image is None:
-                # 返回空的遮罩tensor
                 return None
             tensor_mask = mask_image.convert("RGB")
             tensor_mask = np.array(tensor_mask).astype(np.float32) / 255.0
@@ -405,37 +417,43 @@ class APersonMaskGenerator:
             body_tensor_masks.append(body_mask_tensor)
             clothes_tensor_masks.append(clothes_mask_tensor)
 
-        # 合并tensor遮罩，如果某个区域没有遮罩则返回None
-        merged_masks = torch.cat(merged_tensor_masks, dim=0) if merged_tensor_masks else None
-        face_masks = torch.cat([m for m in face_tensor_masks if m is not None], dim=0) if any(m is not None for m in face_tensor_masks) else None
-        background_masks = torch.cat([m for m in background_tensor_masks if m is not None], dim=0) if any(m is not None for m in background_tensor_masks) else None
-        hair_masks = torch.cat([m for m in hair_tensor_masks if m is not None], dim=0) if any(m is not None for m in hair_tensor_masks) else None
-        body_masks = torch.cat([m for m in body_tensor_masks if m is not None], dim=0) if any(m is not None for m in body_tensor_masks) else None
-        clothes_masks = torch.cat([m for m in clothes_tensor_masks if m is not None], dim=0) if any(m is not None for m in clothes_tensor_masks) else None
+        # 合并遮罩
+        merged_masks = torch.cat(merged_tensor_masks, dim=0) if merged_tensor_masks else create_black_mask()
 
-        # 始终返回6个值，但根据前端动态接口逻辑分配遮罩到正确位置
-        # 前端按照固定顺序检查并创建接口：face_mask, background_mask, hair_mask, body_mask, clothes_mask
+        # 处理各个区域的遮罩：如果启用则使用实际遮罩，否则使用纯黑遮罩
+        # 按照RETURN_NAMES的固定顺序：face_mask, background_mask, hair_mask, body_mask, clothes_mask
         
-        # 构建启用的遮罩列表（按前端检查顺序）
-        enabled_masks = []
-        mask_order = [
-            (face_mask, face_masks),
-            (background_mask, background_masks), 
-            (hair_mask, hair_masks),
-            (body_mask, body_masks),
-            (clothes_mask, clothes_masks)
-        ]
+        # Face遮罩
+        if face_mask and any(m is not None for m in face_tensor_masks):
+            face_masks = torch.cat([m for m in face_tensor_masks if m is not None], dim=0)
+        else:
+            face_masks = create_black_mask()
         
-        for is_enabled, mask_data in mask_order:
-            if is_enabled:
-                enabled_masks.append(mask_data)
+        # Background遮罩
+        if background_mask and any(m is not None for m in background_tensor_masks):
+            background_masks = torch.cat([m for m in background_tensor_masks if m is not None], dim=0)
+        else:
+            background_masks = create_black_mask()
         
-        # 始终返回6个值：合并遮罩 + 启用的遮罩（按前端接口顺序） + None填充
-        result = [merged_masks]  # 第一个始终是合并遮罩
-        result.extend(enabled_masks)  # 添加启用的遮罩
+        # Hair遮罩
+        if hair_mask and any(m is not None for m in hair_tensor_masks):
+            hair_masks = torch.cat([m for m in hair_tensor_masks if m is not None], dim=0)
+        else:
+            hair_masks = create_black_mask()
         
-        # 用None填充到6个返回值
-        while len(result) < 6:
-            result.append(None)
+        # Body遮罩
+        if body_mask and any(m is not None for m in body_tensor_masks):
+            body_masks = torch.cat([m for m in body_tensor_masks if m is not None], dim=0)
+        else:
+            body_masks = create_black_mask()
         
-        return tuple(result)
+        # Clothes遮罩
+        if clothes_mask and any(m is not None for m in clothes_tensor_masks):
+            clothes_masks = torch.cat([m for m in clothes_tensor_masks if m is not None], dim=0)
+        else:
+            clothes_masks = create_black_mask()
+
+        # 始终返回6个固定的遮罩，按照RETURN_NAMES的顺序
+        # ("merged_mask", "face_mask", "background_mask", "hair_mask", "body_mask", "clothes_mask")
+        return (merged_masks, face_masks, background_masks, hair_masks, body_masks, clothes_masks)
+      
