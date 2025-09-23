@@ -11,6 +11,7 @@ import torch
 import numpy as np
 from PIL import Image
 import mediapipe as mp
+from tqdm import tqdm  # 添加tqdm进度条支持
 
 BaseOptions = mp.tasks.BaseOptions
 ImageSegmenter = mp.tasks.vision.ImageSegmenter
@@ -301,7 +302,8 @@ class APersonMaskGenerator:
 
         # Create the image segmenter
         with ImageSegmenter.create_from_options(options) as segmenter:
-            for tensor_image in images:
+            # 使用tqdm显示图像处理进度
+            for tensor_image in tqdm(images, desc="处理图像遮罩", unit="张"):
                 # Convert the Tensor to a PIL image
                 i = 255.0 * tensor_image.cpu().numpy()
 
@@ -367,7 +369,8 @@ class APersonMaskGenerator:
 
         # 转换合并遮罩为tensor
         merged_tensor_masks = []
-        for mask_image in mask_images:
+        # 为遮罩转换添加进度条
+        for mask_image in tqdm(mask_images, desc="转换遮罩格式", unit="个"):
             tensor_mask = mask_image.convert("RGB")
             tensor_mask = np.array(tensor_mask).astype(np.float32) / 255.0
             tensor_mask = torch.from_numpy(tensor_mask)[None,]
@@ -404,7 +407,8 @@ class APersonMaskGenerator:
         body_tensor_masks = []
         clothes_tensor_masks = []
 
-        for individual_masks in individual_masks_list:
+        # 为各个区域遮罩处理添加进度条
+        for individual_masks in tqdm(individual_masks_list, desc="处理区域遮罩", unit="组"):
             face_mask_tensor = convert_mask_to_tensor(individual_masks['face'])
             background_mask_tensor = convert_mask_to_tensor(individual_masks['background'])
             hair_mask_tensor = convert_mask_to_tensor(individual_masks['hair'])
