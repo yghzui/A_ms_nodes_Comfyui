@@ -142,7 +142,18 @@ class APersonMaskGeneratorMs:
         return resized_tensor.cpu().numpy()
 
     def postprocess_onnx_output(self, output: np.ndarray, original_size: tuple) -> torch.Tensor:
-        """后处理ONNX输出，使用PyTorch张量操作提升质量"""
+        """后处理ONNX输出，使用优化的处理逻辑"""
+        # 导入优化的后处理器
+        try:
+            from fixed_optimized_postprocessing import FixedOptimizedPostProcessor
+            processor = FixedOptimizedPostProcessor()
+            return processor.postprocess_onnx_output_minimal(output, original_size)
+        except ImportError:
+            # 回退到原始实现
+            return self._fallback_postprocess(output, original_size)
+    
+    def _fallback_postprocess(self, output: np.ndarray, original_size: tuple) -> torch.Tensor:
+        """回退的后处理实现"""
         # output shape: (256, 256, 6) 单张图像
         # 需要调整回原始图像尺寸
         
@@ -150,7 +161,7 @@ class APersonMaskGeneratorMs:
         output_tensor = torch.from_numpy(output).float()
         
         # 应用sigmoid激活函数，使用PyTorch的稳定实现
-        # 使用torch.sigmoid比手动计算更稳定，避免数值溢出
+        # 基于测试结果确认：ONNX模型输出logits，需要sigmoid激活
         sigmoid_output = torch.sigmoid(output_tensor)
         
         # 使用PyTorch的插值进行高质量的尺寸调整
