@@ -326,14 +326,20 @@ class ImageDualMaskColorFill:
             print(f"错误：遮罩1形状 {mask_1.shape} 与图像形状 {image.shape[:3]} 不匹配。")
             return (image, torch.zeros_like(mask_1))
         
+        # 获取mask_1的设备，确保所有张量都在同一设备上
+        device = mask_1.device
+        
         # 检查是否只有一个有效遮罩
         only_mask_1 = False
         if mask_2 is None:
-            # 如果mask_2为None，则创建一个全零遮罩
+            # 如果mask_2为None，则创建一个全零遮罩，确保在同一设备上
             only_mask_1 = True
-            mask_2 = torch.zeros_like(mask_1)
-        elif torch.all(mask_2 < threshold):  # 检查mask_2是否全部小于阈值（即全零遮罩）
-            only_mask_1 = True
+            mask_2 = torch.zeros_like(mask_1, device=device)
+        else:
+            # 确保mask_2在同一设备上
+            mask_2 = mask_2.to(device)
+            if torch.all(mask_2 < threshold):  # 检查mask_2是否全部小于阈值（即全零遮罩）
+                only_mask_1 = True
         
         # 检查mask_2的形状是否与图像匹配
         if not only_mask_1 and (mask_2.shape[0] != image.shape[0] or mask_2.shape[1] != image.shape[1] or mask_2.shape[2] != image.shape[2]):
@@ -346,6 +352,9 @@ class ImageDualMaskColorFill:
         except ValueError as e:
             print(f"错误：无效的颜色格式 - {e}。将返回原始图像。")
             return (image, torch.zeros_like(mask_1))
+        
+        # 确保图像也在同一设备上
+        image = image.to(device)
         
         # 复制输入图像以避免修改原始张量
         result = image.clone()
