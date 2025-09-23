@@ -109,46 +109,66 @@ class APersonMaskGeneratorMs:
     FUNCTION = "generate_mask"
 
     def preprocess_image_for_onnx(self, image: Image, target_size=(256, 256)) -> np.ndarray:
-        """预处理图像用于ONNX推理"""
-        # 调整图像大小到模型输入尺寸
-        image_resized = image.resize(target_size, Image.LANCZOS)
-        
-        # 转换为numpy数组
-        numpy_image = np.asarray(image_resized)
+        """预处理图像用于ONNX推理，优化为PyTorch张量操作"""
+        # 转换PIL图像为PyTorch张量
+        image_tensor = torch.from_numpy(np.array(image)).float()
         
         # 确保是RGB格式
-        if numpy_image.shape[-1] == 4:  # RGBA
-            numpy_image = numpy_image[:, :, :3]  # 去掉alpha通道
-        elif len(numpy_image.shape) == 2:  # 灰度图
-            numpy_image = np.stack([numpy_image] * 3, axis=-1)
+        if image_tensor.shape[-1] == 4:  # RGBA
+            image_tensor = image_tensor[:, :, :3]  # 去掉alpha通道
+        elif len(image_tensor.shape) == 2:  # 灰度图
+            image_tensor = image_tensor.unsqueeze(-1).repeat(1, 1, 3)
         
         # 归一化到[0,1]范围
-        numpy_image = numpy_image.astype(np.float32) / 255.0
+        image_tensor = image_tensor / 255.0
         
-        # 添加batch维度: (H, W, C) -> (1, H, W, C)
-        numpy_image = np.expand_dims(numpy_image, axis=0)
+        # 调整图像大小到模型输入尺寸，使用PyTorch插值
+        # 转换为 (C, H, W) 格式用于插值
+        image_tensor = image_tensor.permute(2, 0, 1).unsqueeze(0)  # (1, C, H, W)
         
-        return numpy_image
+        # 使用双线性插值调整尺寸
+        resized_tensor = torch.nn.functional.interpolate(
+            image_tensor, 
+            size=target_size, 
+            mode='bilinear', 
+            align_corners=False
+        )
+        
+        # 转换回 (H, W, C) 格式并添加batch维度
+        resized_tensor = resized_tensor.squeeze(0).permute(1, 2, 0)  # (H, W, C)
+        resized_tensor = resized_tensor.unsqueeze(0)  # (1, H, W, C)
+        
+        # 转换为numpy数组用于ONNX推理
+        return resized_tensor.cpu().numpy()
 
-    def postprocess_onnx_output(self, output: np.ndarray, original_size: tuple) -> np.ndarray:
-        """后处理ONNX输出"""
+    def postprocess_onnx_output(self, output: np.ndarray, original_size: tuple) -> torch.Tensor:
+        """后处理ONNX输出，使用PyTorch张量操作提升质量"""
         # output shape: (256, 256, 6) 单张图像
         # 需要调整回原始图像尺寸
         
-        # 应用sigmoid激活函数将原始输出转换为0-1概率值
-        # 这是关键修复：ONNX模型输出的是logits，需要sigmoid转换为概率
-        sigmoid_output = 1.0 / (1.0 + np.exp(-output))
+        # 转换为PyTorch张量进行更精确的数值计算
+        output_tensor = torch.from_numpy(output).float()
         
-        # 单张图像处理
-        resized_channels = []
-        for c in range(sigmoid_output.shape[-1]):
-            channel_data = sigmoid_output[:, :, c]
-            # 使用PIL调整尺寸
-            channel_img = Image.fromarray((channel_data * 255).astype(np.uint8))
-            channel_resized = channel_img.resize(original_size, Image.LANCZOS)
-            resized_channels.append(np.array(channel_resized) / 255.0)
+        # 应用sigmoid激活函数，使用PyTorch的稳定实现
+        # 使用torch.sigmoid比手动计算更稳定，避免数值溢出
+        sigmoid_output = torch.sigmoid(output_tensor)
         
-        return np.stack(resized_channels, axis=-1)
+        # 使用PyTorch的插值进行高质量的尺寸调整
+        # 转换为 (C, H, W) 格式用于插值
+        sigmoid_output = sigmoid_output.permute(2, 0, 1).unsqueeze(0)  # (1, C, H, W)
+        
+        # 使用双线性插值调整到原始尺寸，mode='bilinear'比LANCZOS更适合概率值
+        resized_output = torch.nn.functional.interpolate(
+            sigmoid_output, 
+            size=original_size[::-1],  # (height, width)
+            mode='bilinear', 
+            align_corners=False
+        )
+        
+        # 转换回 (H, W, C) 格式
+        resized_output = resized_output.squeeze(0).permute(1, 2, 0)  # (H, W, C)
+        
+        return resized_output
 
     def get_bbox_for_mask(self, mask_image: Image):
         # Convert the image to grayscale
@@ -202,7 +222,7 @@ class APersonMaskGeneratorMs:
             onnx_output=None
     ) -> tuple[Image, dict]:
         """
-        使用ONNX模型生成遮罩
+        使用ONNX模型生成遮罩，优化为PyTorch张量操作
         """
         # 如果没有提供预计算的ONNX输出，则进行推理
         if onnx_output is None:
@@ -217,17 +237,13 @@ class APersonMaskGeneratorMs:
         if len(onnx_output.shape) == 4:
             onnx_output = onnx_output[0]  # 从 (1, 256, 256, 6) 变为 (256, 256, 6)
         
-        # 后处理输出到原始尺寸
+        # 后处理输出到原始尺寸，现在返回PyTorch张量
         if original_size is None:
             original_size = image.size
         
         processed_output = self.postprocess_onnx_output(onnx_output, original_size)
         
-        # 创建遮罩数组
-        image_shape = processed_output.shape
-        mask_background_array = np.zeros(image_shape[:2] + (4,), dtype=np.uint8)
-        mask_foreground_array = np.full(image_shape[:2] + (4,), 255, dtype=np.uint8)
-        
+        # 使用PyTorch张量操作进行遮罩生成
         individual_masks = {}
         masks_for_merge = []
         
@@ -240,47 +256,43 @@ class APersonMaskGeneratorMs:
         
         # 处理背景遮罩 (通道0)
         if background_mask:
-            condition = processed_output[:, :, 0] > confidence
-            mask_array = np.where(condition[..., np.newaxis], mask_foreground_array, mask_background_array)
-            individual_masks['background'] = Image.fromarray(mask_array)
-            masks_for_merge.append(mask_array)
+            mask_tensor = (processed_output[:, :, 0] > confidence).float()
+            individual_masks['background'] = self._tensor_to_pil_mask(mask_tensor)
+            masks_for_merge.append(mask_tensor)
         
         # 处理头发遮罩 (通道1)
         if hair_mask:
-            condition = processed_output[:, :, 1] > confidence
-            mask_array = np.where(condition[..., np.newaxis], mask_foreground_array, mask_background_array)
-            individual_masks['hair'] = Image.fromarray(mask_array)
-            masks_for_merge.append(mask_array)
+            mask_tensor = (processed_output[:, :, 1] > confidence).float()
+            individual_masks['hair'] = self._tensor_to_pil_mask(mask_tensor)
+            masks_for_merge.append(mask_tensor)
         
         # 处理身体遮罩 (通道2)
         if body_mask:
-            condition = processed_output[:, :, 2] > confidence
-            mask_array = np.where(condition[..., np.newaxis], mask_foreground_array, mask_background_array)
-            individual_masks['body'] = Image.fromarray(mask_array)
-            masks_for_merge.append(mask_array)
+            mask_tensor = (processed_output[:, :, 2] > confidence).float()
+            individual_masks['body'] = self._tensor_to_pil_mask(mask_tensor)
+            masks_for_merge.append(mask_tensor)
         
         # 处理脸部遮罩 (通道3)
         if face_mask:
-            condition = processed_output[:, :, 3] > confidence
-            mask_array = np.where(condition[..., np.newaxis], mask_foreground_array, mask_background_array)
-            individual_masks['face'] = Image.fromarray(mask_array)
-            masks_for_merge.append(mask_array)
+            mask_tensor = (processed_output[:, :, 3] > confidence).float()
+            individual_masks['face'] = self._tensor_to_pil_mask(mask_tensor)
+            masks_for_merge.append(mask_tensor)
         
         # 处理衣服遮罩 (通道4)
         if clothes_mask:
-            condition = processed_output[:, :, 4] > confidence
-            mask_array = np.where(condition[..., np.newaxis], mask_foreground_array, mask_background_array)
-            individual_masks['clothes'] = Image.fromarray(mask_array)
-            masks_for_merge.append(mask_array)
+            mask_tensor = (processed_output[:, :, 4] > confidence).float()
+            individual_masks['clothes'] = self._tensor_to_pil_mask(mask_tensor)
+            masks_for_merge.append(mask_tensor)
         
-        # 合并选中的遮罩
+        # 使用逻辑OR合并选中的遮罩（更适合二值遮罩）
         if len(masks_for_merge) == 0:
-            merged_mask_arrays = mask_background_array
+            merged_mask_tensor = torch.zeros_like(processed_output[:, :, 0])
         else:
-            merged_mask_arrays = reduce(np.maximum, masks_for_merge)
+            # 使用逻辑OR操作合并遮罩，比maximum更适合二值遮罩
+            merged_mask_tensor = torch.stack(masks_for_merge, dim=0).any(dim=0).float()
         
         # 创建合并后的遮罩图像
-        mask_image = Image.fromarray(merged_mask_arrays)
+        mask_image = self._tensor_to_pil_mask(merged_mask_tensor)
         
         # 精细化遮罩处理
         if refine_mask:
@@ -313,6 +325,18 @@ class APersonMaskGeneratorMs:
                         individual_masks[key] = updated_individual_mask
 
         return mask_image, individual_masks
+
+    def _tensor_to_pil_mask(self, mask_tensor: torch.Tensor) -> Image:
+        """将PyTorch张量转换为PIL遮罩图像"""
+        # 将0-1的浮点值转换为0-255的整数值
+        mask_array = (mask_tensor.cpu().numpy() * 255).astype(np.uint8)
+        
+        # 创建RGBA遮罩：白色为前景，黑色为背景
+        mask_rgba = np.zeros((*mask_array.shape, 4), dtype=np.uint8)
+        mask_rgba[:, :, :3] = mask_array[..., np.newaxis]  # RGB通道
+        mask_rgba[:, :, 3] = mask_array  # Alpha通道
+        
+        return Image.fromarray(mask_rgba)
 
     def get_mask_images(
             self,
