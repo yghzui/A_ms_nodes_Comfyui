@@ -1134,8 +1134,8 @@ class CropFaceMyDetailed:
                              }
                 }
 
-    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "MASK", "STRING", "STRING", "IMAGE", "IMAGE", "MASK")
-    RETURN_NAMES = ("image", "mask", "squares_info", "individual_masks", "original_eye_points", "cropped_eye_points", "original_image_with_points", "cropped_image_with_points", "crop_mask")
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "MASK", "STRING", "STRING", "IMAGE", "IMAGE", "MASK", "STRING")
+    RETURN_NAMES = ("image", "mask", "squares_info", "individual_masks", "original_eye_points", "cropped_eye_points", "original_image_with_points", "cropped_image_with_points", "crop_mask", "coordinates_positive")
 
     FUNCTION = "crop_face"
 
@@ -1504,10 +1504,39 @@ class CropFaceMyDetailed:
             else:
                 cropped_mask_tensor = torch.zeros((1, output_size, output_size), dtype=torch.float32)
 
-        # 返回所有需要的数据，包括裁剪后的输入mask
+        # 转换squares_info为SAM2兼容的coordinates_positive格式
+        # squares_info格式: [[square_x, square_y, square_size], ...]
+        # SAM2 coordinates_positive格式: JSON字符串 "[{'x': x1, 'y': y1}, {'x': x2, 'y': y2}, ...]"
+        # 每个bbox转换为5个点：四个角点 + 中心点
+        coordinates_list = []
+        for img_squares in squares_info:
+            for square in img_squares:
+                square_x, square_y, square_size = square
+                # 计算四个角点和中心点
+                x1, y1 = square_x, square_y  # 左上角
+                x2, y2 = square_x + square_size, square_y  # 右上角
+                x3, y3 = square_x + square_size, square_y + square_size  # 右下角
+                x4, y4 = square_x, square_y + square_size  # 左下角
+                center_x = square_x + square_size // 2  # 中心点x
+                center_y = square_y + square_size // 2  # 中心点y
+                
+                # 添加五个点到坐标列表
+                coordinates_list.extend([
+                    {'x': int(x1), 'y': int(y1)},  # 左上角
+                    {'x': int(x2), 'y': int(y2)},  # 右上角
+                    {'x': int(x3), 'y': int(y3)},  # 右下角
+                    {'x': int(x4), 'y': int(y4)},  # 左下角
+                    {'x': int(center_x), 'y': int(center_y)}  # 中心点
+                ])
+        
+        # 转换为JSON字符串格式
+        import json
+        coordinates_positive_output = json.dumps(coordinates_list)
+
+        # 返回所有需要的数据，包括裁剪后的输入mask和coordinates_positive
         return (cropped_face_7, mask, str(squares_info), stacked_masks, 
                 str(original_eye_points_list), str(cropped_eye_points_list),
-                original_images_tensor, cropped_images_tensor, cropped_mask_tensor)
+                original_images_tensor, cropped_images_tensor, cropped_mask_tensor, coordinates_positive_output)
 
 
 class PasteFacesAdvanced:
