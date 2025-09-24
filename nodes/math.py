@@ -43,7 +43,6 @@ class I2VConfigureNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "images": ("IMAGE",),
                 "enable_ratio_adjustment": ("BOOLEAN", {"default": True, "tooltip": "自动交换输出的宽高以匹配输入图像的宽高比(横向/纵向)"}),
                 "output_width": ("INT", {"default": 512, "min": 64, "max": 8192, "tooltip": "输出视频的宽度"}),
                 "output_height": ("INT", {"default": 768, "min": 64, "max": 8192, "tooltip": "输出视频的高度"}),
@@ -53,6 +52,9 @@ class I2VConfigureNode:
                 "use_seconds_for_length": ("BOOLEAN", {"default": False, "tooltip": "如果启用，总帧数将根据 '秒数' * '帧率' + 1 计算得出"}), # 控制是否使用秒数计算length
                 "seconds": ("INT", {"default": 2, "min": 1, "max": 1000, "tooltip": "视频时长（秒）"}), # 秒数
                 "fps": ("INT", {"default": 16, "min": 1, "max": 100, "tooltip": "每秒帧数"}), # 帧率
+            },
+            "optional": {
+                "images": ("IMAGE",),
             }
         }
 
@@ -61,10 +63,14 @@ class I2VConfigureNode:
     FUNCTION = "adjust_i2v_config"
     CATEGORY = "A_my_nodes/math"
 
-    def adjust_i2v_config(self, images, enable_ratio_adjustment, output_width, output_height, length, steps, batch_size, use_seconds_for_length, seconds, fps):
+    def adjust_i2v_config(self, enable_ratio_adjustment, output_width, output_height, length, steps, batch_size, use_seconds_for_length, seconds, fps, images=None):
         # 如果启用秒数控制, 则根据秒数和帧率计算总帧数
         if use_seconds_for_length:
             length = seconds * fps + 1
+
+        # 如果没有输入图像，直接返回输入的宽高参数
+        if images is None:
+            return (output_width, output_height, length, steps, batch_size, seconds, float(fps))
 
         # 从图像张量中获取尺寸信息 (n,h,w,c)
         _, input_height, input_width, _ = images.shape
