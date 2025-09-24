@@ -409,6 +409,13 @@ app.registerExtension({
             const canMoveUp = !!this.widgets[index - 1]?.name?.startsWith("LORA_");
             const canMoveDown = !!this.widgets[index + 1]?.name?.startsWith("LORA_");
 
+            // 获取所有LoRA widgets的索引范围
+            const loraWidgets = this.widgets.filter(w => w.name?.startsWith("LORA_"));
+            const firstLoraIndex = this.widgets.findIndex(w => w.name?.startsWith("LORA_"));
+            const lastLoraIndex = this.widgets.map((w, i) => w.name?.startsWith("LORA_") ? i : -1).filter(i => i !== -1).pop();
+            const isFirst = index === firstLoraIndex;
+            const isLast = index === lastLoraIndex;
+
             const menuItems = [
                 { content: `${widget.value.on ? "⚫" : "🟢"} Toggle ${widget.value.on ? "Off" : "On"}`, callback: () => { widget.value.on = !widget.value.on; } },
                 { content: `📋 Copy Path`, disabled: !widget.value.lora || widget.value.lora === "None", callback: () => {
@@ -435,6 +442,20 @@ app.registerExtension({
                 }},
                 { content: `⬆️ Move Up`, disabled: !canMoveUp, callback: () => moveArrayItem(this.widgets, widget, index - 1) },
                 { content: `⬇️ Move Down`, disabled: !canMoveDown, callback: () => moveArrayItem(this.widgets, widget, index + 1) },
+                { content: `⏫ Move to Top`, disabled: isFirst || loraWidgets.length <= 1, callback: () => {
+                    // 移动到第一个LoRA widget的位置
+                    if (firstLoraIndex !== -1 && index !== firstLoraIndex) {
+                        moveArrayItem(this.widgets, widget, firstLoraIndex);
+                        showTopNotification('Moved to top', 'success');
+                    }
+                }},
+                { content: `⏬ Move to Bottom`, disabled: isLast || loraWidgets.length <= 1, callback: () => {
+                    // 移动到最后一个LoRA widget的位置
+                    if (lastLoraIndex !== -1 && index !== lastLoraIndex) {
+                        moveArrayItem(this.widgets, widget, lastLoraIndex);
+                        showTopNotification('Moved to bottom', 'success');
+                    }
+                }},
                 { content: `🗑️ Delete`, callback: () => removeArrayItem(this.widgets, widget) },
                 { content: `🗑️ Clear All`, callback: () => { this.widgets = this.widgets.filter(w => !w.name?.startsWith("LORA_")); } },
             ];
