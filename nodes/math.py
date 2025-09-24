@@ -210,15 +210,19 @@ class FramesSegmentSlicer:
                 "mask": ("MASK",),
                 # 上一段的图像 (n,h,w,c)，可为空
                 "prev_images": ("IMAGE",),
+                # 第一个额外图像输入 (n,h,w,c)，可为空
+                "image_1": ("IMAGE",),
+                # 第二个额外图像输入 (n,h,w,c)，可为空
+                "image_2": ("IMAGE",),
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "MASK", "INT", "INT", "INT", "INT", "INT", "INT")
-    RETURN_NAMES = ("image_segment", "mask_segment", "start_index", "length", "max_frames", "min_frames", "merge_mode", "overlap")
+    RETURN_TYPES = ("IMAGE", "MASK", "IMAGE", "IMAGE", "INT", "INT", "INT", "INT", "INT", "INT")
+    RETURN_NAMES = ("image_segment", "mask_segment", "image_1_segment", "image_2_segment", "start_index", "length", "max_frames", "min_frames", "merge_mode", "overlap")
     FUNCTION = "slice_segment"
     CATEGORY = "A_my_nodes/math"
 
-    def slice_segment(self, total_frames, split_value, overlap, max_frames, min_frames, merge_mode, index, enable_post_cover, effective_overlap, images=None, mask=None, prev_images=None):
+    def slice_segment(self, total_frames, split_value, overlap, max_frames, min_frames, merge_mode, index, enable_post_cover, effective_overlap, images=None, mask=None, prev_images=None, image_1=None, image_2=None):
         # 规范化与健壮性
         total_frames = int(total_frames)
         split_value = int(split_value)
@@ -270,6 +274,32 @@ class FramesSegmentSlicer:
                     mask_segment = mask[start:end_idx_m]
             except Exception:
                 mask_segment = None
+
+        # 截取 image_1 (n,h,w,c)
+        image_1_segment = None
+        if image_1 is not None and hasattr(image_1, 'shape'):
+            try:
+                n_1 = int(image_1.shape[0])
+                # 对齐到实际可用的帧范围
+                end_idx_1 = min(start + segment_length, n_1)
+                if end_idx_1 > start:
+                    image_1_segment = image_1[start:end_idx_1]
+            except Exception:
+                # 若输入不是预期张量形态，保持为 None
+                image_1_segment = None
+
+        # 截取 image_2 (n,h,w,c)
+        image_2_segment = None
+        if image_2 is not None and hasattr(image_2, 'shape'):
+            try:
+                n_2 = int(image_2.shape[0])
+                # 对齐到实际可用的帧范围
+                end_idx_2 = min(start + segment_length, n_2)
+                if end_idx_2 > start:
+                    image_2_segment = image_2[start:end_idx_2]
+            except Exception:
+                # 若输入不是预期张量形态，保持为 None
+                image_2_segment = None
 
         # 后处理覆盖逻辑：仅在开启、prev_images 存在、当前片段存在、有效重叠>0时生效
         if enable_post_cover and (prev_images is not None and hasattr(prev_images, 'shape')) and (image_segment is not None and hasattr(image_segment, 'shape')):
@@ -324,7 +354,7 @@ class FramesSegmentSlicer:
                             tail_mask = mask_segment[eff_mask:] if m_len > eff_mask else mask_segment[:0]
                             mask_segment = torch.cat([zeros_mask, tail_mask], dim=0)
 
-        return (image_segment, mask_segment, int(start), int(segment_length), max_frames, min_frames, merge_mode, overlap)
+        return (image_segment, mask_segment, image_1_segment, image_2_segment, int(start), int(segment_length), max_frames, min_frames, merge_mode, overlap)
 
 class ImagesConcatWithOverlap:
     def __init__(self):
