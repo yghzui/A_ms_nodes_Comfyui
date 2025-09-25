@@ -394,35 +394,38 @@ class APersonMaskGeneratorMs:
         # 转换为numpy数组用于ONNX推理
         return resized_tensor.cpu().numpy(), original_size
 
-    def _postprocess_onnx_outputs_batch(self, outputs: np.ndarray, original_size: tuple) -> list[torch.Tensor]:
-        """批量后处理ONNX输出，优化为批量操作"""
-        batch_size = outputs.shape[0]
+    def _postprocess_onnx_outputs_batch(self, outputs: np.ndarray, original_size: tuple) -> torch.Tensor:
+        """批量后处理ONNX输出，优化为批量操作，直接返回批次tensor"""
+        # 直接在numpy上应用softmax，避免不必要的tensor转换
+        # 使用scipy.special.softmax或手动实现softmax
+        exp_outputs = np.exp(outputs - np.max(outputs, axis=3, keepdims=True))
+        softmax_outputs = exp_outputs / np.sum(exp_outputs, axis=3, keepdims=True)
         
-        # 转换为PyTorch张量进行批量处理
-        output_tensor = torch.from_numpy(outputs).float()  # (n, 256, 256, 6)
+        # 只在需要插值时才转换为tensor
+        if original_size[::-1] != (256, 256):  # (height, width)
+            # 转换为PyTorch tensor进行插值
+            output_tensor = torch.from_numpy(softmax_outputs).float()
+            # 转换为 (n, c, h, w) 格式用于插值
+            output_tensor = output_tensor.permute(0, 3, 1, 2)  # (n, 6, 256, 256)
+            
+            # 使用双线性插值批量调整到原始尺寸
+            resized_output = torch.nn.functional.interpolate(
+                output_tensor, 
+                size=original_size[::-1],  # (height, width)
+                mode='bilinear', 
+                align_corners=False
+            )
+            
+            # 转换回 (n, h, w, c) 格式
+            result_tensor = resized_output.permute(0, 2, 3, 1)  # (n, h, w, 6)
+            
+            # 清理中间变量
+            del output_tensor, resized_output
+        else:
+            # 如果尺寸相同，直接转换为tensor
+            result_tensor = torch.from_numpy(softmax_outputs).float()
         
-        # 批量应用softmax激活函数
-        softmax_output = torch.nn.functional.softmax(output_tensor, dim=3)  # (n, 256, 256, 6)
-        
-        # 批量调整到原始尺寸
-        # 转换为 (n, c, h, w) 格式用于插值
-        softmax_output = softmax_output.permute(0, 3, 1, 2)  # (n, 6, 256, 256)
-        
-        # 使用双线性插值批量调整到原始尺寸
-        resized_output = torch.nn.functional.interpolate(
-            softmax_output, 
-            size=original_size[::-1],  # (height, width)
-            mode='bilinear', 
-            align_corners=False
-        )
-        
-        # 转换回 (n, h, w, c) 格式
-        resized_output = resized_output.permute(0, 2, 3, 1)  # (n, h, w, 6)
-        
-        # 分离为单独的张量列表
-        processed_outputs = [resized_output[i] for i in range(batch_size)]
-        
-        return processed_outputs
+        return result_tensor
 
 
 
@@ -525,14 +528,14 @@ class APersonMaskGeneratorMs:
         if onnx_outputs:
             # 合并所有输出为一个批次
             batch_outputs = np.concatenate(onnx_outputs, axis=0)  # (n, 256, 256, 6)
-            processed_outputs = self._postprocess_onnx_outputs_batch(batch_outputs, original_size)
+            processed_outputs_tensor = self._postprocess_onnx_outputs_batch(batch_outputs, original_size)
             
             # 及时释放中间数据
             del onnx_outputs, batch_outputs
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         else:
-            processed_outputs = []
+            processed_outputs_tensor = None
         
         postprocess_time = time.time() - start_time
         print(f"批量后处理完成，耗时: {postprocess_time:.3f}秒")
@@ -541,7 +544,7 @@ class APersonMaskGeneratorMs:
         print("正在批量转换区域遮罩...")
         start_time = time.time()
         
-        if not processed_outputs:
+        if processed_outputs_tensor is None:
             # 如果没有处理结果，返回空的tensor
             batch_size = len(images)
             if batch_size > 0:
@@ -552,13 +555,8 @@ class APersonMaskGeneratorMs:
             empty_mask = torch.zeros((batch_size, image_height, image_width), dtype=torch.float32)
             return (empty_mask, empty_mask, empty_mask, empty_mask, empty_mask, empty_mask)
         
-        # 将所有processed_outputs堆叠为一个批次tensor
-        processed_outputs_stack = torch.stack(processed_outputs, dim=0)  # (n, h, w, 6)
-        
-        # 及时释放processed_outputs
-        del processed_outputs
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        # 直接使用批次tensor，避免堆叠操作
+        # processed_outputs_tensor: (n, h, w, 6)
         
         # 通道索引映射 (与ONNX模型输出对应)
         channel_indices = {
@@ -570,12 +568,7 @@ class APersonMaskGeneratorMs:
         }
         
         # 批量阈值处理所有通道
-        all_masks_tensor = (processed_outputs_stack > confidence).float()  # (n, h, w, 6)
-        
-        # 及时释放processed_outputs_stack
-        del processed_outputs_stack
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        all_masks_tensor = (processed_outputs_tensor > confidence).float()  # (n, h, w, 6)
         
         # 提取各个通道的mask tensor (始终输出实际结果)
         face_masks = all_masks_tensor[:, :, :, channel_indices['face']]
@@ -600,11 +593,9 @@ class APersonMaskGeneratorMs:
             selected_masks = all_masks_tensor[:, :, :, selected_channels]  # (n, h, w, selected_count)
             merged_masks = selected_masks.any(dim=3).float()  # (n, h, w)
             del selected_masks
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
         
-        # 及时释放all_masks_tensor
-        del all_masks_tensor
+        # 及时释放processed_outputs_tensor和all_masks_tensor
+        del processed_outputs_tensor, all_masks_tensor
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         
