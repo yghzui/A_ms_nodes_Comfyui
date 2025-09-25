@@ -111,6 +111,10 @@ class APersonMaskGeneratorMs:
                     "INT",
                     {"default": -1, "min": -1, "max": 100, "step": 1, "tooltip": "最大批次大小，-1或0表示处理全部批次"},
                 ),
+                "merged_mask_only": (
+                    "BOOLEAN",
+                    {"default": False, "label_on": "enabled", "label_off": "disabled", "tooltip": "仅输出合并遮罩，其他遮罩返回None以节省内存"},
+                ),
             },
         }
 
@@ -237,7 +241,8 @@ class APersonMaskGeneratorMs:
             confidence: float,
             refine_mask: bool,
             original_size=None,
-            onnx_output=None
+            onnx_output=None,
+            merged_mask_only: bool = False
     ) -> tuple[Image, dict]:
         """
         使用ONNX模型生成遮罩，优化为PyTorch张量操作
@@ -274,31 +279,36 @@ class APersonMaskGeneratorMs:
         
         # 处理背景遮罩 (通道0)
         background_tensor = (processed_output[:, :, 0] > confidence).float()
-        individual_masks['background'] = background_tensor
+        if not merged_mask_only:
+            individual_masks['background'] = background_tensor
         if background_mask:
             masks_for_merge.append(background_tensor)
         
         # 处理头发遮罩 (通道1)
         hair_tensor = (processed_output[:, :, 1] > confidence).float()
-        individual_masks['hair'] = hair_tensor
+        if not merged_mask_only:
+            individual_masks['hair'] = hair_tensor
         if hair_mask:
             masks_for_merge.append(hair_tensor)
         
         # 处理身体遮罩 (通道2)
         body_tensor = (processed_output[:, :, 2] > confidence).float()
-        individual_masks['body'] = body_tensor
+        if not merged_mask_only:
+            individual_masks['body'] = body_tensor
         if body_mask:
             masks_for_merge.append(body_tensor)
         
         # 处理脸部遮罩 (通道3)
         face_tensor = (processed_output[:, :, 3] > confidence).float()
-        individual_masks['face'] = face_tensor
+        if not merged_mask_only:
+            individual_masks['face'] = face_tensor
         if face_mask:
             masks_for_merge.append(face_tensor)
         
         # 处理衣服遮罩 (通道4)
         clothes_tensor = (processed_output[:, :, 4] > confidence).float()
-        individual_masks['clothes'] = clothes_tensor
+        if not merged_mask_only:
+            individual_masks['clothes'] = clothes_tensor
         if clothes_mask:
             masks_for_merge.append(clothes_tensor)
         
@@ -328,6 +338,7 @@ class APersonMaskGeneratorMs:
                     clothes_mask=clothes_mask,
                     confidence=confidence,
                     refine_mask=False,
+                    merged_mask_only=merged_mask_only,
                 )
                 
                 # 更新合并遮罩 - 使用tensor操作
@@ -338,12 +349,13 @@ class APersonMaskGeneratorMs:
                 mask_image = updated_mask_tensor
                 
                 # 更新各个区域的遮罩 - 使用tensor操作
-                for key, cropped_mask in cropped_individual_masks.items():
-                    if cropped_mask is not None:
-                        updated_individual_tensor = torch.zeros((height, width), dtype=torch.float32)
-                        crop_h, crop_w = cropped_mask.shape
-                        updated_individual_tensor[bbox[1]:bbox[1]+crop_h, bbox[0]:bbox[0]+crop_w] = cropped_mask
-                        individual_masks[key] = updated_individual_tensor
+                if not merged_mask_only:
+                    for key, cropped_mask in cropped_individual_masks.items():
+                        if cropped_mask is not None:
+                            updated_individual_tensor = torch.zeros((height, width), dtype=torch.float32)
+                            crop_h, crop_w = cropped_mask.shape
+                            updated_individual_tensor[bbox[1]:bbox[1]+crop_h, bbox[0]:bbox[0]+crop_w] = cropped_mask
+                            individual_masks[key] = updated_individual_tensor
 
         return mask_image, individual_masks
 
@@ -425,6 +437,7 @@ class APersonMaskGeneratorMs:
             confidence: float,
             refine_mask: bool,
             max_batch_size: int = -1,
+            merged_mask_only: bool = False,
     ):
         """Create a segmentation mask from an image
 
@@ -452,13 +465,13 @@ class APersonMaskGeneratorMs:
             print(f"批次过大，将分为 {(total_images + max_batch_size - 1) // max_batch_size} 个批次处理，每批次最多 {max_batch_size} 张")
             return self._process_images_in_batches(
                 images, face_mask, background_mask, hair_mask, body_mask, 
-                clothes_mask, confidence, refine_mask, max_batch_size
+                clothes_mask, confidence, refine_mask, max_batch_size, merged_mask_only
             )
         
         # 原有的全批次处理逻辑
         return self._process_single_batch(
             images, face_mask, background_mask, hair_mask, body_mask, 
-            clothes_mask, confidence, refine_mask
+            clothes_mask, confidence, refine_mask, merged_mask_only
         )
 
     def _process_single_batch(
@@ -471,6 +484,7 @@ class APersonMaskGeneratorMs:
             clothes_mask: bool,
             confidence: float,
             refine_mask: bool,
+            merged_mask_only: bool = False,
     ):
         """处理单个批次的图像"""
         session = self._get_or_create_ort_session()
@@ -507,6 +521,7 @@ class APersonMaskGeneratorMs:
         
         # 批量后处理：将所有输出合并后一起处理
         print("正在进行批量后处理...")
+        start_time = time.time()
         if onnx_outputs:
             # 合并所有输出为一个批次
             batch_outputs = np.concatenate(onnx_outputs, axis=0)  # (n, 256, 256, 6)
@@ -519,8 +534,12 @@ class APersonMaskGeneratorMs:
         else:
             processed_outputs = []
         
+        postprocess_time = time.time() - start_time
+        print(f"批量后处理完成，耗时: {postprocess_time:.3f}秒")
+        
         # 批量生成遮罩 - 优化版本
         print("正在批量转换区域遮罩...")
+        start_time = time.time()
         
         if not processed_outputs:
             # 如果没有处理结果，返回空的tensor
@@ -589,11 +608,18 @@ class APersonMaskGeneratorMs:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         
+        mask_convert_time = time.time() - start_time
+        print(f"批量转换区域遮罩完成，耗时: {mask_convert_time:.3f}秒")
         print(f"单批次推理完成，处理了 {len(images)} 张图像")
         
-        # 始终返回6个固定的遮罩，按照RETURN_NAMES的顺序
-        # ("merged_mask", "face_mask", "background_mask", "hair_mask", "body_mask", "clothes_mask")
-        return (merged_masks, face_masks, background_masks, hair_masks, body_masks, clothes_masks)
+        # 根据merged_mask_only参数决定返回内容
+        if merged_mask_only:
+            # 仅返回合并遮罩，其他返回None以节省内存
+            return (merged_masks, None, None, None, None, None)
+        else:
+            # 始终返回6个固定的遮罩，按照RETURN_NAMES的顺序
+            # ("merged_mask", "face_mask", "background_mask", "hair_mask", "body_mask", "clothes_mask")
+            return (merged_masks, face_masks, background_masks, hair_masks, body_masks, clothes_masks)
 
     def _process_images_in_batches(
             self,
@@ -606,6 +632,7 @@ class APersonMaskGeneratorMs:
             confidence: float,
             refine_mask: bool,
             max_batch_size: int,
+            merged_mask_only: bool = False,
     ):
         """分批处理大量图像，避免内存溢出"""
         total_images = len(images)
@@ -631,16 +658,17 @@ class APersonMaskGeneratorMs:
             # 处理当前批次
             batch_results = self._process_single_batch(
                 batch_images, face_mask, background_mask, hair_mask, 
-                body_mask, clothes_mask, confidence, refine_mask
+                body_mask, clothes_mask, confidence, refine_mask, merged_mask_only
             )
             
             # 收集结果
             all_merged_masks.append(batch_results[0])
-            all_face_masks.append(batch_results[1])
-            all_background_masks.append(batch_results[2])
-            all_hair_masks.append(batch_results[3])
-            all_body_masks.append(batch_results[4])
-            all_clothes_masks.append(batch_results[5])
+            if not merged_mask_only:
+                all_face_masks.append(batch_results[1])
+                all_background_masks.append(batch_results[2])
+                all_hair_masks.append(batch_results[3])
+                all_body_masks.append(batch_results[4])
+                all_clothes_masks.append(batch_results[5])
             
             # 及时释放批次数据
             del batch_images, batch_results
@@ -650,21 +678,31 @@ class APersonMaskGeneratorMs:
         # 合并所有批次的结果
         print("合并所有批次结果...")
         merged_masks = torch.cat(all_merged_masks, dim=0)
-        face_masks = torch.cat(all_face_masks, dim=0)
-        background_masks = torch.cat(all_background_masks, dim=0)
-        hair_masks = torch.cat(all_hair_masks, dim=0)
-        body_masks = torch.cat(all_body_masks, dim=0)
-        clothes_masks = torch.cat(all_clothes_masks, dim=0)
         
-        # 及时释放临时列表
-        del all_merged_masks, all_face_masks, all_background_masks
-        del all_hair_masks, all_body_masks, all_clothes_masks
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        
-        print(f"分批推理完成，总共处理了 {total_images} 张图像")
-        
-        return (merged_masks, face_masks, background_masks, hair_masks, body_masks, clothes_masks)
+        if merged_mask_only:
+            # 仅返回合并遮罩，其他返回None以节省内存
+            del all_merged_masks
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
+            print(f"分批推理完成，总共处理了 {total_images} 张图像")
+            return (merged_masks, None, None, None, None, None)
+        else:
+            # 合并所有遮罩
+            face_masks = torch.cat(all_face_masks, dim=0)
+            background_masks = torch.cat(all_background_masks, dim=0)
+            hair_masks = torch.cat(all_hair_masks, dim=0)
+            body_masks = torch.cat(all_body_masks, dim=0)
+            clothes_masks = torch.cat(all_clothes_masks, dim=0)
+            
+            # 及时释放临时列表
+            del all_merged_masks, all_face_masks, all_background_masks
+            del all_hair_masks, all_body_masks, all_clothes_masks
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
+            print(f"分批推理完成，总共处理了 {total_images} 张图像")
+            return (merged_masks, face_masks, background_masks, hair_masks, body_masks, clothes_masks)
 
     def __del__(self):
         try:
