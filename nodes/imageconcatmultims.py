@@ -111,9 +111,13 @@ class ImageConcatMultiMs:
                     'up',
                 ],
                 {
-                "default": 'right'
+                "default": 'right',
+                "tooltip": "图像拼接方向：right-向右拼接，down-向下拼接，left-向左拼接，up-向上拼接。"
                 }),
-                "match_image_size": ("BOOLEAN", {"default": False}),
+                "match_image_size": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "是否匹配图像尺寸。启用时会将所有图像调整为相同尺寸后再拼接。"
+                }),
                 "batch_align_mode": (
                 [   'pad_black',
                     'repeat_tensor', 
@@ -121,7 +125,8 @@ class ImageConcatMultiMs:
                     'truncate_to_shortest',
                 ],
                 {
-                "default": 'repeat_last_frame'
+                "default": 'pad_black',
+                "tooltip": "批次对齐模式：pad_black-用黑色填充，repeat_tensor-重复整个张量，repeat_last_frame-重复最后一帧，truncate_to_shortest-截断到最短批次。"
                 }),
                 "device_align_mode": (
                 [   'first_image',
@@ -129,7 +134,8 @@ class ImageConcatMultiMs:
                     'cpu',
                 ],
                 {
-                "default": 'first_image'
+                "default": 'first_image',
+                "tooltip": "设备对齐模式：first_image-使用第一张图像的设备，gpu-强制使用GPU，cpu-强制使用CPU。"
                 }),
             },
             "optional": {
