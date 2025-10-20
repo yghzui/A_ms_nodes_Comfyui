@@ -39,14 +39,16 @@ from .nodes.text_dict_checker import TextDictChecker
 from .nodes.image_expand import ImageExpand
 # 新增导入：增强版图像混合节点
 from .nodes.ImageBlendAdvance_my import ImageBlendAdvanceMy
-
-# 导入路由模块
-from . import routes
+# 新增导入：图像拼接多输入节点
+from .nodes.imageconcatmultims import ImageConcatMultiMs
 
 # 延迟注册路由 - 确保在ComfyUI完全初始化后注册
 def register_custom_routes():
     """延迟注册自定义路由"""
     try:
+        # 延迟导入路由模块，避免启动时的依赖问题
+        from . import routes
+        
         # 检查是否已经注册过
         if hasattr(routes, '_routes_registered') and routes._routes_registered:
             print("⚠️ 路由已经注册过了，跳过重复注册")
@@ -56,8 +58,21 @@ def register_custom_routes():
     except Exception as e:
         print(f"❌ 自定义路由注册失败: {e}")
 
-# 使用延迟注册机制，确保在PromptServer初始化后注册
-routes.delayed_register_routes()
+# 延迟注册路由，避免在模块导入时就执行
+def delayed_register_routes():
+    """延迟注册路由的包装函数"""
+    try:
+        from . import routes
+        routes.delayed_register_routes()
+    except Exception as e:
+        print(f"❌ 延迟路由注册失败: {e}")
+
+# 在模块加载完成后尝试注册路由
+try:
+    delayed_register_routes()
+except:
+    # 如果路由注册失败，不影响节点的正常加载
+    pass
 
 NODE_CLASS_MAPPINGS = {
     "LoadAndResizeImageMy": LoadAndResizeImageMy,
@@ -120,6 +135,8 @@ NODE_CLASS_MAPPINGS = {
     "ImageTakeLast": ImageTakeLast,
     "LoadLoraMerge": LoadLoraMerge,
     "IndexSelector": IndexSelector,
+    # 新增注册：图像拼接多输入节点
+    "ImageConcatMultiMs": ImageConcatMultiMs,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by ms",
@@ -179,6 +196,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageTakeLast": "ImageTakeLast 图像截取(后N张) by ms",
     "LoadLoraMerge": "LoadLoraMerge 合并加载LoRA by ms",
     "IndexSelector": "IndexSelector 索引选择器 by ms",
+    # 新增显示名称：图像拼接多输入节点
+    "ImageConcatMultiMs": "ImageConcatMultiMs 图像拼接(多输入动态) by ms",
 }
 
 WEB_DIRECTORY = "./web/js"
