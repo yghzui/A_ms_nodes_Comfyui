@@ -8,11 +8,6 @@ from .nodes.mask_nodes import *
 from .nodes.text_nodes import *
 from .nodes.notice import NoticeSound
 from .nodes.resize_image_by_person import ResizeImageByPerson,CropInfoToNumbers
-# from .nodes.a_person_face_landmark_mask_generator_comfyui_add_nose import APersonFaceLandmarkMaskGeneratorAddNose
-# from .nodes.a_person_face_landmark_mask_generator_comfyui_by_my import APersonFaceLandmarkMaskGenerator
-from .nodes.person_and_face.a_person_face_landmark_mask_generator_comfyui import  APersonFaceLandmarkMaskGenerator
-from .nodes.person_and_face.a_person_mask_generator_comfyui import APersonMaskGeneratorMs
-
 from .nodes.math import AspectRatioAdjuster,I2VConfigureNode, FramesSplitCalculator, FramesSegmentSlicer, ImagesConcatWithOverlap, ImageTakeLast
 from .nodes.face_flip import FaceFlip
 from .nodes.create_color_image_mask import CreateColorImageAndMask
@@ -96,8 +91,6 @@ NODE_CLASS_MAPPINGS = {
     "MyLoadImageListPlus": MyLoadImageListPlus,
     "RemoveGlassesFaceMask": RemoveGlassesFaceMask,
     "AdjustMaskValues": AdjustMaskValues,
-    "APersonFaceLandmarkMaskGeneratorByMy":APersonFaceLandmarkMaskGenerator,
-    "APersonMaskGeneratorMs":APersonMaskGeneratorMs,
     "NoticeSound": NoticeSound,
     "AspectRatioAdjuster": AspectRatioAdjuster,
     "I2VConfigureNode": I2VConfigureNode,
@@ -161,8 +154,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "MyLoadImageListPlus": "MyLoadImageListPlus 加载图片列表 by ms",
     "RemoveGlassesFaceMask": "RemoveGlassesFaceMask 去除眼镜 by ms",
     "AdjustMaskValues": "AdjustMaskValues 调整遮罩值 by ms",
-    "APersonFaceLandmarkMaskGeneratorByMy":"APersonFaceLandmarkMaskGeneratorByMy 生成面部遮罩 by ms",
-    "APersonMaskGeneratorMs":"APersonMaskGeneratorMs 生成人物遮罩 by ms",
     "NoticeSound": "铃声提醒节点 by ms",
     "AspectRatioAdjuster": "宽高比调整节点 by ms",
     "I2VConfigureNode": "I2V配置节点 by ms",
