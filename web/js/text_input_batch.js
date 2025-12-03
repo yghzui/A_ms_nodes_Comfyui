@@ -502,12 +502,24 @@ function layoutCells(node, items) {
     const MIN_H = 72; // 增加最小高度以容纳标题+内容
     const n = items.length;
     if (n === 0) return [];
-    
+
     const cols = n > 1 ? 2 : 1;
     const rows = Math.ceil(n / cols);
     const availW = node.size[0] - PADDING * 2;
     const cellW = Math.floor((availW - GAP * (cols - 1)) / cols);
     const startY = PADDING + getWidgetsBottom(node);
+
+    const requiredH = rows * MIN_H + GAP * Math.max(0, rows - 1);
+    const minTotalH = startY + requiredH + PADDING;
+    if (node.size[1] < minTotalH) {
+        if (typeof node.setSize === 'function') {
+            node.setSize([node.size[0], minTotalH]);
+        } else {
+            node.size[1] = minTotalH;
+        }
+        app.graph.setDirtyCanvas(true, true);
+    }
+
     const availH = Math.max(0, node.size[1] - startY - PADDING);
     const cellH = Math.max(MIN_H, Math.floor((availH - GAP * (rows - 1)) / rows));
 
