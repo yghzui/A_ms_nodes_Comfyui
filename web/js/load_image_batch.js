@@ -1318,7 +1318,7 @@ function populate(imagePaths) {
                     e.stopPropagation();
                     
                     // 执行清除操作
-                    this.clearImageWithConfirmation(this._customFocusedImageIndex);
+                    this.executeClear(this._customFocusedImageIndex);
                     
                     return true;
                 }
@@ -1381,7 +1381,7 @@ function populate(imagePaths) {
                     e.stopPropagation();
                     
                     // 执行清除操作
-                    this.clearImageWithConfirmation(i);
+                    this.executeClear(i);
                     
                     return true;
                 }
@@ -1720,12 +1720,8 @@ function executeClear(imageIndex) {
         showImages(this, this._customImagePaths);
         
         console.log(`✅ 成功清除图片 ${imageIndex}`);
-        
-        // 显示清除成功提示
-        this.showClearResult(true);
     } else {
         console.error("图片索引超出范围或没有图片数据");
-        this.showClearResult(false);
     }
 }
 
@@ -2225,7 +2221,7 @@ app.registerExtension({
                             e.stopPropagation();
                             
                             // 执行清除操作
-                            clearImageWithConfirmation.call(this, i);
+                            this.executeClear(i);
                             
                             return true;
                         }
@@ -2276,4 +2272,4 @@ app.registerExtension({
             });
         }
     },
-}); 
+});
