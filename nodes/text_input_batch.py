@@ -20,7 +20,9 @@ class TextInputBatch:
                 # 选中的索引作为必填输入口；保留小部件以便直接输入（不强制为连接端口）
                 "index": ("INT", {"default": 0, "min": 0, "max": 100000000, "tooltip": "返回第几个字符串（从0开始）。越界则回退到第一个"}),
             },
-            "optional": {},
+            "optional": {
+                "columns": ("INT", {"default": 2, "min": 1, "max": 8, "tooltip": "布局列数（1-8）"})
+            },
             "hidden": {
                 # 字符串列表容器（前端写入，后端解析）；隐藏以避免未加载前端脚本时出现可见输入框
                 "strings_json": ("STRING", {"default": "[]"}),
@@ -33,7 +35,7 @@ class TextInputBatch:
     FUNCTION = "aggregate_strings"
     CATEGORY = "A_my_nodes/text"
 
-    def aggregate_strings(self, index=0, strings_json="[]"):
+    def aggregate_strings(self, index=0, strings_json="[]", columns=2):
         # 健壮解析 JSON
         try:
             data = json.loads(strings_json) if isinstance(strings_json, str) else []

@@ -150,23 +150,45 @@ function updateTextareaStyles(node) {
     }
 }
 
-// {{ AURA-X: Modify - 修复添加按钮功能，创建新的标题+内容数据项并调用ensureTextareas更新UI. }}
+function bindColumnsChange(node) {
+    const w = node.widgets?.find(w => w.name === "columns");
+    if (!w) return;
+    const initialNum = Number(w.value);
+    if (!Number.isFinite(initialNum)) {
+        const parsed = parseInt(String(w.value), 10);
+        w.value = Number.isFinite(parsed) ? Math.max(1, Math.min(8, Math.floor(parsed))) : 2;
+    } else {
+        w.value = Math.max(1, Math.min(8, Math.floor(initialNum)));
+    }
+    if (w.__columnsCbInstalled) return;
+    const orig = w.callback;
+    w.callback = (v) => {
+        const num = Number(v);
+        const base = Number.isFinite(num) ? num : parseInt(String(v), 10);
+        const val = Number.isFinite(base) ? Math.max(1, Math.min(8, Math.floor(base))) : 2;
+        w.value = val;
+        if (orig) { try { orig(val); } catch(e) {} }
+        const items = getItems(node);
+        const cells = layoutCells(node, items);
+        ensureTextareas(node, cells, items);
+        app.graph.setDirtyCanvas(true, true);
+        return true;
+    };
+    w.__columnsCbInstalled = true;
+}
+
 function installAddButton(node) {
     if (node.__addButtonInstalled) return;
     const addBtn = node.addWidget("button", "➕ 添加字符串", null, () => {
         const items = getItems(node);
         const newIndex = items.length;
-        // {{ AURA-X: Modify - 创建新的数据项，包含标题和内容，修复UI更新问题. }}
         items.push({
             title: `prompt_${newIndex}`,
             content: ""
         });
         setItems(node, items);
-        
-        // {{ AURA-X: Add - 立即更新UI显示新添加的输入框，修复按钮点击无反应问题. }}
         const layout = layoutCells(node, items);
         ensureTextareas(node, layout, items);
-        
         app.graph.setDirtyCanvas(true, true);
         return true;
     });
@@ -499,11 +521,23 @@ function ensureTextareas(node, layout, items) {
 function layoutCells(node, items) {
     const PADDING = 8;
     const GAP = 6;
-    const MIN_H = 72; // 增加最小高度以容纳标题+内容
+    const MIN_H = 72;
     const n = items.length;
     if (n === 0) return [];
 
-    const cols = n > 1 ? 2 : 1;
+    let cols = 2;
+    const wCols = node.widgets?.find(w => w.name === "columns");
+    if (wCols) {
+        const v = wCols.value;
+        const num = Number(v);
+        if (Number.isFinite(num)) {
+            cols = num;
+        } else {
+            const parsed = parseInt(String(v), 10);
+            cols = Number.isFinite(parsed) ? parsed : 2;
+        }
+    }
+    cols = Math.floor(Math.max(1, Math.min(8, cols)));
     const rows = Math.ceil(n / cols);
     const availW = node.size[0] - PADDING * 2;
     const cellW = Math.floor((availW - GAP * (cols - 1)) / cols);
@@ -623,7 +657,8 @@ app.registerExtension({
             ensureStringsJsonWidget(this);
             installAddButton(this);
             installDrawingHandlers(this);
-            installIndexChangeListener(this); // 安装索引变化监听器
+            installIndexChangeListener(this);
+            bindColumnsChange(this);
             setItems(this, getItems(this));
         };
 
@@ -633,7 +668,8 @@ app.registerExtension({
             ensureStringsJsonWidget(this);
             installAddButton(this);
             installDrawingHandlers(this);
-            installIndexChangeListener(this); // 安装索引变化监听器
+            installIndexChangeListener(this);
+            bindColumnsChange(this);
             if (info && info.properties && typeof info.properties._strings === 'string') {
                 this.properties = this.properties || {};
                 this.properties._strings = info.properties._strings;
