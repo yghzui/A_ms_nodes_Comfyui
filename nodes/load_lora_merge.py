@@ -2,6 +2,7 @@
 import folder_paths
 import nodes
 import json
+import os
 
 class AnyType(str):
     """A special class that is always equal in not equal comparisons."""
@@ -83,7 +84,7 @@ class LoadLoraMerge:
             lora_name = value.get("lora", "None")
             strength = value.get("strength", 1.0)
             
-            if not enabled or lora_name == "None" or strength == 0.0:
+            if (not enabled) or (lora_name in ("none", "None", "", None)) or (strength == 0.0):
                 continue
 
             print(f"[LoadLoraMerge] 🛰️Enabled LoRA: {lora_name}, Strength: {strength}")
@@ -101,11 +102,11 @@ class LoadLoraMerge:
 
             # --- Part 2: Collect LoRA for WANVIDLORA output ---
             try:
-                lora_path = folder_paths.get_full_path("loras", lora_name)
+                lora_path = folder_paths.get_full_path_or_raise("loras", lora_name)
                 loras_list_for_wan.append({
                     "path": lora_path,
-                    "strength": round(strength, 4),
-                    "name": lora_name.split(".")[0],
+                    "strength": round(strength, 4) if not isinstance(strength, list) else strength,
+                    "name": os.path.splitext(lora_name)[0],
                     "blocks": blocks.get("selected_blocks", {}) if blocks else {},
                     "layer_filter": blocks.get("layer_filter", "") if blocks else "",
                     "low_mem_load": low_mem_load,

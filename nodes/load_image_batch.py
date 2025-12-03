@@ -20,6 +20,7 @@ class LoadImageBatchAdvanced:
             "required": {
                 # 这个隐藏的输入字段将由前端的JS代码填充
                 "image_paths": ("STRING", {"default": "", "multiline": False, "widget": "hidden"}),
+                "image_path_use": ("STRING", {"default": "", "multiline": False}),
                 # 添加遮罩归一化选项
                 "normalize_mask": ("BOOLEAN", {"default": True, "label": "归一化遮罩"}),
                 # 新增：是否将透明通道应用到图像（将alpha乘到RGB）
@@ -37,12 +38,12 @@ class LoadImageBatchAdvanced:
     FUNCTION = "load_images"
     CATEGORY = "A_my_nodes/Image"
 
-    def load_images(self, image_paths, normalize_mask=True, apply_alpha_to_image=False, trigger=0):
-        if not image_paths:
-            # 如果没有图像路径，返回三个空列表
-            return ([], [], [],)
+    def load_images(self, image_paths, image_path_use="", normalize_mask=True, apply_alpha_to_image=False, trigger=0):
+        use_str = (image_path_use or '').strip() or (image_paths or '').strip()
+        if not use_str:
+            return ([], [], [], 0, "")
 
-        paths = image_paths.split(',')
+        paths = use_str.split(',')
         input_dir = folder_paths.get_input_directory()
         
         image_list = []

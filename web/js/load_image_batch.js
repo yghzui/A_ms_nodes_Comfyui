@@ -52,7 +52,7 @@ function calculateImageLayout(node, imageCount) {
     const PADDING = 8;
     
     // 为顶部输入控件和图片标题预留更多空间
-    const TOP_MARGIN = 220; // 再向下腾挪空间，容纳新增控件（如"应用透明到图像"开关）
+    const TOP_MARGIN = 240; // 再向下腾挪空间，容纳新增控件（如"应用透明到图像"开关）
     const TITLE_HEIGHT = 25; // 图片标题的高度
     const BOTTOM_CONTROLS_HEIGHT = 30; // 底部控制按钮的高度
     
@@ -164,11 +164,10 @@ function updateWidgetValue(node) {
         }
     }
     
-    // 更新widget的值
-    const imagePathsWidget = node.widgets.find(w => w.name === "image_paths");
-    if (imagePathsWidget) {
-        imagePathsWidget.value = selectedPaths.join(',');
-        console.log("更新widget值，选中的图片数量:", selectedPaths.length);
+    const imagePathUseWidget = node.widgets.find(w => w.name === "image_path_use");
+    if (imagePathUseWidget) {
+        imagePathUseWidget.value = selectedPaths.join(',');
+        console.log("更新选中图片数量:", selectedPaths.length);
     }
 }
 
@@ -210,9 +209,12 @@ function showImages(node, paths) {
     node._customClearButtonRects = []; // 初始化清除按钮区域数组
     node._customCheckboxRects = []; // 初始化复选框区域数组
     
-    // 初始化选择状态 - 默认全部选中
-    if (!node._customSelectedImages || node._customSelectedImages.length !== validPaths.length) {
+    const imagePathUseWidget = node.widgets.find(w => w.name === "image_path_use");
+    const selectedList = (imagePathUseWidget && imagePathUseWidget.value) ? imagePathUseWidget.value.split(',').filter(s => s.trim()) : [];
+    if (!selectedList.length) {
         node._customSelectedImages = new Array(validPaths.length).fill(true);
+    } else {
+        node._customSelectedImages = validPaths.map(p => selectedList.includes(p));
     }
     
     // 初始化单图片显示状态
@@ -1712,10 +1714,9 @@ function executeClear(imageIndex) {
             this._customImageFileNames.splice(imageIndex, 1);
         }
         
-        // 更新widget的值
+        const imagePathsWidget = this.widgets.find(w => w.name === "image_paths");
+        if (imagePathsWidget) imagePathsWidget.value = (this._customImagePaths || []).join(',');
         updateWidgetValue(this);
-        
-        // 重新显示图片
         showImages(this, this._customImagePaths);
         
         console.log(`✅ 成功清除图片 ${imageIndex}`);
@@ -1804,7 +1805,14 @@ app.registerExtension({
                 const node = this; // `this` 指向当前的节点实例
 
                 const pathWidget = node.widgets.find((w) => w.name === "image_paths");
+                const pathUseWidget = node.widgets.find((w) => w.name === "image_path_use");
                 const triggerWidget = node.widgets.find((w) => w.name === "trigger");
+                if (pathWidget) pathWidget.hidden = true;
+                if (pathUseWidget) pathUseWidget.hidden = false;
+                if (triggerWidget) {
+                    const v = Number(triggerWidget.value);
+                    if (!Number.isFinite(v)) triggerWidget.value = 1;
+                }
 
                 const fileInput = document.createElement("input");
                 Object.assign(fileInput, {
@@ -1846,9 +1854,9 @@ app.registerExtension({
                             }
 
                             if (allPaths.length > 0) {
-                                // 用新上传的路径替换现有路径，而不是合并
                                 pathWidget.value = allPaths.join(',');
-                                triggerWidget.value = (triggerWidget.value || 0) + 1;
+                                const cur = Number(triggerWidget?.value);
+                                triggerWidget.value = (Number.isFinite(cur) ? cur : 0) + 1;
                                 populate.call(node, allPaths);
                             }
 
@@ -1984,7 +1992,8 @@ app.registerExtension({
                         finalList = newPaths;
                     }
                     pathWidget.value = finalList.join(',');
-                    triggerWidget.value = (triggerWidget.value || 0) + 1;
+                    const cur = Number(triggerWidget?.value);
+                    triggerWidget.value = (Number.isFinite(cur) ? cur : 0) + 1;
                     populate.call(node, finalList);
                 }
 
@@ -2137,6 +2146,11 @@ app.registerExtension({
             // 当工作流加载时，恢复预览
             chainCallback(nodeType.prototype, "onConfigure", function() {
                 const imagePathsWidget = this.widgets.find(w => w.name === "image_paths");
+                const triggerWidget = this.widgets.find(w => w.name === "trigger");
+                if (triggerWidget) {
+                    const v = Number(triggerWidget.value);
+                    triggerWidget.value = Number.isFinite(v) ? v : 1;
+                }
                 if (imagePathsWidget && imagePathsWidget.value) {
                     const paths = imagePathsWidget.value.split(',').filter(path => path.trim());
                     if (paths.length > 0) {
