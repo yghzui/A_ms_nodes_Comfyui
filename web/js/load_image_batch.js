@@ -623,60 +623,81 @@ function drawNodeImages(node, ctx) {
             ctx.fillText(fileName, node.size[0] / 2, fileNameY);
         }
     } else {
-        // 多图片模式下绘制底部控制按钮
         const buttonHeight = 25;
         const buttonSpacing = 10;
         const buttonY = node.size[1] - buttonHeight - 5;
-        
-        // 计算全选和反选按钮的位置
+        const selectW = 60;
+        const invertW = 60;
+        const clearW = 90;
         const selectAllButtonX = 10;
-        const invertSelectionButtonX = selectAllButtonX + 60 + buttonSpacing;
-        
-        // 检查鼠标是否悬浮在按钮上
+        const invertSelectionButtonX = selectAllButtonX + selectW + buttonSpacing;
+        const clearSelectedButtonX = invertSelectionButtonX + invertW + buttonSpacing;
+        const clearUnselectedButtonX = clearSelectedButtonX + clearW + buttonSpacing;
         const mouseInSelectAllButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
-            node._customMouseX >= selectAllButtonX && node._customMouseX <= selectAllButtonX + 60 &&
+            node._customMouseX >= selectAllButtonX && node._customMouseX <= selectAllButtonX + selectW &&
             node._customMouseY >= buttonY && node._customMouseY <= buttonY + buttonHeight;
-        
         const mouseInInvertSelectionButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
-            node._customMouseX >= invertSelectionButtonX && node._customMouseX <= invertSelectionButtonX + 60 &&
+            node._customMouseX >= invertSelectionButtonX && node._customMouseX <= invertSelectionButtonX + invertW &&
             node._customMouseY >= buttonY && node._customMouseY <= buttonY + buttonHeight;
-        
-        // 绘制全选按钮
+        const mouseInClearSelectedButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
+            node._customMouseX >= clearSelectedButtonX && node._customMouseX <= clearSelectedButtonX + clearW &&
+            node._customMouseY >= buttonY && node._customMouseY <= buttonY + buttonHeight;
+        const mouseInClearUnselectedButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
+            node._customMouseX >= clearUnselectedButtonX && node._customMouseX <= clearUnselectedButtonX + clearW &&
+            node._customMouseY >= buttonY && node._customMouseY <= buttonY + buttonHeight;
         ctx.fillStyle = mouseInSelectAllButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(selectAllButtonX, buttonY, 60, buttonHeight);
-        
+        ctx.fillRect(selectAllButtonX, buttonY, selectW, buttonHeight);
         ctx.strokeStyle = mouseInSelectAllButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
         ctx.lineWidth = mouseInSelectAllButton ? 2 : 1;
-        ctx.strokeRect(selectAllButtonX, buttonY, 60, buttonHeight);
-        
+        ctx.strokeRect(selectAllButtonX, buttonY, selectW, buttonHeight);
         ctx.fillStyle = 'rgba(255, 255, 255, 1)';
         ctx.font = '12px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('全选', selectAllButtonX + 30, buttonY + buttonHeight / 2);
-        
-        // 绘制反选按钮
+        ctx.fillText('全选', selectAllButtonX + selectW / 2, buttonY + buttonHeight / 2);
         ctx.fillStyle = mouseInInvertSelectionButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(invertSelectionButtonX, buttonY, 60, buttonHeight);
-        
+        ctx.fillRect(invertSelectionButtonX, buttonY, invertW, buttonHeight);
         ctx.strokeStyle = mouseInInvertSelectionButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
         ctx.lineWidth = mouseInInvertSelectionButton ? 2 : 1;
-        ctx.strokeRect(invertSelectionButtonX, buttonY, 60, buttonHeight);
-        
+        ctx.strokeRect(invertSelectionButtonX, buttonY, invertW, buttonHeight);
         ctx.fillStyle = 'rgba(255, 255, 255, 1)';
-        ctx.fillText('反选', invertSelectionButtonX + 30, buttonY + buttonHeight / 2);
-        
-        // 保存按钮区域信息
+        ctx.fillText('反选', invertSelectionButtonX + invertW / 2, buttonY + buttonHeight / 2);
+        ctx.fillStyle = mouseInClearSelectedButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(clearSelectedButtonX, buttonY, clearW, buttonHeight);
+        ctx.strokeStyle = mouseInClearSelectedButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = mouseInClearSelectedButton ? 2 : 1;
+        ctx.strokeRect(clearSelectedButtonX, buttonY, clearW, buttonHeight);
+        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+        ctx.fillText('清除选中', clearSelectedButtonX + clearW / 2, buttonY + buttonHeight / 2);
+        ctx.fillStyle = mouseInClearUnselectedButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(clearUnselectedButtonX, buttonY, clearW, buttonHeight);
+        ctx.strokeStyle = mouseInClearUnselectedButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = mouseInClearUnselectedButton ? 2 : 1;
+        ctx.strokeRect(clearUnselectedButtonX, buttonY, clearW, buttonHeight);
+        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+        ctx.fillText('清除未选', clearUnselectedButtonX + clearW / 2, buttonY + buttonHeight / 2);
         node._customSelectAllButtonRect = {
             x: selectAllButtonX,
             y: buttonY,
-            width: 60,
+            width: selectW,
             height: buttonHeight
         };
         node._customInvertSelectionButtonRect = {
             x: invertSelectionButtonX,
             y: buttonY,
-            width: 60,
+            width: invertW,
+            height: buttonHeight
+        };
+        node._customClearSelectedButtonRect = {
+            x: clearSelectedButtonX,
+            y: buttonY,
+            width: clearW,
+            height: buttonHeight
+        };
+        node._customClearUnselectedButtonRect = {
+            x: clearUnselectedButtonX,
+            y: buttonY,
+            width: clearW,
             height: buttonHeight
         };
     }
@@ -1134,70 +1155,100 @@ function populate(imagePaths) {
             }
         }
         
-        // 检查是否点击底部控制按钮（多图片模式）
         if (!this._customSingleImageMode) {
-            // 检查点击全选按钮
             if (this._customSelectAllButtonRect) {
-                const absSelectAllButtonX = nodePos[0] + this._customSelectAllButtonRect.x;
-                const absSelectAllButtonY = nodePos[1] + this._customSelectAllButtonRect.y;
-                const absSelectAllButtonWidth = this._customSelectAllButtonRect.width;
-                const absSelectAllButtonHeight = this._customSelectAllButtonRect.height;
-                
-                if (e.canvasX >= absSelectAllButtonX && e.canvasX <= absSelectAllButtonX + absSelectAllButtonWidth &&
-                    e.canvasY >= absSelectAllButtonY && e.canvasY <= absSelectAllButtonY + absSelectAllButtonHeight) {
-                    
-                    console.log("点击全选按钮");
-                    
-                    // 阻止事件冒泡
+                const ax = nodePos[0] + this._customSelectAllButtonRect.x;
+                const ay = nodePos[1] + this._customSelectAllButtonRect.y;
+                const aw = this._customSelectAllButtonRect.width;
+                const ah = this._customSelectAllButtonRect.height;
+                if (e.canvasX >= ax && e.canvasX <= ax + aw && e.canvasY >= ay && e.canvasY <= ay + ah) {
                     e.preventDefault();
                     e.stopPropagation();
-                    
-                    // 全选所有图片
                     if (this._customSelectedImages && this._customSelectedImages.length > 0) {
                         this._customSelectedImages.fill(true);
-                        console.log("全选所有图片");
-                        
-                        // 更新widget的值
                         updateWidgetValue(this);
-                        
-                        // 触发重绘
                         app.graph.setDirtyCanvas(true, false);
                     }
-                    
                     return true;
                 }
             }
-            
-            // 检查点击反选按钮
             if (this._customInvertSelectionButtonRect) {
-                const absInvertSelectionButtonX = nodePos[0] + this._customInvertSelectionButtonRect.x;
-                const absInvertSelectionButtonY = nodePos[1] + this._customInvertSelectionButtonRect.y;
-                const absInvertSelectionButtonWidth = this._customInvertSelectionButtonRect.width;
-                const absInvertSelectionButtonHeight = this._customInvertSelectionButtonRect.height;
-                
-                if (e.canvasX >= absInvertSelectionButtonX && e.canvasX <= absInvertSelectionButtonX + absInvertSelectionButtonWidth &&
-                    e.canvasY >= absInvertSelectionButtonY && e.canvasY <= absInvertSelectionButtonY + absInvertSelectionButtonHeight) {
-                    
-                    console.log("点击反选按钮");
-                    
-                    // 阻止事件冒泡
+                const ax = nodePos[0] + this._customInvertSelectionButtonRect.x;
+                const ay = nodePos[1] + this._customInvertSelectionButtonRect.y;
+                const aw = this._customInvertSelectionButtonRect.width;
+                const ah = this._customInvertSelectionButtonRect.height;
+                if (e.canvasX >= ax && e.canvasX <= ax + aw && e.canvasY >= ay && e.canvasY <= ay + ah) {
                     e.preventDefault();
                     e.stopPropagation();
-                    
-                    // 反选所有图片
                     if (this._customSelectedImages && this._customSelectedImages.length > 0) {
                         for (let i = 0; i < this._customSelectedImages.length; i++) {
                             this._customSelectedImages[i] = !this._customSelectedImages[i];
                         }
-                        console.log("反选所有图片");
-                        
-                        // 更新widget的值
                         updateWidgetValue(this);
-                        
-                        // 触发重绘
                         app.graph.setDirtyCanvas(true, false);
                     }
-                    
+                    return true;
+                }
+            }
+            if (this._customClearSelectedButtonRect) {
+                const ax = nodePos[0] + this._customClearSelectedButtonRect.x;
+                const ay = nodePos[1] + this._customClearSelectedButtonRect.y;
+                const aw = this._customClearSelectedButtonRect.width;
+                const ah = this._customClearSelectedButtonRect.height;
+                if (e.canvasX >= ax && e.canvasX <= ax + aw && e.canvasY >= ay && e.canvasY <= ay + ah) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (this._customImagePaths && this._customSelectedImages) {
+                        const newPaths = [];
+                        const newSelected = [];
+                        const newNames = [];
+                        for (let i = 0; i < this._customImagePaths.length; i++) {
+                            if (!this._customSelectedImages[i]) {
+                                newPaths.push(this._customImagePaths[i]);
+                                newSelected.push(this._customSelectedImages[i]);
+                                if (this._customImageFileNames && this._customImageFileNames[i]) newNames.push(this._customImageFileNames[i]);
+                            }
+                        }
+                        this._customImagePaths = newPaths;
+                        this._customSelectedImages = newSelected.length ? newSelected : new Array(newPaths.length).fill(true);
+                        this._customImageFileNames = newNames;
+                        const imagePathsWidget = this.widgets.find(w => w.name === "image_paths");
+                        if (imagePathsWidget) imagePathsWidget.value = (this._customImagePaths || []).join(',');
+                        updateWidgetValue(this);
+                        showImages(this, this._customImagePaths);
+                        app.graph.setDirtyCanvas(true, false);
+                    }
+                    return true;
+                }
+            }
+            if (this._customClearUnselectedButtonRect) {
+                const ax = nodePos[0] + this._customClearUnselectedButtonRect.x;
+                const ay = nodePos[1] + this._customClearUnselectedButtonRect.y;
+                const aw = this._customClearUnselectedButtonRect.width;
+                const ah = this._customClearUnselectedButtonRect.height;
+                if (e.canvasX >= ax && e.canvasX <= ax + aw && e.canvasY >= ay && e.canvasY <= ay + ah) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (this._customImagePaths && this._customSelectedImages) {
+                        const newPaths = [];
+                        const newSelected = [];
+                        const newNames = [];
+                        for (let i = 0; i < this._customImagePaths.length; i++) {
+                            if (this._customSelectedImages[i]) {
+                                newPaths.push(this._customImagePaths[i]);
+                                newSelected.push(this._customSelectedImages[i]);
+                                if (this._customImageFileNames && this._customImageFileNames[i]) newNames.push(this._customImageFileNames[i]);
+                            }
+                        }
+                        this._customImagePaths = newPaths;
+                        this._customSelectedImages = newSelected.length ? newSelected : new Array(newPaths.length).fill(true);
+                        this._customImageFileNames = newNames;
+                        const imagePathsWidget = this.widgets.find(w => w.name === "image_paths");
+                        if (imagePathsWidget) imagePathsWidget.value = (this._customImagePaths || []).join(',');
+                        updateWidgetValue(this);
+                        showImages(this, this._customImagePaths);
+                        app.graph.setDirtyCanvas(true, false);
+                    }
                     return true;
                 }
             }
