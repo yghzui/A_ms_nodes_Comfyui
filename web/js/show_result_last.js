@@ -85,13 +85,17 @@ app.registerExtension({
                     }
                 }
                 
-                // 计算每个视频的位置
+                // 计算每个视频的位置（居中）
                 node.videoRects = [];
+                const totalGridWidth = bestCols * bestSize + GAP * Math.max(0, bestCols - 1);
+                const totalGridHeight = bestRows * bestSize + GAP * Math.max(0, bestRows - 1);
+                const leftX = PADDING + Math.max(0, (availableWidth - totalGridWidth) / 2);
+                const topY = PADDING + TOP_MARGIN + Math.max(0, (availableHeight - totalGridHeight) / 2);
                 for (let i = 0; i < videoCount; i++) {
                     const row = Math.floor(i / bestCols);
                     const col = i % bestCols;
-                    const x = PADDING + col * (bestSize + GAP);
-                    const y = PADDING + TOP_MARGIN + row * (bestSize + GAP);
+                    const x = leftX + col * (bestSize + GAP);
+                    const y = topY + row * (bestSize + GAP);
                     
                     node.videoRects.push({
                         x: x,
@@ -102,22 +106,7 @@ app.registerExtension({
                     });
                 }
                 
-                // 只在初始化时调整节点大小，模式切换时不改变大小
-                if (!node.sizeInitialized) {
-                    const totalWidth = (bestSize * bestCols) + (GAP * (bestCols - 1)) + (PADDING * 2);
-                    const totalHeight = (bestSize * bestRows) + (GAP * (bestRows - 1)) + (PADDING * 2) + TOP_MARGIN;
-                    
-                    const newSize = [Math.max(totalWidth, 200), Math.max(totalHeight, 100)];
-                    console.log("初始化多视频模式，设置节点大小:", newSize);
-                    
-                    node.size[0] = newSize[0];
-                    node.size[1] = newSize[1];
-                    node.sizeInitialized = true;
-                    node.setDirtyCanvas(true, false);
-                    app.graph.setDirtyCanvas(true, false);
-                } else {
-                    console.log("多视频模式，保持节点大小:", node.size);
-                }
+                void 0;
             }
         }
 
