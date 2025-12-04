@@ -109,12 +109,14 @@ function calculateImageLayout(node, imageCount) {
             }
         }
         
-        // 计算每个图片的位置
+        // 计算每个图片的位置（水平居中）
         node._customImageRects = [];
+        const totalGridWidth = bestCols * bestSize + GAP * Math.max(0, bestCols - 1);
+        const leftX = PADDING + Math.max(0, (availableWidth - totalGridWidth) / 2);
         for (let i = 0; i < imageCount; i++) {
             const row = Math.floor(i / bestCols);
             const col = i % bestCols;
-            const x = PADDING + col * (bestSize + GAP);
+            const x = leftX + col * (bestSize + GAP);
             const y = PADDING + TOP_MARGIN + row * (bestSize + GAP);
             
             node._customImageRects.push({
@@ -1901,7 +1903,9 @@ app.registerExtension({
                             }
 
                             if (allPaths.length > 0) {
-                                pathWidget.value = allPaths.join(',');
+                                const joined = allPaths.join(',');
+                                pathWidget.value = joined;
+                                if (pathUseWidget) pathUseWidget.value = joined;
                                 const cur = Number(triggerWidget?.value);
                                 triggerWidget.value = (Number.isFinite(cur) ? cur : 0) + 1;
                                 populate.call(node, allPaths);
@@ -2039,6 +2043,8 @@ app.registerExtension({
                         finalList = newPaths;
                     }
                     pathWidget.value = finalList.join(',');
+                    const useWidget = node.widgets.find(w => w.name === "image_path_use");
+                    if (useWidget) useWidget.value = finalList.join(',');
                     const cur = Number(triggerWidget?.value);
                     triggerWidget.value = (Number.isFinite(cur) ? cur : 0) + 1;
                     populate.call(node, finalList);
@@ -2199,6 +2205,10 @@ app.registerExtension({
                     triggerWidget.value = Number.isFinite(v) ? v : 1;
                 }
                 if (imagePathsWidget && imagePathsWidget.value) {
+                    const useWidget = this.widgets.find(w => w.name === "image_path_use");
+                    if (useWidget && (!useWidget.value || !String(useWidget.value).trim())) {
+                        useWidget.value = imagePathsWidget.value;
+                    }
                     const paths = imagePathsWidget.value.split(',').filter(path => path.trim());
                     if (paths.length > 0) {
                         populate.call(this, paths);
