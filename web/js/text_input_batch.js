@@ -408,7 +408,7 @@ function ensureTextareas(node, layout, items) {
             titleEl.type = 'text';
             titleEl.placeholder = `标题 ${i+1}`;
             titleEl.value = item.title || `prompt_${i}`;
-            titleEl.style.cssText = `position: absolute; z-index: 100; padding: 4px 6px; border-radius: 6px 6px 0 0; border: 1px solid #666; border-bottom: none; background: #3a3a3a; color: #eee; font: 11px/1.2 monospace; box-sizing: border-box;`;
+            titleEl.style.cssText = `position: absolute; z-index: 100; padding: 4px 6px; border-radius: 6px 6px 0 0; border: 1px solid #666; border-bottom: none; background: #3a3a3a; color: #eee; font-size: 11px; line-height: 1.2; font-family: "Microsoft YaHei", "SimHei", Arial, monospace; box-sizing: border-box; transform-origin: 0 0;`;
             
             // 标题输入框事件处理
             titleEl.addEventListener('input', () => {
@@ -427,6 +427,7 @@ function ensureTextareas(node, layout, items) {
                     titleEl.value = item.title || `prompt_${i}`;
                     titleEl.blur();
                 }
+                e.stopPropagation();
             });
             
             container.appendChild(titleEl);
@@ -444,7 +445,7 @@ function ensureTextareas(node, layout, items) {
             ta.spellcheck = false;
             ta.wrap = 'soft';
             ta.value = item.content || "";
-            ta.style.cssText = `position: absolute; z-index: 100; resize: none; padding: 6px; border-radius: 0 0 6px 6px; border: 1px solid #666; border-top: none; background: #222; color: #eee; font: 12px/1.4 monospace; box-sizing: border-box; overflow: auto;`;
+            ta.style.cssText = `position: absolute; z-index: 100; resize: none; padding: 6px; border-radius: 0 0 6px 6px; border: 1px solid #666; border-top: none; background: #222; color: #eee; font-size: 12px; line-height: 1.4; font-family: "Microsoft YaHei", "SimHei", Arial, monospace; box-sizing: border-box; overflow: auto; transform-origin: 0 0;`;
             
             // 内容文本框事件处理
             ta.addEventListener('input', () => {
@@ -462,6 +463,7 @@ function ensureTextareas(node, layout, items) {
                     e.stopPropagation();
                     showItemContextMenu(node, i, e);
                 });
+                ta.addEventListener('keydown', (e) => { e.stopPropagation(); });
                 ta.__ctxInstalled = true;
             }
             
@@ -480,21 +482,22 @@ function ensureTextareas(node, layout, items) {
         
         // 标题输入框位置（在内容框上方）
         const titleHeight = 24;
-        // 设置标题输入框位置和大小
+        // 设置标题输入框位置和大小（使用CSS缩放保持与节点比例一致）
         titleEl.style.left = `${sx}px`;
         titleEl.style.top = `${sy}px`;
-        titleEl.style.width = `${Math.max(40, Math.round(sw))}px`;
+        titleEl.style.width = `${Math.max(40, Math.round(cell.w))}px`;
         titleEl.style.height = `${Math.round(titleHeight)}px`;
+        titleEl.style.transform = `scale(${ds.scale})`;
         
-        // 设置内容文本框位置和大小 - 移除间距，紧密连接
+        // 设置内容文本框位置和大小（使用CSS缩放保持与节点比例一致）
         ta.style.left = `${sx}px`;
-        ta.style.top = `${sy + titleHeight}px`;
-        ta.style.width = `${Math.max(40, Math.round(sw))}px`;
-        ta.style.height = `${Math.max(32, Math.round(sh - titleHeight))}px`;
+        ta.style.top = `${sy + titleHeight * ds.scale}px`;
+        ta.style.width = `${Math.max(40, Math.round(cell.w))}px`;
+        ta.style.height = `${Math.max(32, Math.round(cell.h - titleHeight))}px`;
+        ta.style.transform = `scale(${ds.scale})`;
         
-        // 字体大小缩放
-        const fontPx = Math.max(10, Math.round(12 * (ds.scale || 1)));
-        const titleFontPx = Math.max(9, Math.round(11 * (ds.scale || 1)));
+        const fontPx = 12;
+        const titleFontPx = 11;
         titleEl.style.fontSize = `${titleFontPx}px`;
         ta.style.fontSize = `${fontPx}px`;
         
@@ -686,17 +689,17 @@ function installViewportSync(node) {
     const canvasEl = canvas;
     node.__onWheel = () => { hide(); requestAnimationFrame(show); };
     node.__onMouseDown = () => { hide(); requestAnimationFrame(show); };
-    node.__onKeyDown = () => { hide(); requestAnimationFrame(show); };
+
     canvasEl.addEventListener('wheel', node.__onWheel, { passive: true, capture: true });
     canvasEl.addEventListener('mousedown', node.__onMouseDown, { capture: true });
-    document.addEventListener('keydown', node.__onKeyDown, true);
+
     const origRemoved = node.onRemoved;
     node.onRemoved = function() {
         if (origRemoved) origRemoved.call(this);
         if (node.__rafId) cancelAnimationFrame(node.__rafId);
         canvasEl.removeEventListener('wheel', node.__onWheel, { capture: true });
         canvasEl.removeEventListener('mousedown', node.__onMouseDown, { capture: true });
-        document.removeEventListener('keydown', node.__onKeyDown, true);
+
         node.__viewportSyncInstalled = false;
     };
 }
