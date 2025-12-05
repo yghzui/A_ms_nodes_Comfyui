@@ -382,7 +382,11 @@ function ensureTextareas(node, layout, items) {
     const ds = app?.canvas?.ds;
     const canvas = app?.canvas?.canvas;
     if (!ds || !canvas) return;
+    const container = canvas.parentElement || document.body;
     const rect = canvas.getBoundingClientRect();
+    const parentRect = container.getBoundingClientRect();
+    const cs = window.getComputedStyle(container);
+    if (cs.position === 'static') container.style.position = 'relative';
 
     // 初始化元素数组
     if (!node.__taEls) node.__taEls = [];
@@ -404,7 +408,7 @@ function ensureTextareas(node, layout, items) {
             titleEl.type = 'text';
             titleEl.placeholder = `标题 ${i+1}`;
             titleEl.value = item.title || `prompt_${i}`;
-            titleEl.style.cssText = `position: fixed; z-index: 1; padding: 4px 6px; border-radius: 6px 6px 0 0; border: 1px solid #666; border-bottom: none; background: #3a3a3a; color: #eee; font: 11px/1.2 monospace; box-sizing: border-box;`;
+            titleEl.style.cssText = `position: absolute; z-index: 100; padding: 4px 6px; border-radius: 6px 6px 0 0; border: 1px solid #666; border-bottom: none; background: #3a3a3a; color: #eee; font: 11px/1.2 monospace; box-sizing: border-box;`;
             
             // 标题输入框事件处理
             titleEl.addEventListener('input', () => {
@@ -425,7 +429,7 @@ function ensureTextareas(node, layout, items) {
                 }
             });
             
-            document.body.appendChild(titleEl);
+            container.appendChild(titleEl);
             node.__titleEls[i] = titleEl;
         } else {
             // 更新现有标题输入框的值
@@ -440,7 +444,7 @@ function ensureTextareas(node, layout, items) {
             ta.spellcheck = false;
             ta.wrap = 'soft';
             ta.value = item.content || "";
-            ta.style.cssText = `position: fixed; z-index: 1; resize: none; padding: 6px; border-radius: 0 0 6px 6px; border: 1px solid #666; border-top: none; background: #222; color: #eee; font: 12px/1.4 monospace; box-sizing: border-box; overflow: auto;`;
+            ta.style.cssText = `position: absolute; z-index: 100; resize: none; padding: 6px; border-radius: 0 0 6px 6px; border: 1px solid #666; border-top: none; background: #222; color: #eee; font: 12px/1.4 monospace; box-sizing: border-box; overflow: auto;`;
             
             // 内容文本框事件处理
             ta.addEventListener('input', () => {
@@ -461,7 +465,7 @@ function ensureTextareas(node, layout, items) {
                 ta.__ctxInstalled = true;
             }
             
-            document.body.appendChild(ta);
+            container.appendChild(ta);
             node.__taEls[i] = ta;
         } else {
             // 更新现有textarea的值
@@ -469,22 +473,22 @@ function ensureTextareas(node, layout, items) {
         }
 
         // 计算位置和大小
-        const sx = (node.pos[0] + cell.x + ds.offset[0]) * ds.scale + rect.left;
-        const sy = (node.pos[1] + cell.y + ds.offset[1]) * ds.scale + rect.top;
+        const sx = (node.pos[0] + cell.x + ds.offset[0]) * ds.scale + rect.left - parentRect.left;
+        const sy = (node.pos[1] + cell.y + ds.offset[1]) * ds.scale + rect.top - parentRect.top;
         const sw = cell.w * ds.scale;
         const sh = cell.h * ds.scale;
         
         // 标题输入框位置（在内容框上方）
         const titleHeight = 24;
         // 设置标题输入框位置和大小
-        titleEl.style.left = `${Math.round(sx)}px`;
-        titleEl.style.top = `${Math.round(sy)}px`;
+        titleEl.style.left = `${sx}px`;
+        titleEl.style.top = `${sy}px`;
         titleEl.style.width = `${Math.max(40, Math.round(sw))}px`;
         titleEl.style.height = `${Math.round(titleHeight)}px`;
         
         // 设置内容文本框位置和大小 - 移除间距，紧密连接
-        ta.style.left = `${Math.round(sx)}px`;
-        ta.style.top = `${Math.round(sy + titleHeight)}px`;
+        ta.style.left = `${sx}px`;
+        ta.style.top = `${sy + titleHeight}px`;
         ta.style.width = `${Math.max(40, Math.round(sw))}px`;
         ta.style.height = `${Math.max(32, Math.round(sh - titleHeight))}px`;
         
@@ -494,10 +498,14 @@ function ensureTextareas(node, layout, items) {
         titleEl.style.fontSize = `${titleFontPx}px`;
         ta.style.fontSize = `${fontPx}px`;
         
-        // 设置可见性 - 显示所有项目，但只有在节点未折叠时
-        const shouldShow = node.flags?.collapsed !== true;
+        // 设置可见性 - 节点未折叠且在容器可视范围内才显示
+        const nodeVisibleX = sx + sw > 0 && sx < (parentRect.width || rect.width);
+        const nodeVisibleY = sy + sh > 0 && sy < (parentRect.height || rect.height);
+        const shouldShow = node.flags?.collapsed !== true && nodeVisibleX && nodeVisibleY;
         titleEl.style.visibility = shouldShow ? 'visible' : 'hidden';
         ta.style.visibility = shouldShow ? 'visible' : 'hidden';
+        titleEl.style.pointerEvents = shouldShow ? 'auto' : 'none';
+        ta.style.pointerEvents = shouldShow ? 'auto' : 'none';
     }
 
     // 清理多余的元素
@@ -645,6 +653,54 @@ function installIndexChangeListener(node) {
     };
 }
 
+function installViewportSync(node) {
+    if (node.__viewportSyncInstalled) return;
+    const ds = app?.canvas?.ds;
+    const canvas = app?.canvas?.canvas;
+    if (!ds || !canvas) return;
+    node.__viewportSyncInstalled = true;
+    let lastScale = ds.scale, lastX = ds.offset[0], lastY = ds.offset[1];
+    let lastLeft = 0, lastTop = 0;
+    const tick = () => {
+        const rect = canvas.getBoundingClientRect();
+        const changed = ds.scale !== lastScale || ds.offset[0] !== lastX || ds.offset[1] !== lastY || rect.left !== lastLeft || rect.top !== lastTop;
+        if (changed) {
+            lastScale = ds.scale; lastX = ds.offset[0]; lastY = ds.offset[1];
+            lastLeft = rect.left; lastTop = rect.top;
+            const items = getItems(node);
+            const cells = layoutCells(node, items);
+            ensureTextareas(node, cells, items);
+        }
+        node.__rafId = requestAnimationFrame(tick);
+    };
+    node.__rafId = requestAnimationFrame(tick);
+    const hide = () => {
+        if (node.__taEls) for (const el of node.__taEls) if (el?.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; }
+        if (node.__titleEls) for (const el of node.__titleEls) if (el?.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; }
+    };
+    const show = () => {
+        const items = getItems(node);
+        const cells = layoutCells(node, items);
+        ensureTextareas(node, cells, items);
+    };
+    const canvasEl = canvas;
+    node.__onWheel = () => { hide(); requestAnimationFrame(show); };
+    node.__onMouseDown = () => { hide(); requestAnimationFrame(show); };
+    node.__onKeyDown = () => { hide(); requestAnimationFrame(show); };
+    canvasEl.addEventListener('wheel', node.__onWheel, { passive: true, capture: true });
+    canvasEl.addEventListener('mousedown', node.__onMouseDown, { capture: true });
+    document.addEventListener('keydown', node.__onKeyDown, true);
+    const origRemoved = node.onRemoved;
+    node.onRemoved = function() {
+        if (origRemoved) origRemoved.call(this);
+        if (node.__rafId) cancelAnimationFrame(node.__rafId);
+        canvasEl.removeEventListener('wheel', node.__onWheel, { capture: true });
+        canvasEl.removeEventListener('mousedown', node.__onMouseDown, { capture: true });
+        document.removeEventListener('keydown', node.__onKeyDown, true);
+        node.__viewportSyncInstalled = false;
+    };
+}
+
 app.registerExtension({
     name: "A_my_nodes.TextInputBatch.UI",
     async beforeRegisterNodeDef(nodeType, nodeData) {
@@ -657,6 +713,7 @@ app.registerExtension({
             ensureStringsJsonWidget(this);
             installAddButton(this);
             installDrawingHandlers(this);
+            installViewportSync(this);
             installIndexChangeListener(this);
             bindColumnsChange(this);
             setItems(this, getItems(this));
@@ -668,6 +725,7 @@ app.registerExtension({
             ensureStringsJsonWidget(this);
             installAddButton(this);
             installDrawingHandlers(this);
+            installViewportSync(this);
             installIndexChangeListener(this);
             bindColumnsChange(this);
             if (info && info.properties && typeof info.properties._strings === 'string') {
