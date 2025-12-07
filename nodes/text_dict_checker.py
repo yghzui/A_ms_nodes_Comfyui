@@ -18,6 +18,7 @@ class TextDictChecker:
             "required": {
                 "dict_input": ("STRING", {"default": "{}", "tooltip": "输入包含标题、内容、启用状态的字典"}),
                 "key_to_check": ("STRING", {"default": "", "tooltip": "要检查的字符串key"}),
+                "check_mode": (["absolute", "start_with", "contains"], {"default": "absolute", "tooltip": "匹配模式"}),
             },
         }
 
@@ -26,22 +27,41 @@ class TextDictChecker:
     FUNCTION = "check_dict_key"
     CATEGORY = "A_my_nodes/text"
 
-    def check_dict_key(self, dict_input="{}", key_to_check=""):
+    def check_dict_key(self, dict_input="{}", key_to_check="", check_mode="absolute"):
         # 解析字典输入
         try:
             data_dict = json.loads(dict_input) if isinstance(dict_input, str) else {}
         except Exception:
             data_dict = {}
 
-        # 检查key是否存在
-        key_exists = key_to_check in data_dict
-        
-        if not key_exists:
-            # key不存在，返回False
+        # 空key直接返回False
+        if not isinstance(key_to_check, str) or key_to_check == "":
             return (False, "", False)
-        
+
+        # 根据匹配模式查找key
+        matched_key = None
+        if check_mode == "absolute":
+            if key_to_check in data_dict:
+                matched_key = key_to_check
+        elif check_mode == "start_with":
+            for k in data_dict.keys():
+                if isinstance(k, str) and k.startswith(key_to_check):
+                    matched_key = k
+                    break
+        elif check_mode == "contains":
+            for k in data_dict.keys():
+                if isinstance(k, str) and key_to_check in k:
+                    matched_key = k
+                    break
+        else:
+            if key_to_check in data_dict:
+                matched_key = key_to_check
+
+        if matched_key is None:
+            return (False, "", False)
+
         # key存在，获取对应的值
-        item = data_dict[key_to_check]
+        item = data_dict[matched_key]
         
         # 确保item是字典格式
         if not isinstance(item, dict):
@@ -51,14 +71,6 @@ class TextDictChecker:
         prompt_content = item.get("prompt", "")
         is_enabled = item.get("enable", True)
         
-        return (key_exists, prompt_content, is_enabled)
+        return (True, prompt_content, is_enabled)
 
 
-# 注册节点
-NODE_CLASS_MAPPINGS = {
-    "TextDictChecker": TextDictChecker
-}
-
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "TextDictChecker": "Text Dict Checker"
-}
