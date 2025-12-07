@@ -28,49 +28,48 @@ class TextDictChecker:
     CATEGORY = "A_my_nodes/text"
 
     def check_dict_key(self, dict_input="{}", key_to_check="", check_mode="absolute"):
-        # 解析字典输入
         try:
             data_dict = json.loads(dict_input) if isinstance(dict_input, str) else {}
         except Exception:
             data_dict = {}
 
-        # 空key直接返回False
         if not isinstance(key_to_check, str) or key_to_check == "":
             return (False, "", False)
 
-        # 根据匹配模式查找key
-        matched_key = None
+        matched_keys = []
         if check_mode == "absolute":
             if key_to_check in data_dict:
-                matched_key = key_to_check
+                matched_keys = [key_to_check]
         elif check_mode == "start_with":
-            for k in data_dict.keys():
-                if isinstance(k, str) and k.startswith(key_to_check):
-                    matched_key = k
-                    break
+            matched_keys = [k for k in data_dict.keys() if isinstance(k, str) and k.startswith(key_to_check)]
         elif check_mode == "contains":
-            for k in data_dict.keys():
-                if isinstance(k, str) and key_to_check in k:
-                    matched_key = k
-                    break
+            matched_keys = [k for k in data_dict.keys() if isinstance(k, str) and key_to_check in k]
         else:
             if key_to_check in data_dict:
-                matched_key = key_to_check
+                matched_keys = [key_to_check]
 
-        if matched_key is None:
+        if not matched_keys:
             return (False, "", False)
 
-        # key存在，获取对应的值
-        item = data_dict[matched_key]
-        
-        # 确保item是字典格式
+        chosen_key = None
+        first_key = matched_keys[0]
+        for k in matched_keys:
+            item = data_dict[k]
+            if isinstance(item, dict):
+                if item.get("enable", True):
+                    chosen_key = k
+                    break
+            else:
+                chosen_key = k
+                break
+        if chosen_key is None:
+            chosen_key = first_key
+
+        item = data_dict[chosen_key]
         if not isinstance(item, dict):
             return (True, str(item), True)
-        
-        # 获取prompt内容和enable状态
         prompt_content = item.get("prompt", "")
         is_enabled = item.get("enable", True)
-        
         return (True, prompt_content, is_enabled)
 
 

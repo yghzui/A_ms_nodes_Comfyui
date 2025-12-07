@@ -45,7 +45,7 @@ class LoadLoraMerge:
     def process(self, enabled, model=None, prev_lora=None, blocks={}, loras_info="[]", **kwargs):
         if not enabled:
             print(f"[LoadLoraMerge] Node is disabled. Bypassing.")
-            return (model, [],)
+            return (model, prev_lora,)
 
         output_model = model
         print(f"[LoadLoraMerge] model is {'✅' if model is not None else '❌'}.")
