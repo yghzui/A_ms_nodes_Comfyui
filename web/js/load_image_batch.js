@@ -2044,7 +2044,16 @@ app.registerExtension({
                     }
                     pathWidget.value = finalList.join(',');
                     const useWidget = node.widgets.find(w => w.name === "image_path_use");
-                    if (useWidget) useWidget.value = finalList.join(',');
+                    if (useWidget) {
+                        if (mode === 'append') {
+                            const oldSelStr = (useWidget.value || '').trim();
+                            const oldSelList = oldSelStr ? oldSelStr.split(',').filter(s => s.trim()) : [];
+                            const selectedUnion = Array.from(new Set([...oldSelList, ...newPaths]));
+                            useWidget.value = selectedUnion.join(',');
+                        } else {
+                            useWidget.value = finalList.join(',');
+                        }
+                    }
                     const cur = Number(triggerWidget?.value);
                     triggerWidget.value = (Number.isFinite(cur) ? cur : 0) + 1;
                     populate.call(node, finalList);
