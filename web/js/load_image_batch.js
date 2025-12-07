@@ -460,7 +460,8 @@ function drawNodeImages(node, ctx) {
     // 绘制控制按钮（只在单图片模式下显示）
     if (node._customSingleImageMode) {
         const buttonSize = 20;
-        const buttonSpacing = 5;
+        const buttonSpacing = 12;
+        const cornerSafe = 22;
         
         // 获取当前显示的图片位置，用于计算恢复按钮位置
         const currentImageRect = node._customImageRects[node._customFocusedImageIndex];
@@ -484,11 +485,11 @@ function drawNodeImages(node, ctx) {
             node._customMouseY >= restoreHitY && node._customMouseY <= restoreHitY + restoreHitH;
         
         const mouseInPrevButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
-            node._customMouseX >= node.size[0] - buttonSize * 3 - buttonSpacing - 10 && node._customMouseX <= node.size[0] - buttonSize * 2 - buttonSpacing - 10 &&
+            node._customMouseX >= node.size[0] - buttonSize * 3 - buttonSpacing * 2 - 10 - cornerSafe && node._customMouseX <= node.size[0] - buttonSize * 2 - buttonSpacing * 2 - 10 - cornerSafe &&
             node._customMouseY >= node.size[1] - buttonSize - 10 && node._customMouseY <= node.size[1] - 10;
         
         const mouseInNextButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
-            node._customMouseX >= node.size[0] - buttonSize * 2 - 10 && node._customMouseX <= node.size[0] - buttonSize - 10 &&
+            node._customMouseX >= node.size[0] - buttonSize * 2 - buttonSpacing - 10 - cornerSafe && node._customMouseX <= node.size[0] - buttonSize - buttonSpacing - 10 - cornerSafe &&
             node._customMouseY >= node.size[1] - buttonSize - 10 && node._customMouseY <= node.size[1] - 10;
         
         // 检查鼠标是否悬浮在清除按钮上（左下角）
@@ -515,7 +516,7 @@ function drawNodeImages(node, ctx) {
             ctx.textBaseline = 'middle';
             
             // 计算索引文本位置（在上一个按钮的左边）
-            const indexX = node.size[0] - buttonSize * 3 - buttonSpacing - 15;
+            const indexX = node.size[0] - buttonSize * 3 - buttonSpacing * 2 - 15 - cornerSafe;
             const indexY = node.size[1] - buttonSize - 10 + buttonSize / 2;
             
             // 绘制索引文本
@@ -523,40 +524,59 @@ function drawNodeImages(node, ctx) {
         }
         
         // 绘制上一个按钮 (‹) - 左边
-        const prevButtonX = node.size[0] - buttonSize * 3 - buttonSpacing - 10;
+        const prevButtonX = node.size[0] - buttonSize * 3 - buttonSpacing * 2 - 10 - cornerSafe;
         const prevButtonY = node.size[1] - buttonSize - 10;
         
         // 按钮背景（悬浮效果）
-        ctx.fillStyle = mouseInPrevButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(prevButtonX, prevButtonY, buttonSize, buttonSize);
-        
-        // 按钮边框
-        ctx.strokeStyle = mouseInPrevButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+        const rPrev = 6;
+        ctx.fillStyle = mouseInPrevButton ? 'rgba(235,235,240,0.95)' : 'rgba(235,235,240,0.85)';
+        ctx.strokeStyle = mouseInPrevButton ? 'rgba(80,80,90,0.9)' : 'rgba(120,120,130,0.8)';
         ctx.lineWidth = mouseInPrevButton ? 2 : 1;
-        ctx.strokeRect(prevButtonX, prevButtonY, buttonSize, buttonSize);
-        
-        // 绘制‹符号
-        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+        ctx.beginPath();
+        ctx.moveTo(prevButtonX + rPrev, prevButtonY);
+        ctx.lineTo(prevButtonX + buttonSize - rPrev, prevButtonY);
+        ctx.quadraticCurveTo(prevButtonX + buttonSize, prevButtonY, prevButtonX + buttonSize, prevButtonY + rPrev);
+        ctx.lineTo(prevButtonX + buttonSize, prevButtonY + buttonSize - rPrev);
+        ctx.quadraticCurveTo(prevButtonX + buttonSize, prevButtonY + buttonSize, prevButtonX + buttonSize - rPrev, prevButtonY + buttonSize);
+        ctx.lineTo(prevButtonX + rPrev, prevButtonY + buttonSize);
+        ctx.quadraticCurveTo(prevButtonX, prevButtonY + buttonSize, prevButtonX, prevButtonY + buttonSize - rPrev);
+        ctx.lineTo(prevButtonX, prevButtonY + rPrev);
+        ctx.quadraticCurveTo(prevButtonX, prevButtonY, prevButtonX + rPrev, prevButtonY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(30, 30, 35, 1)';
         ctx.font = `${buttonSize - 4}px Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('‹', prevButtonX + buttonSize / 2, prevButtonY + buttonSize / 2);
         
         // 绘制下一个按钮 (›) - 右边
-        const nextButtonX = node.size[0] - buttonSize * 2 - 10;
+        const nextButtonX = node.size[0] - buttonSize * 2 - buttonSpacing - 10 - cornerSafe;
         const nextButtonY = node.size[1] - buttonSize - 10;
         
         // 按钮背景（悬浮效果）
-        ctx.fillStyle = mouseInNextButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(nextButtonX, nextButtonY, buttonSize, buttonSize);
-        
-        // 按钮边框
-        ctx.strokeStyle = mouseInNextButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+        const rNext = 6;
+        ctx.fillStyle = mouseInNextButton ? 'rgba(235,235,240,0.95)' : 'rgba(235,235,240,0.85)';
+        ctx.strokeStyle = mouseInNextButton ? 'rgba(80,80,90,0.9)' : 'rgba(120,120,130,0.8)';
         ctx.lineWidth = mouseInNextButton ? 2 : 1;
-        ctx.strokeRect(nextButtonX, nextButtonY, buttonSize, buttonSize);
-        
-        // 绘制›符号
-        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+        ctx.beginPath();
+        ctx.moveTo(nextButtonX + rNext, nextButtonY);
+        ctx.lineTo(nextButtonX + buttonSize - rNext, nextButtonY);
+        ctx.quadraticCurveTo(nextButtonX + buttonSize, nextButtonY, nextButtonX + buttonSize, nextButtonY + rNext);
+        ctx.lineTo(nextButtonX + buttonSize, nextButtonY + buttonSize - rNext);
+        ctx.quadraticCurveTo(nextButtonX + buttonSize, nextButtonY + buttonSize, nextButtonX + buttonSize - rNext, nextButtonY + buttonSize);
+        ctx.lineTo(nextButtonX + rNext, nextButtonY + buttonSize);
+        ctx.quadraticCurveTo(nextButtonX, nextButtonY + buttonSize, nextButtonX, nextButtonY + buttonSize - rNext);
+        ctx.lineTo(nextButtonX, nextButtonY + rNext);
+        ctx.quadraticCurveTo(nextButtonX, nextButtonY, nextButtonX + rNext, nextButtonY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(30, 30, 35, 1)';
+        ctx.font = `${buttonSize - 4}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
         ctx.fillText('›', nextButtonX + buttonSize / 2, nextButtonY + buttonSize / 2);
         
         // 绘制恢复按钮 (⭯) - 放在图片区域的右上角
@@ -573,41 +593,61 @@ function drawNodeImages(node, ctx) {
         const clearButtonX = 10;
         const clearButtonY = node.size[1] - buttonSize - 10;
         
-        // 按钮背景（固定样式，无悬浮效果）
-        ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
-        ctx.fillRect(clearButtonX, clearButtonY, buttonSize, buttonSize);
-        
-        // 按钮边框
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+        const rClear = 6;
+        ctx.fillStyle = 'rgba(235,235,240,0.85)';
+        ctx.strokeStyle = 'rgba(120,120,130,0.8)';
         ctx.lineWidth = 1;
-        ctx.strokeRect(clearButtonX, clearButtonY, buttonSize, buttonSize);
-        
-        // 绘制清除图标 (×)
-        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+        ctx.beginPath();
+        ctx.moveTo(clearButtonX + rClear, clearButtonY);
+        ctx.lineTo(clearButtonX + buttonSize - rClear, clearButtonY);
+        ctx.quadraticCurveTo(clearButtonX + buttonSize, clearButtonY, clearButtonX + buttonSize, clearButtonY + rClear);
+        ctx.lineTo(clearButtonX + buttonSize, clearButtonY + buttonSize - rClear);
+        ctx.quadraticCurveTo(clearButtonX + buttonSize, clearButtonY + buttonSize, clearButtonX + buttonSize - rClear, clearButtonY + buttonSize);
+        ctx.lineTo(clearButtonX + rClear, clearButtonY + buttonSize);
+        ctx.quadraticCurveTo(clearButtonX, clearButtonY + buttonSize, clearButtonX, clearButtonY + buttonSize - rClear);
+        ctx.lineTo(clearButtonX, clearButtonY + rClear);
+        ctx.quadraticCurveTo(clearButtonX, clearButtonY, clearButtonX + rClear, clearButtonY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(30, 30, 35, 1)';
         ctx.font = `${buttonSize - 4}px Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('×', clearButtonX + buttonSize / 2, clearButtonY + buttonSize / 2);
         
         // 绘制右下角全屏预览按钮
-        const fullscreenButtonX = node.size[0] - buttonSize - 10;
+        const fullscreenButtonX = node.size[0] - buttonSize - 10 - cornerSafe;
         const fullscreenButtonY = node.size[1] - buttonSize - 10;
         
-        // 按钮背景（悬浮效果）
-        ctx.fillStyle = mouseInFullscreenButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(fullscreenButtonX, fullscreenButtonY, buttonSize, buttonSize);
-        
-        // 按钮边框
-        ctx.strokeStyle = mouseInFullscreenButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+        const rFull = 6;
+        ctx.fillStyle = mouseInFullscreenButton ? 'rgba(235,235,240,0.95)' : 'rgba(235,235,240,0.85)';
+        ctx.strokeStyle = mouseInFullscreenButton ? 'rgba(80,80,90,0.9)' : 'rgba(120,120,130,0.8)';
         ctx.lineWidth = mouseInFullscreenButton ? 2 : 1;
-        ctx.strokeRect(fullscreenButtonX, fullscreenButtonY, buttonSize, buttonSize);
-        
-        // 绘制全屏图标 (⛶)
-        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+        ctx.beginPath();
+        ctx.moveTo(fullscreenButtonX + rFull, fullscreenButtonY);
+        ctx.lineTo(fullscreenButtonX + buttonSize - rFull, fullscreenButtonY);
+        ctx.quadraticCurveTo(fullscreenButtonX + buttonSize, fullscreenButtonY, fullscreenButtonX + buttonSize, fullscreenButtonY + rFull);
+        ctx.lineTo(fullscreenButtonX + buttonSize, fullscreenButtonY + buttonSize - rFull);
+        ctx.quadraticCurveTo(fullscreenButtonX + buttonSize, fullscreenButtonY + buttonSize, fullscreenButtonX + buttonSize - rFull, fullscreenButtonY + buttonSize);
+        ctx.lineTo(fullscreenButtonX + rFull, fullscreenButtonY + buttonSize);
+        ctx.quadraticCurveTo(fullscreenButtonX, fullscreenButtonY + buttonSize, fullscreenButtonX, fullscreenButtonY + buttonSize - rFull);
+        ctx.lineTo(fullscreenButtonX, fullscreenButtonY + rFull);
+        ctx.quadraticCurveTo(fullscreenButtonX, fullscreenButtonY, fullscreenButtonX + rFull, fullscreenButtonY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(30, 30, 35, 1)';
         ctx.font = `${buttonSize - 4}px Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('⛶', fullscreenButtonX + buttonSize / 2, fullscreenButtonY + buttonSize / 2);
+        
+        node._customPrevButtonRect = { x: prevButtonX, y: prevButtonY, width: buttonSize, height: buttonSize };
+        node._customNextButtonRect = { x: nextButtonX, y: nextButtonY, width: buttonSize, height: buttonSize };
+        node._customRestoreButtonRect = { x: restoreHitX, y: restoreHitY, width: restoreHitW, height: restoreHitH };
+        node._customClearButtonRect = { x: clearButtonX, y: clearButtonY, width: buttonSize, height: buttonSize };
+        node._customFullscreenButtonRect = { x: fullscreenButtonX, y: fullscreenButtonY, width: buttonSize, height: buttonSize };
         
         // 绘制底部文件名
         if (node._customImageFileNames && node._customImageFileNames[node._customFocusedImageIndex]) {
@@ -646,37 +686,35 @@ function drawNodeImages(node, ctx) {
         const mouseInClearUnselectedButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
             node._customMouseX >= clearUnselectedButtonX && node._customMouseX <= clearUnselectedButtonX + clearW &&
             node._customMouseY >= buttonY && node._customMouseY <= buttonY + buttonHeight;
-        ctx.fillStyle = mouseInSelectAllButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(selectAllButtonX, buttonY, selectW, buttonHeight);
-        ctx.strokeStyle = mouseInSelectAllButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
-        ctx.lineWidth = mouseInSelectAllButton ? 2 : 1;
-        ctx.strokeRect(selectAllButtonX, buttonY, selectW, buttonHeight);
-        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
-        ctx.font = '12px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('全选', selectAllButtonX + selectW / 2, buttonY + buttonHeight / 2);
-        ctx.fillStyle = mouseInInvertSelectionButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(invertSelectionButtonX, buttonY, invertW, buttonHeight);
-        ctx.strokeStyle = mouseInInvertSelectionButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
-        ctx.lineWidth = mouseInInvertSelectionButton ? 2 : 1;
-        ctx.strokeRect(invertSelectionButtonX, buttonY, invertW, buttonHeight);
-        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
-        ctx.fillText('反选', invertSelectionButtonX + invertW / 2, buttonY + buttonHeight / 2);
-        ctx.fillStyle = mouseInClearSelectedButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(clearSelectedButtonX, buttonY, clearW, buttonHeight);
-        ctx.strokeStyle = mouseInClearSelectedButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
-        ctx.lineWidth = mouseInClearSelectedButton ? 2 : 1;
-        ctx.strokeRect(clearSelectedButtonX, buttonY, clearW, buttonHeight);
-        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
-        ctx.fillText('清除选中', clearSelectedButtonX + clearW / 2, buttonY + buttonHeight / 2);
-        ctx.fillStyle = mouseInClearUnselectedButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(clearUnselectedButtonX, buttonY, clearW, buttonHeight);
-        ctx.strokeStyle = mouseInClearUnselectedButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
-        ctx.lineWidth = mouseInClearUnselectedButton ? 2 : 1;
-        ctx.strokeRect(clearUnselectedButtonX, buttonY, clearW, buttonHeight);
-        ctx.fillStyle = 'rgba(255, 255, 255, 1)';
-        ctx.fillText('清除未选', clearUnselectedButtonX + clearW / 2, buttonY + buttonHeight / 2);
+        const r = 6;
+        function drawButton(x, w, text, hover) {
+            const y = buttonY, h = buttonHeight;
+            ctx.fillStyle = hover ? 'rgba(235,235,240,0.95)' : 'rgba(235,235,240,0.85)';
+            ctx.strokeStyle = hover ? 'rgba(80,80,90,0.9)' : 'rgba(120,120,130,0.8)';
+            ctx.lineWidth = hover ? 2 : 1;
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.lineTo(x + w - r, y);
+            ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+            ctx.lineTo(x + w, y + h - r);
+            ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+            ctx.lineTo(x + r, y + h);
+            ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+            ctx.lineTo(x, y + r);
+            ctx.quadraticCurveTo(x, y, x + r, y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(30,30,35,1)';
+            ctx.font = 'bold 13px "Microsoft YaHei", Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, x + w / 2, y + h / 2);
+        }
+        drawButton(selectAllButtonX, selectW, '全选', mouseInSelectAllButton);
+        drawButton(invertSelectionButtonX, invertW, '反选', mouseInInvertSelectionButton);
+        drawButton(clearSelectedButtonX, clearW, '清除选中', mouseInClearSelectedButton);
+        drawButton(clearUnselectedButtonX, clearW, '清除未选', mouseInClearUnselectedButton);
         node._customSelectAllButtonRect = {
             x: selectAllButtonX,
             y: buttonY,
@@ -703,8 +741,7 @@ function drawNodeImages(node, ctx) {
         };
     }
     
-    // 绘制控制按钮（只在单图片模式下显示）
-    if (node._customSingleImageMode) {
+    if (node._customSingleImageMode) { ctx.restore(); return;
         const buttonSize = 20;
         const buttonSpacing = 5;
         
@@ -1034,47 +1071,63 @@ function populate(imagePaths) {
         this._customMouseX = newMouseX;
         this._customMouseY = newMouseY;
         
-        // 处理悬浮tooltip - 只在悬浮在文件名区域时显示
         let tooltipShown = false;
         if (this._customFileNameRects && this._customFileNameRects.length > 0) {
             for (let i = 0; i < this._customFileNameRects.length; i++) {
                 const fileNameRect = this._customFileNameRects[i];
-                
-                // 检查文件名区域是否存在（只在悬浮时存在）
-                if (!fileNameRect) {
-                    continue;
-                }
-                
-                // 计算文件名区域在Canvas中的绝对坐标
+                if (!fileNameRect) continue;
                 const nodePos = this.pos;
-                const absFileNameX = nodePos[0] + fileNameRect.x;
-                const absFileNameY = nodePos[1] + fileNameRect.y;
-                const absFileNameWidth = fileNameRect.width;
-                const absFileNameHeight = fileNameRect.height;
-                
-                // 检查鼠标是否在文件名区域内
-                const mouseInFileName = e.canvasX >= absFileNameX && e.canvasX <= absFileNameX + absFileNameWidth &&
-                                      e.canvasY >= absFileNameY && e.canvasY <= absFileNameY + absFileNameHeight;
-                
-                if (mouseInFileName && this._customImagePaths && this._customImagePaths[i]) {
-                    console.log(`鼠标悬浮在文件名区域 ${i}，显示tooltip`);
-                    // 显示tooltip
+                const ax = nodePos[0] + fileNameRect.x;
+                const ay = nodePos[1] + fileNameRect.y;
+                const aw = fileNameRect.width;
+                const ah = fileNameRect.height;
+                const mouseIn = e.canvasX >= ax && e.canvasX <= ax + aw && e.canvasY >= ay && e.canvasY <= ay + ah;
+                if (mouseIn && this._customImagePaths && this._customImagePaths[i]) {
                     this.showTooltip(e, i);
                     tooltipShown = true;
                     break;
                 }
             }
         }
-        
-        // 如果没有悬浮在文件名区域，隐藏tooltip
         if (!tooltipShown) {
-            this.hideTooltip();
+            const nodePos = this.pos;
+            if (this._customSingleImageMode) {
+                const controls = [
+                    { r: this._customPrevButtonRect, t: '上一张' },
+                    { r: this._customNextButtonRect, t: '下一张' },
+                    { r: this._customRestoreButtonRect, t: '还原到网格' },
+                    { r: this._customClearButtonRect, t: '清除当前图片' },
+                    { r: this._customFullscreenButtonRect, t: '全屏预览' }
+                ];
+                for (const c of controls) {
+                    if (!c.r) continue;
+                    const ax = nodePos[0] + c.r.x, ay = nodePos[1] + c.r.y, aw = c.r.width, ah = c.r.height;
+                    if (e.canvasX >= ax && e.canvasX <= ax + aw && e.canvasY >= ay && e.canvasY <= ay + ah) {
+                        this.showControlTooltip(e, c.t);
+                        tooltipShown = true;
+                        break;
+                    }
+                }
+            } else {
+                const controls = [
+                    { r: this._customSelectAllButtonRect, t: '全选所有图片' },
+                    { r: this._customInvertSelectionButtonRect, t: '反选当前选择' },
+                    { r: this._customClearSelectedButtonRect, t: '清除选中的图片' },
+                    { r: this._customClearUnselectedButtonRect, t: '清除未选的图片' }
+                ];
+                for (const c of controls) {
+                    if (!c.r) continue;
+                    const ax = nodePos[0] + c.r.x, ay = nodePos[1] + c.r.y, aw = c.r.width, ah = c.r.height;
+                    if (e.canvasX >= ax && e.canvasX <= ax + aw && e.canvasY >= ay && e.canvasY <= ay + ah) {
+                        this.showControlTooltip(e, c.t);
+                        tooltipShown = true;
+                        break;
+                    }
+                }
+            }
         }
-                
-        // 只在鼠标位置真正改变时才触发重绘
-        if (mousePositionChanged) {
-            app.graph.setDirtyCanvas(true, false);
-        }
+        if (!tooltipShown) this.hideTooltip();
+        if (mousePositionChanged) app.graph.setDirtyCanvas(true, false);
     };
             
     // 鼠标离开时清除位置
@@ -1654,10 +1707,38 @@ function populate(imagePaths) {
     };
     
     this.hideTooltip = function() {
-        const existingTooltip = document.getElementById('image-tooltip-' + this.id);
-        if (existingTooltip) {
-            existingTooltip.remove();
-        }
+        const t1 = document.getElementById('image-tooltip-' + this.id);
+        if (t1) t1.remove();
+        const t2 = document.getElementById('control-tooltip-' + this.id);
+        if (t2) t2.remove();
+    };
+    this.showControlTooltip = function(e, content) {
+        this.hideTooltip();
+        const tooltip = document.createElement('div');
+        tooltip.id = 'control-tooltip-' + this.id;
+        tooltip.style.cssText = `
+            position: fixed;
+            background: rgba(245,245,250,0.95);
+            color: rgba(30,30,35,1);
+            padding: 8px 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(180,180,190,0.6);
+            font-size: 12px;
+            max-width: 300px;
+            z-index: 10000;
+            pointer-events: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            white-space: nowrap;
+        `;
+        tooltip.textContent = content;
+        document.body.appendChild(tooltip);
+        const rect = tooltip.getBoundingClientRect();
+        let left = e.clientX + 10;
+        let top = e.clientY - 30;
+        if (left + rect.width > window.innerWidth) left = e.clientX - rect.width - 10;
+        if (top + rect.height > window.innerHeight) top = e.clientY - rect.height - 10;
+        tooltip.style.left = left + 'px';
+        tooltip.style.top = top + 'px';
     };
     
     // 延迟触发重绘，确保布局计算完成
