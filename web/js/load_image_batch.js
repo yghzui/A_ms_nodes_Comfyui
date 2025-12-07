@@ -343,15 +343,6 @@ function drawNodeImages(node, ctx) {
             ctx.lineTo(iconX + iconSize * 0.40, iconY + iconSize * 0.75);
             ctx.lineTo(iconX + iconSize * 0.85, iconY + iconSize * 0.25);
             ctx.stroke();
-        } else {
-            ctx.strokeStyle = 'rgba(255, 0, 0, 0.95)';
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.moveTo(iconX + iconSize * 0.20, iconY + iconSize * 0.20);
-            ctx.lineTo(iconX + iconSize * 0.80, iconY + iconSize * 0.80);
-            ctx.moveTo(iconX + iconSize * 0.80, iconY + iconSize * 0.20);
-            ctx.lineTo(iconX + iconSize * 0.20, iconY + iconSize * 0.80);
-            ctx.stroke();
         }
         if (!node._customCheckboxRects) {
             node._customCheckboxRects = [];
