@@ -467,10 +467,21 @@ function drawNodeImages(node, ctx) {
         const restoreButtonX = currentImageRect ? currentImageRect.x + currentImageRect.width - buttonSize - 5 : node.size[0] - buttonSize - 10;
         const restoreButtonY = currentImageRect ? currentImageRect.y + 5 : 10;
         
-        // 检查鼠标是否悬浮在按钮上
+        let restoreHitX, restoreHitY, restoreHitW, restoreHitH;
+        if (currentImageRect) {
+            restoreHitX = currentImageRect.x + (currentImageRect.width * 3) / 4;
+            restoreHitY = currentImageRect.y;
+            restoreHitW = currentImageRect.width / 4;
+            restoreHitH = currentImageRect.height / 4;
+        } else {
+            restoreHitW = Math.round(buttonSize * 1.8);
+            restoreHitH = Math.round(buttonSize * 1.8);
+            restoreHitX = restoreButtonX - Math.floor((restoreHitW - buttonSize) / 2);
+            restoreHitY = restoreButtonY - Math.floor((restoreHitH - buttonSize) / 2);
+        }
         const mouseInRestoreButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
-            node._customMouseX >= restoreButtonX && node._customMouseX <= restoreButtonX + buttonSize &&
-            node._customMouseY >= restoreButtonY && node._customMouseY <= restoreButtonY + buttonSize;
+            node._customMouseX >= restoreHitX && node._customMouseX <= restoreHitX + restoreHitW &&
+            node._customMouseY >= restoreHitY && node._customMouseY <= restoreHitY + restoreHitH;
         
         const mouseInPrevButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
             node._customMouseX >= node.size[0] - buttonSize * 3 - buttonSpacing - 10 && node._customMouseX <= node.size[0] - buttonSize * 2 - buttonSpacing - 10 &&
@@ -550,16 +561,11 @@ function drawNodeImages(node, ctx) {
         
         // 绘制恢复按钮 (⭯) - 放在图片区域的右上角
         
-        // 按钮背景（悬浮效果）
-        ctx.fillStyle = mouseInRestoreButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0)';
         ctx.fillRect(restoreButtonX, restoreButtonY, buttonSize, buttonSize);
-        
-        // 按钮边框
         ctx.strokeStyle = mouseInRestoreButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
         ctx.lineWidth = mouseInRestoreButton ? 2 : 1;
         ctx.strokeRect(restoreButtonX, restoreButtonY, buttonSize, buttonSize);
-        
-        // 绘制⭯符号
         ctx.fillStyle = 'rgba(255, 255, 255, 1)';
         ctx.fillText('⭯', restoreButtonX + buttonSize / 2, restoreButtonY + buttonSize / 2);
         
@@ -708,9 +714,21 @@ function drawNodeImages(node, ctx) {
         const restoreButtonY = currentImageRect ? currentImageRect.y + 5 : 10;
         
         // 检查鼠标是否悬浮在按钮上
+        let restoreHitX, restoreHitY, restoreHitW, restoreHitH;
+        if (currentImageRect) {
+            restoreHitX = currentImageRect.x + (currentImageRect.width * 3) / 4;
+            restoreHitY = currentImageRect.y;
+            restoreHitW = currentImageRect.width / 4;
+            restoreHitH = currentImageRect.height / 4;
+        } else {
+            restoreHitW = Math.round(buttonSize * 1.8);
+            restoreHitH = Math.round(buttonSize * 1.8);
+            restoreHitX = restoreButtonX - Math.floor((restoreHitW - buttonSize) / 2);
+            restoreHitY = restoreButtonY - Math.floor((restoreHitH - buttonSize) / 2);
+        }
         const mouseInRestoreButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
-            node._customMouseX >= restoreButtonX && node._customMouseX <= restoreButtonX + buttonSize &&
-            node._customMouseY >= restoreButtonY && node._customMouseY <= restoreButtonY + buttonSize;
+            node._customMouseX >= restoreHitX && node._customMouseX <= restoreHitX + restoreHitW &&
+            node._customMouseY >= restoreHitY && node._customMouseY <= restoreHitY + restoreHitH;
         
         const mouseInPrevButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
             node._customMouseX >= node.size[0] - buttonSize * 3 - buttonSpacing - 10 && node._customMouseX <= node.size[0] - buttonSize * 2 - buttonSpacing - 10 &&
@@ -790,16 +808,11 @@ function drawNodeImages(node, ctx) {
         
         // 绘制恢复按钮 (⭯) - 放在图片区域的右上角
         
-        // 按钮背景（悬浮效果）
-        ctx.fillStyle = mouseInRestoreButton ? 'rgba(0, 0, 0, 0.9)' : 'rgba(0, 0, 0, 0.7)';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0)';
         ctx.fillRect(restoreButtonX, restoreButtonY, buttonSize, buttonSize);
-        
-        // 按钮边框
         ctx.strokeStyle = mouseInRestoreButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
         ctx.lineWidth = mouseInRestoreButton ? 2 : 1;
         ctx.strokeRect(restoreButtonX, restoreButtonY, buttonSize, buttonSize);
-        
-        // 绘制⭯符号
         ctx.fillStyle = 'rgba(255, 255, 255, 1)';
         ctx.fillText('⭯', restoreButtonX + buttonSize / 2, restoreButtonY + buttonSize / 2);
         
@@ -872,10 +885,10 @@ function drawNodeImages(node, ctx) {
             height: buttonSize
         };
         node._customRestoreButtonRect = {
-            x: restoreButtonX,
-            y: restoreButtonY,
-            width: buttonSize,
-            height: buttonSize
+            x: restoreHitX,
+            y: restoreHitY,
+            width: restoreHitW,
+            height: restoreHitH
         };
         node._customClearButtonRect = {
             x: clearButtonX,
@@ -1316,31 +1329,45 @@ function populate(imagePaths) {
             }
             
             // 检查点击恢复按钮 (⭯)
-            if (this._customRestoreButtonRect) {
-                const absRestoreButtonX = nodePos[0] + this._customRestoreButtonRect.x;
-                const absRestoreButtonY = nodePos[1] + this._customRestoreButtonRect.y;
-                const absRestoreButtonWidth = this._customRestoreButtonRect.width;
-                const absRestoreButtonHeight = this._customRestoreButtonRect.height;
-                
-                if (e.canvasX >= absRestoreButtonX && e.canvasX <= absRestoreButtonX + absRestoreButtonWidth &&
-                    e.canvasY >= absRestoreButtonY && e.canvasY <= absRestoreButtonY + absRestoreButtonHeight) {
+            {
+                let hitX, hitY, hitW, hitH;
+                if (this._customRestoreButtonRect) {
+                    hitX = nodePos[0] + this._customRestoreButtonRect.x;
+                    hitY = nodePos[1] + this._customRestoreButtonRect.y;
+                    hitW = this._customRestoreButtonRect.width;
+                    hitH = this._customRestoreButtonRect.height;
+                } else {
+                    const currentImageRect = this._customImageRects ? this._customImageRects[this._customFocusedImageIndex] : null;
+                    if (currentImageRect) {
+                        hitX = nodePos[0] + currentImageRect.x + (currentImageRect.width * 3) / 4;
+                        hitY = nodePos[1] + currentImageRect.y;
+                        hitW = currentImageRect.width / 4;
+                        hitH = currentImageRect.height / 4;
+                    } else {
+                        const buttonSize = 20;
+                        const restoreButtonX = this.size[0] - buttonSize - 10;
+                        const restoreButtonY = 10;
+                        hitW = Math.round(buttonSize * 1.8);
+                        hitH = Math.round(buttonSize * 1.8);
+                        hitX = nodePos[0] + restoreButtonX - Math.floor((hitW - buttonSize) / 2);
+                        hitY = nodePos[1] + restoreButtonY - Math.floor((hitH - buttonSize) / 2);
+                    }
+                }
+                if (e.canvasX >= hitX && e.canvasX <= hitX + hitW &&
+                    e.canvasY >= hitY && e.canvasY <= hitY + hitH) {
                     
                     console.log("点击恢复按钮，退出单图片模式");
                     
-                    // 阻止事件冒泡
                     e.preventDefault();
                     e.stopPropagation();
                     
-                    // 退出单图片模式
                     this._customSingleImageMode = false;
                     this._customFocusedImageIndex = -1;
                     
-                    // 重新计算布局
                     if (this._customImagePaths && this._customImagePaths.length > 0) {
                         calculateImageLayout(this, this._customImagePaths.length);
                     }
                     
-                    // 触发重绘
                     app.graph.setDirtyCanvas(true, false);
                     
                     return true;
