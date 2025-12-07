@@ -319,46 +319,48 @@ function drawNodeImages(node, ctx) {
             }
         }
         
-        // 绘制左下角复选框（始终显示）
-        const checkboxSize = 16;
-        const checkboxMargin = 5;
-        const checkboxX = rect.x + checkboxMargin;
-        const checkboxY = rect.y + rect.height - checkboxMargin - checkboxSize;
-        
-        // 检查鼠标是否悬浮在复选框上
+        const clickW = rect.width / 3;
+        const clickH = rect.height / 3;
+        const clickX = rect.x;
+        const clickY = rect.y + rect.height - clickH;
         const mouseInCheckbox = node._customMouseX !== undefined && node._customMouseY !== undefined &&
-            node._customMouseX >= checkboxX && node._customMouseX <= checkboxX + checkboxSize &&
-            node._customMouseY >= checkboxY && node._customMouseY <= checkboxY + checkboxSize;
-        
-        // 绘制复选框背景
-        ctx.fillStyle = mouseInCheckbox ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255, 255, 255, 0.8)';
-        ctx.fillRect(checkboxX, checkboxY, checkboxSize, checkboxSize);
-        
-        // 绘制复选框边框
-        ctx.strokeStyle = mouseInCheckbox ? 'rgba(0, 0, 0, 1)' : 'rgba(0, 0, 0, 0.8)';
+            node._customMouseX >= clickX && node._customMouseX <= clickX + clickW &&
+            node._customMouseY >= clickY && node._customMouseY <= clickY + clickH;
+        const iconSize = Math.max(16, Math.min(20, rect.width * 0.08));
+        const iconMargin = 6;
+        const iconX = rect.x + iconMargin;
+        const iconY = rect.y + rect.height - iconMargin - iconSize;
+        ctx.fillStyle = mouseInCheckbox ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.12)';
+        ctx.fillRect(iconX, iconY, iconSize, iconSize);
+        ctx.strokeStyle = mouseInCheckbox ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.75)';
         ctx.lineWidth = mouseInCheckbox ? 2 : 1;
-        ctx.strokeRect(checkboxX, checkboxY, checkboxSize, checkboxSize);
-        
-        // 如果选中，绘制勾选标记
+        ctx.strokeRect(iconX, iconY, iconSize, iconSize);
         if (node._customSelectedImages && node._customSelectedImages[i]) {
-            ctx.strokeStyle = 'rgba(0, 0, 0, 1)';
-            ctx.lineWidth = 2;
+            ctx.strokeStyle = 'rgba(0, 200, 0, 0.95)';
+            ctx.lineWidth = 3;
             ctx.beginPath();
-            ctx.moveTo(checkboxX + 3, checkboxY + checkboxSize / 2);
-            ctx.lineTo(checkboxX + checkboxSize / 3, checkboxY + checkboxSize - 3);
-            ctx.lineTo(checkboxX + checkboxSize - 3, checkboxY + 3);
+            ctx.moveTo(iconX + iconSize * 0.2, iconY + iconSize * 0.55);
+            ctx.lineTo(iconX + iconSize * 0.40, iconY + iconSize * 0.75);
+            ctx.lineTo(iconX + iconSize * 0.85, iconY + iconSize * 0.25);
+            ctx.stroke();
+        } else {
+            ctx.strokeStyle = 'rgba(255, 0, 0, 0.95)';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(iconX + iconSize * 0.20, iconY + iconSize * 0.20);
+            ctx.lineTo(iconX + iconSize * 0.80, iconY + iconSize * 0.80);
+            ctx.moveTo(iconX + iconSize * 0.80, iconY + iconSize * 0.20);
+            ctx.lineTo(iconX + iconSize * 0.20, iconY + iconSize * 0.80);
             ctx.stroke();
         }
-        
-        // 保存复选框区域信息
         if (!node._customCheckboxRects) {
             node._customCheckboxRects = [];
         }
         node._customCheckboxRects[i] = {
-            x: checkboxX,
-            y: checkboxY,
-            width: checkboxSize,
-            height: checkboxSize
+            x: clickX,
+            y: clickY,
+            width: clickW,
+            height: clickH
         };
         
         // 在多图片模式下，只在悬浮时显示文件名和清除按钮
