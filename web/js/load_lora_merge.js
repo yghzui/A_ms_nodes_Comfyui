@@ -38,6 +38,15 @@ async function showLoraChooser(event, callback, parentMenu, loras, buttonNode, b
         targetX = (anchorCanvasX + ds.offset[0]) * ds.scale + canvasRect.left;
         targetY = (anchorCanvasY + ds.offset[1]) * ds.scale + canvasRect.top;
         
+        // Fallback to event coordinates if node calculation seems off (e.g. negative or way out of bounds)
+        // or if we are in a subgraph (node.graph !== app.graph) which makes node.pos relative
+        if (event && (buttonNode.graph !== app.graph || targetX < 0 || targetY < 0)) {
+             if (event.clientX !== undefined) {
+                targetX = event.clientX;
+                targetY = event.clientY;
+             }
+        }
+
         menuEvent = new MouseEvent('contextmenu', { clientX: targetX, clientY: targetY, bubbles: true, cancelable: true, view: window });
     } else if (event && event.clientX !== undefined) {
         targetX = event.clientX;
@@ -212,10 +221,10 @@ class LoadLoraMergeWidget extends RgthreeBaseWidget {
         this.haveMouseMovedStrength = false;
         this.hitAreas = {
             toggle: { bounds: [0, 0], onDown: this.onToggleDown.bind(this) },
-            lora: { bounds: [0, 0], onClick: this.onLoraClick.bind(this) },
-            strengthDec: { bounds: [0, 0], onClick: (e,p,n) => this.stepStrength(-1) },
-            strengthVal: { bounds: [0, 0], onClick: this.onStrengthValUp.bind(this) },
-            strengthInc: { bounds: [0, 0], onClick: (e,p,n) => this.stepStrength(1) },
+            lora: { bounds: [0, 0], onDown: this.onLoraDown.bind(this) },
+            strengthDec: { bounds: [0, 0], onDown: this.onStrengthDecDown.bind(this) },
+            strengthVal: { bounds: [0, 0], onDown: this.onStrengthValDown.bind(this), onMove: this.onStrengthAnyMove.bind(this) },
+            strengthInc: { bounds: [0, 0], onDown: this.onStrengthIncDown.bind(this) },
             strengthAny: { bounds: [0, 0], onMove: this.onStrengthAnyMove.bind(this) },
         };
         this._value = { on: true, lora: null, strength: 1 };
@@ -260,19 +269,37 @@ class LoadLoraMergeWidget extends RgthreeBaseWidget {
         return { ...this.value }; 
     }
     onToggleDown() { this.value.on = !this.value.on; this.cancelMouseDown(); return true; }
-    onLoraClick(event, pos, node) {
-        showLoraChooser(rgthree.lastCanvasMouseEvent || event, (value) => {
+    onLoraDown(event, pos, node) {
+        showLoraChooser(event, (value) => {
             if (typeof value === "string") this.value.lora = value;
             node.setDirtyCanvas(true, true);
         }, null, null, node, this);
-        this.cancelMouseDown();
+        return true; // Indicate we handled it
     }
-    onStrengthDecDown() { this.stepStrength(-1); }
-    onStrengthIncDown() { this.stepStrength(1); }
-    onStrengthAnyMove(event) { if (event.deltaX) { this.haveMouseMovedStrength = true; this.value.strength = (this.value.strength || 1) + event.deltaX * 0.05; } }
-    onStrengthValUp(event) {
-        if (this.haveMouseMovedStrength) { this.haveMouseMovedStrength = false; return; }
-        app.canvas.prompt("Strength", this.value.strength || 1, (v) => { this.value.strength = Number(v); }, event);
+    onStrengthDecDown() { this.stepStrength(-1); return true;}
+    onStrengthIncDown() { this.stepStrength(1); return true;}
+    onStrengthAnyMove(event) { 
+        if (event.deltaX) { 
+            this.wasDragging = true;
+            this.value.strength = (this.value.strength || 1) + event.deltaX * 0.05; 
+            this.value.strength = Math.round(this.value.strength * 100) / 100; // Round to avoid float issues
+        } 
+    }
+    onStrengthValDown(event) {
+        const now = Date.now();
+        // Double click detection: < 300ms and the previous interaction was not a drag
+        if (this.lastClickTime && (now - this.lastClickTime < 300) && !this.wasDragging) {
+            // Double click - open prompt
+            const e = event || rgthree.lastCanvasMouseEvent;
+            app.canvas.prompt("Strength", this.value.strength || 1, (v) => { this.value.strength = Number(v); }, e);
+            this.lastClickTime = 0; // Reset
+            return true;
+        }
+        
+        // Single click / Start of potential drag
+        this.lastClickTime = now;
+        this.wasDragging = false; // Reset drag flag for this new interaction
+        return true;
     }
     stepStrength(direction) {
         let step = 0.05;
