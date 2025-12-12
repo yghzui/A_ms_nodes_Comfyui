@@ -227,10 +227,32 @@ function showImages(node, paths) {
         const img = new Image();
         node._customImgs.push(img);
         
-        // 从相对路径中提取文件名
-        const pathParts = path.split(/[\\\/]/);
-        const fileName = pathParts[pathParts.length - 1];
-        node._customImageFileNames.push(fileName);
+        // 解析路径，处理 [input] 等后缀
+        // Parse path to handle [input], [output], [temp] suffixes
+        // Example: "clipspace/image.png [input]" -> filename: "image.png", subfolder: "clipspace", type: "input"
+        let filename = path;
+        let type = 'input';
+        let subfolder = '';
+
+        // 匹配 "filename [type]" 格式
+        const typeMatch = path.match(/^(.*)\s+\[(input|output|temp)\]$/);
+        if (typeMatch) {
+            filename = typeMatch[1];
+            type = typeMatch[2];
+        }
+
+        // 解析子文件夹
+        const lastSlash = filename.lastIndexOf('/');
+        const lastBackslash = filename.lastIndexOf('\\');
+        const splitIndex = Math.max(lastSlash, lastBackslash);
+        
+        if (splitIndex !== -1) {
+            subfolder = filename.substring(0, splitIndex);
+            filename = filename.substring(splitIndex + 1);
+        }
+
+        // 保存文件名用于显示 (去除路径和后缀)
+        node._customImageFileNames.push(filename);
         
         img.onload = () => { 
             console.log(`图片 ${index} 加载完成:`, path);
@@ -239,8 +261,17 @@ function showImages(node, paths) {
         img.onerror = () => {
             console.error(`图片 ${index} 加载失败:`, path);
         };
+        
+        // 构建 API URL
+        // 使用 URLSearchParams 确保参数正确编码
+        const params = new URLSearchParams({
+            filename: filename,
+            type: type,
+            subfolder: subfolder
+        });
+        
         // 通过API获取图片URL
-        img.src = api.apiURL(`/view?filename=${encodeURIComponent(path)}&type=input`);
+        img.src = api.apiURL(`/view?${params.toString()}`);
     });
     
     // 计算图片布局
@@ -1941,6 +1972,68 @@ function removeClearResultDialog() {
                 if (dialog) dialog.remove();
 }
 
+/**
+ * 打开 MaskEditor 编辑任意图片
+ * @param {string} imageUrl - 图片的 URL
+ * @param {Function} onSave - 保存回调，接收 (filename, subfolder, type) 或 路径字符串
+ */
+function openMaskEditorForImage(imageUrl, onSave) {
+    // 1. 构造 Mock Node
+    const mockNode = {
+        id: -1, // 虚拟 ID
+        type: "MockNode",
+        title: "Mock Image Editor",
+        imgs: [{
+            src: imageUrl,
+            width: 512, // 临时宽高，MaskEditor 会重新加载图片
+            height: 512
+        }],
+        widgets: [{
+            name: "image",
+            value: "",
+            callback: (newValue) => {
+                console.log("[MockEditor] Saved:", newValue);
+                if (onSave) {
+                    onSave(newValue);
+                }
+            }
+        }],
+        setDirtyCanvas: () => {},
+        setSize: () => {},
+        getBounding: () => [0,0,100,100],
+        isResizeable: () => false,
+        properties: {}
+    };
+
+    // 2. 找到 MaskEditor 的打开命令
+    const ext = app.extensions.find(e => e.name === "Comfy.MaskEditor");
+    if (!ext) {
+        console.error("Comfy.MaskEditor extension not found");
+        alert("未找到 MaskEditor 插件，请先安装。");
+        return;
+    }
+
+    const cmd = ext.commands.find(c => c.id === "Comfy.MaskEditor.OpenMaskEditor");
+    if (!cmd) {
+        console.error("OpenMaskEditor command not found");
+        alert("MaskEditor 插件未注册打开命令。");
+        return;
+    }
+
+    // 3. 实施欺骗：伪造选中状态并执行命令
+    const originalSelection = app.canvas.selected_nodes;
+    app.canvas.selected_nodes = { [mockNode.id]: mockNode };
+
+    try {
+        cmd.function();
+    } catch (e) {
+        console.error("Failed to open MaskEditor:", e);
+        alert("打开编辑器失败: " + e.message);
+    } finally {
+        app.canvas.selected_nodes = originalSelection;
+    }
+}
+
 // --- ComfyUI 节点扩展 ---
 app.registerExtension({
     name: "A_my_nodes.LoadImageBatchAdvanced.JS",
@@ -2279,6 +2372,106 @@ app.registerExtension({
             // 新增：为节点追加右键菜单"粘贴"项（与官方 Load Image 一致的入口）
             chainCallback(nodeType.prototype, "getExtraMenuOptions", function(_, options) {
                 const self = this;
+
+                // --- 新增：检查是否有图片被点击，如果有则添加编辑选项 ---
+                if (self._customImgs && self._customImageRects && self._customImagePaths) {
+                    const nodePos = self.pos;
+                    // app.canvas.graph_mouse 是全局坐标 [x, y]
+                    const canvasX = app.canvas.graph_mouse[0];
+                    const canvasY = app.canvas.graph_mouse[1];
+                    const relX = canvasX - nodePos[0];
+                    const relY = canvasY - nodePos[1];
+
+                    // 检查点击了哪个图片
+                    let clickedImageIndex = -1;
+                    for (let i = 0; i < self._customImageRects.length; i++) {
+                        const rect = self._customImageRects[i];
+                        if (rect && rect.visible !== false &&
+                            relX >= rect.x && relX <= rect.x + rect.width &&
+                            relY >= rect.y && relY <= rect.y + rect.height) {
+                            clickedImageIndex = i;
+                            break;
+                        }
+                    }
+
+                    if (clickedImageIndex !== -1) {
+                         options.unshift({
+                            content: "编辑图片 (MaskEditor)",
+                            callback: () => {
+                                let imagePath = self._customImagePaths[clickedImageIndex];
+                                let isInput = false;
+                                // 处理 [input] 后缀：如果有该后缀，先去除以便正确加载图片，但在保存时需要恢复
+                                if (imagePath && imagePath.endsWith(" [input]")) {
+                                    imagePath = imagePath.substring(0, imagePath.length - 8);
+                                    isInput = true;
+                                }
+
+                                // 解析路径，分离 filename 和 subfolder
+                                let filename = imagePath;
+                                let subfolder = "";
+                                const lastSlashIndex = imagePath.lastIndexOf('/');
+                                const lastBackslashIndex = imagePath.lastIndexOf('\\');
+                                const slashIndex = Math.max(lastSlashIndex, lastBackslashIndex);
+                                
+                                if (slashIndex !== -1) {
+                                    subfolder = imagePath.substring(0, slashIndex);
+                                    filename = imagePath.substring(slashIndex + 1);
+                                }
+
+                                // 构造完整 URL
+                                let urlParams = `?filename=${encodeURIComponent(filename)}&type=input`;
+                                if (subfolder) {
+                                    urlParams += `&subfolder=${encodeURIComponent(subfolder)}`;
+                                }
+                                const imageUrl = api.apiURL(`/view${urlParams}`);
+                                
+                                openMaskEditorForImage(imageUrl, (result) => {
+                                    console.log("Editor saved result:", result);
+                                    
+                                    // 解析结果
+                                    let newPath = "";
+                                    if (typeof result === 'string') {
+                                        newPath = result;
+                                    } else if (result && typeof result === 'object') {
+                                         if (result.filename) {
+                                             newPath = result.subfolder ? `${result.subfolder}/${result.filename}` : result.filename;
+                                         }
+                                    }
+
+                                    // 恢复 [input] 后缀
+                                    if (newPath && isInput && !newPath.endsWith(" [input]")) {
+                                        newPath += " [input]";
+                                    }
+                                    
+                                    if (newPath) {
+                                        // 更新路径
+                                        self._customImagePaths[clickedImageIndex] = newPath;
+                                        
+                                        // 更新文件名
+                                        const pathParts = newPath.split(/[\\\/]/);
+                                        const fileName = pathParts[pathParts.length - 1];
+                                        if (self._customImageFileNames) {
+                                            self._customImageFileNames[clickedImageIndex] = fileName;
+                                        }
+
+                                        // 更新 widget
+                                        const imagePathsWidget = self.widgets.find(w => w.name === "image_paths");
+                                        if (imagePathsWidget) {
+                                            imagePathsWidget.value = self._customImagePaths.join(',');
+                                        }
+                                        updateWidgetValue(self);
+                                        
+                                        // 刷新显示
+                                        showImages(self, self._customImagePaths);
+                                        app.graph.setDirtyCanvas(true, false);
+                                    }
+                                });
+                            }
+                        });
+                    }
+                }
+                // --- 结束新增 ---
+
                 options.push({
                     content: "粘贴图像",
                     callback: async () => {

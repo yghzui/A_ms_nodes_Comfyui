@@ -52,6 +52,10 @@ class LoadImageBatchAdvanced:
 
         for path in paths:
             path = path.strip()
+            # 去除可能存在的 [input] 后缀
+            if path.endswith(" [input]"):
+                path = path[:-8]
+                
             if not path:
                 continue
             
@@ -169,6 +173,10 @@ class LoadImageByIndex:
         
         # 获取指定索引的路径
         target_path = paths[index]
+        
+        # 去除可能存在的 [input] 后缀
+        if target_path.endswith(" [input]"):
+            target_path = target_path[:-8]
         
         if not os.path.exists(target_path):
             print(f"警告: 文件不存在 {target_path}")

@@ -172,11 +172,92 @@ if (event && event.clientX !== undefined) {
         *   节点必须有一个名为 `image` 的 Widget (通常是 Combo 或 String 类型) 用于接收文件名。
         *   或者，MaskEditor 能够识别并更新您的特定 Widget（目前逻辑主要硬编码为查找名为 `image` 的 Widget）。
 
-## 7. INPUT_TYPES 与前端 Widget 映射关系
+## 7. MaskEditor 图像加载与重编辑机制
+
+ComfyUI 的 MaskEditor 具有一套特殊的机制，用于支持对已编辑图片的“重编辑”（Re-editing）。这主要依赖于特定的文件命名规范和加载逻辑。
+
+### 7.1 文件保存机制
+当在 MaskEditor 中编辑并保存（Save to node）时，后端实际上会生成一组相关联的文件（通常为 4 张），文件名中包含相同的**时间戳**。
+
+例如，时间戳为 `1765573661746` 时：
+1.  **`clipspace-mask-1765573661746.png`**:
+    *   **用途**：作为重编辑时的**基础层（Base Layer）**和**遮罩层（Mask Layer）**来源。
+    *   **结构**：通常是一个 RGBA 图像，RGB 通道存储原始图片（或底图），Alpha 通道存储遮罩信息。
+2.  **`clipspace-paint-1765573661746.png`**:
+    *   **用途**：存储**涂鸦层（Paint Layer）**。
+    *   **结构**：通常是透明背景的涂鸦内容。
+3.  **`clipspace-painted-1765573661746.png`**:
+    *   **用途**：原始图片 + 涂鸦的合成图（无遮罩）。
+4.  **`clipspace-painted-masked-1765573661746.png`**:
+    *   **用途**：最终输出结果（原始图片 + 涂鸦 + 遮罩应用后的效果）。
+    *   **重要性**：这是通常回传给节点 Widget 的文件名。
+
+### 7.2 加载与解析逻辑 (`useMaskEditorLoader.ts`)
+
+当 MaskEditor 尝试加载图片时，会检查文件名是否符合特定模式，以决定是否加载关联的图层数据。
+
+核心函数 `imageLayerFilenamesIfApplicable` 的逻辑如下：
+
+1.  **触发条件**：检查输入文件名是否以 `clipspace-painted-masked-` 开头。
+2.  **提取时间戳**：截取前缀后的部分，解析出时间戳（如 `1765573661746`）。
+3.  **重构路径**：根据时间戳推断出其他关联文件的名称。
+
+### 7.3 图层恢复流程
+
+如果触发了上述机制，加载器将按以下方式初始化编辑器：
+
+1.  **Base Layer (底图)**：
+    *   加载 `clipspace-mask-{timestamp}.png` 的 **RGB 通道**。
+2.  **Mask Layer (遮罩)**：
+    *   加载 `clipspace-mask-{timestamp}.png` 的 **Alpha 通道**。
+3.  **Paint Layer (涂鸦)**：
+    *   加载 `clipspace-paint-{timestamp}.png`。
+
+### 7.4 对自定义开发的启示
+
+如果你希望自定义的图片编辑流程能够支持 ComfyUI 原生的“重编辑”体验，你需要：
+1.  **保持命名一致性**：生成的图片文件名必须遵循 `clipspace-painted-masked-{timestamp}.png` 的格式。
+2.  **保留关联文件**：必须同时保存对应的 `mask` 和 `paint` 文件到 `clipspace` 目录（或其他可访问位置，虽然默认逻辑硬编码了 `clipspace` 前缀，但实际路径由 `subfolder` 决定，通常是 `clipspace`）。
+3.  **合成逻辑一致**：`clipspace-mask-*.png` 必须包含正确的 RGB 底图和 Alpha 遮罩。
+
+### 7.5 Widget 值解析
+加载器还会尝试解析 Widget 中的值（如 `clipspace/filename.png [input]`）：
+*   **Filename**: 提取文件名。
+*   **Subfolder**: 提取子文件夹（如 `clipspace`）。
+*   **Type**: 提取类型（如 `input`）。
+这确保了即使文件位于子目录中，也能被正确找到并触发上述的时间戳解析逻辑。
+
+### 7.6 路径处理与 [input] 标记的特殊注意事项
+
+在实际开发中（如自定义 Load Image 节点），要确保 MaskEditor 能正确加载和保存图片，必须处理好路径解析和自定义标记：
+
+#### 7.6.1 子文件夹路径解析问题
+ComfyUI 的后端 `/view` 接口对 `filename` 参数的处理比较简单，通常只提取文件名（`basename`）。如果图片位于子文件夹中（例如 `clipspace/image.png`），直接传递 `filename=clipspace/image.png` 会导致后端在根目录查找文件，从而返回 404 错误。
+
+**正确做法**：
+在构造 MaskEditor 的图片 URL 时，必须将路径拆分为 `filename` 和 `subfolder`：
+
+```javascript
+// 错误示例
+const url = `/view?filename=${encodeURIComponent("clipspace/image.png")}&type=input`;
+
+// 正确示例
+const url = `/view?filename=${encodeURIComponent("image.png")}&subfolder=${encodeURIComponent("clipspace")}&type=input`;
+```
+
+#### 7.6.2 [input] 后缀与重编辑状态保持
+为了标识文件已被编辑或属于输入类型，某些节点实现会在文件名后追加 ` [input]` 后缀（例如 `clipspace/xxx.png [input]`）。
+
+*   **加载前 (Pre-Edit)**：必须移除 ` [input]` 后缀，否则后端无法找到对应文件。
+*   **保存后 (Post-Save)**：当 MaskEditor 返回新的文件路径后，如果原文件带有 ` [input]` 标记，必须将其**恢复**。
+
+这是实现“无限次重编辑”的关键：只有文件名保持一致（或标记一致），节点才能在下次打开时正确识别并加载关联的 `mask` 和 `paint` 图层。
+
+## 8. INPUT_TYPES 与前端 Widget 映射关系
 
 本节详细阐述后端 Python 节点定义中的 `INPUT_TYPES` 如何映射到前端的 Widget，涵盖旧版（LiteGraph）和 Nodes 2.0 (Schema V2) 的差异。
 
-### 7.1 映射概览
+### 8.1 映射概览
 
 | 后端类型 (Python) | Schema V2 类型 | 默认 Widget (前端) | 备注 |
 | :--- | :--- | :--- | :--- |
@@ -188,43 +269,43 @@ if (event && event.clientX !== undefined) {
 | `IMAGE` | `IMAGE` | `image` (自定义) | 实际上是上传按钮 + 预览 |
 | `MASK` | `MASK` | - | 通常作为输入插槽，非 Widget |
 
-### 7.2 详细映射逻辑
+### 8.2 详细映射逻辑
 
-#### 7.2.1 INT (整数)
+#### 8.2.1 INT (整数)
 *   **后端定义**: `("INT", {"default": 1, "min": 0, "max": 10, "step": 1})`
 *   **前端处理 (`useIntWidget.ts`)**:
     *   **Display**: 默认为 `number` 输入框。如果 `display="slider"` 且未禁用 Slider，则显示滑块。
     *   **Step**: V2 中直接使用 `step`。旧版中曾使用 `step * 10` 的逻辑，现在已废弃但保留兼容。
     *   **Seed**: 如果输入名称为 `seed` 或 `noise_seed`，会自动添加 `randomize` 和 `reuse` 的控制按钮（`control_after_generate`）。
 
-#### 7.2.2 FLOAT (浮点数)
+#### 8.2.2 FLOAT (浮点数)
 *   **后端定义**: `("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.01})`
 *   **前端处理 (`useFloatWidget.ts`)**:
     *   **Precision**: 根据 `step` 自动计算小数位数，或者通过 `round` 参数指定。
     *   **Rounding**: 前端会根据配置（`Comfy.FloatRoundingPrecision`）进行数值舍入，避免浮点数精度问题。
 
-#### 7.2.3 STRING (字符串)
+#### 8.2.3 STRING (字符串)
 *   **后端定义**: `("STRING", {"default": "", "multiline": True})`
 *   **前端处理 (`useStringWidget.ts`)**:
     *   **Single Line**: 使用标准的 LiteGraph `text` widget。
     *   **Multi Line**: 使用 `customtext` widget，底层是一个 HTML `textarea` 元素，支持多行编辑、滚动和动态缩放。
     *   **Dynamic Prompts**: 支持动态提示词语法的处理。
 
-#### 7.2.4 COMBO (下拉框)
+#### 8.2.4 COMBO (下拉框)
 *   **后端定义**: `(["Option A", "Option B"],)`
 *   **前端处理 (`useComboWidget.ts`)**:
     *   **Standard**: 使用 LiteGraph `combo` widget。
     *   **Image/Video Loaders**: 对于 `LoadImage` 等特定节点，会使用特殊的 `createInputMappingWidget` 或 `createAssetBrowserWidget`，支持预览图和文件上传。
     *   **Remote**: V2 支持 `remote` 属性，允许通过 API 动态获取选项列表。
 
-#### 7.2.5 IMAGE / IMAGEUPLOAD (图片上传)
+#### 8.2.5 IMAGE / IMAGEUPLOAD (图片上传)
 *   **后端定义**: 通常不直接作为类型，而是通过 `INPUT_TYPES` 返回特定结构，或者在前端通过 `imageInputName` 增强。
 *   **前端处理 (`useImageUploadWidget.ts`)**:
     *   **核心**: 实际上是一个 `combo` widget（存储文件名） + 一个 `button` widget（触发上传）。
     *   **交互**: 点击按钮 -> 选择文件 -> 上传 -> 更新 Combo 值 -> 触发预览更新。
     *   **Preview**: 使用 `useImagePreviewWidget` 在节点上绘制图片预览。
 
-### 7.3 Schema V2 的改进
+### 8.3 Schema V2 的改进
 
 Nodes 2.0 (V2) 在 `src/schemas/nodeDef/nodeDefSchemaV2.ts` 中定义了更严格的规范：
 
@@ -233,21 +314,21 @@ Nodes 2.0 (V2) 在 `src/schemas/nodeDef/nodeDefSchemaV2.ts` 中定义了更严�
 3.  **UI 提示 (Hints)**: 引入 `display` (slider/knob), `placeholder`, `tooltip` 等 UI 专用属性。
 4.  **验证**: 前端在创建 Widget 时会校验 InputSpec 是否符合 Schema，提供更好的错误提示。
 
-### 7.4 对开发者的建议
+### 8.4 对开发者的建议
 
 *   **优先使用 V2**: 新开发的节点应尽量遵循 V2 Schema 定义输入，以获得更好的类型支持和 UI 控制。
 *   **特殊 Widget**: 如果需要 Image Upload 或 Mask Editor 功能，参考 `LoadImage` 的实现，组合使用 Combo 和 Button，并利用 Composable (`useNodeImageUpload`) 复用逻辑。
 *   **类型转换**: 前端会自动处理 V2 到 V1 的兼容性转换（`transformInputSpecV2ToV1`），因此旧版节点通常能无缝运行，但新特性需要新 Schema 支持。
 
-## 8. 模型列表获取与管理
+## 9. 模型列表获取与管理
 
 本节介绍如何在前端代码中获取模型列表（如 Checkpoints, LoRAs），包括初始化加载和动态刷新。
 
-### 8.1 通过 API 获取模型列表
+### 9.1 通过 API 获取模型列表
 
 `ComfyUI_frontend/src/scripts/api.ts` 提供了直接与后端交互的方法。
 
-#### 8.1.1 获取指定类型的模型 (`getModels`)
+#### 9.1.1 获取指定类型的模型 (`getModels`)
 
 如果需要在运行时动态获取某种类型的模型列表（例如点击刷新按钮时）：
 
@@ -263,7 +344,7 @@ console.log(checkpoints)
 const loras = await api.getModels('loras')
 ```
 
-#### 8.1.2 获取所有可用的模型文件夹 (`getModelFolders`)
+#### 9.1.2 获取所有可用的模型文件夹 (`getModelFolders`)
 
 如果不确定有哪些模型类型可用：
 
@@ -273,7 +354,7 @@ console.log(folders)
 // 输出示例: [{name: "checkpoints"}, {name: "loras"}, {name: "embeddings"}, ...]
 ```
 
-### 8.2 从节点定义中获取 (静态)
+### 9.2 从节点定义中获取 (静态)
 
 标准的 `Load Checkpoint` 等节点，其模型列表是在后端启动时生成的，并作为 `INPUT_TYPES` 的一部分发送给前端。
 
@@ -287,7 +368,7 @@ const loaderDef = defs['CheckpointLoaderSimple']
 const modelList = loaderDef.input.required.ckpt_name[0] // 这是一个字符串数组
 ```
 
-### 8.3 动态刷新 Widget 选项
+### 9.3 动态刷新 Widget 选项
 
 如果您开发了一个自定义 Widget，并希望它能刷新模型列表：
 
@@ -320,3 +401,332 @@ async function refreshModelWidget(node, widgetName, folderName) {
 }
 ```
 
+## 10. 遮罩编辑器 (MaskEditor) 深度分析与改造
+
+ComfyUI 的新版 MaskEditor (`ComfyUI_frontend/src/components/maskeditor`) 实际上是一个功能完整的图像编辑器，不仅支持遮罩绘制，还支持图层合成（绘画层）。
+
+### 10.1 现状：与 Node 强耦合
+
+目前的实现中，编辑器与 `LGraphNode` 高度绑定：
+
+1.  **入口**: `useMaskEditor().openMaskEditor(node)` 强制要求传入 `LGraphNode`。
+2.  **数据加载**: `MaskEditorContent.vue` 调用 `loader.loadFromNode(node)`。
+3.  **数据解析**: `useMaskEditorLoader.ts` 内部解析节点的 `imgs` 属性或 Widgets 来确定图片 URL。
+
+这种设计导致无法直接打开编辑器来编辑一张不在节点上的图片（例如从剪贴板粘贴的，或者生成的中间结果）。
+
+### 10.2 改造方案：支持任意图像输入
+
+为了支持传入任意图像数据，需要对前端代码进行解耦改造。
+
+#### 10.2.1 定义通用输入接口
+
+在 `src/stores/maskEditorDataStore.ts` 中，`EditorInputData` 结构已经比较通用，但 `nodeId` 和 `sourceRef` 依然暗示了文件系统的依赖。
+
+建议扩展 `EditorInputData` 或引入新的 `CustomInputData`：
+
+```typescript
+// 建议的接口扩展
+interface CustomEditorInput {
+  baseImage: string | Blob | HTMLImageElement; // 底图
+  maskImage?: string | Blob | HTMLImageElement; // 初始遮罩 (可选)
+  paintImage?: string | Blob | HTMLImageElement; // 初始绘画层 (可选，用于 Image Editor 模式)
+  nodeId?: number; // 可选，如果需要回传给特定节点
+  callback?: (result: EditorOutputData) => void; // 保存时的回调，返回合成结果
+}
+```
+
+#### 10.2.2 改造 Loader (`useMaskEditorLoader.ts`)
+
+需要在 `useMaskEditorLoader.ts` 中添加 `loadFromData` 方法：
+
+```typescript
+// 伪代码示例
+async function loadFromData(input: CustomEditorInput) {
+  // 1. 将 Blob/String 转换为 HTMLImageElement (复用 loadImageLayer 逻辑)
+  const baseLayer = await createLayerFromInput(input.baseImage);
+  const maskLayer = input.maskImage 
+    ? await createLayerFromInput(input.maskImage) 
+    : createBlankMask(baseLayer.width, baseLayer.height);
+  
+  const paintLayer = input.paintImage
+    ? await createLayerFromInput(input.paintImage)
+    : undefined;
+
+  // 2. 填充 Store
+  dataStore.inputData = {
+    baseLayer,
+    maskLayer,
+    paintLayer,
+    nodeId: input.nodeId || -1,
+    // ...
+  };
+  
+  // 3. 标记非节点来源，改变保存行为
+  dataStore.isCustomSource = true; 
+  dataStore.saveCallback = input.callback;
+}
+```
+
+#### 10.2.3 改造 UI 组件 (`MaskEditorContent.vue`)
+
+修改 Props 定义，允许不传 `node`，而是传 `inputData`：
+
+```vue
+<script setup lang="ts">
+const props = defineProps<{
+  node?: LGraphNode;
+  customData?: CustomEditorInput;
+}>();
+
+const initUI = async () => {
+  // ...
+  if (props.node) {
+    await loader.loadFromNode(props.node);
+  } else if (props.customData) {
+    await loader.loadFromData(props.customData);
+  }
+  // ...
+};
+</script>
+```
+
+#### 10.2.4 改造入口 (`useMaskEditor.ts`)
+
+暴露更通用的打开方法：
+
+```typescript
+export function useMaskEditor() {
+  // 原有方法保持兼容
+  const openMaskEditor = (node: LGraphNode) => { ... };
+
+  // 新增通用方法
+  const openEditorWithImage = (data: CustomEditorInput) => {
+    useDialogStore().showDialog({
+      key: 'global-mask-editor',
+      component: MaskEditorContent,
+      props: {
+        customData: data
+      },
+      // ...
+    });
+  };
+
+  return { openMaskEditor, openEditorWithImage };
+}
+```
+
+### 10.3 扩展应用场景
+
+一旦完成上述改造，可以实现以下功能：
+
+1.  **全局图片编辑**: 在 Gallery 或历史记录中，右键任意图片点击 "Edit Mask"，直接调用编辑器。
+2.  **剪贴板编辑**: 监听全局粘贴事件，检测到图片后弹出 "Edit?" 提示，直接进入编辑模式。
+3.  **自定义节点交互**: 开发更复杂的节点（如 `Inpaint Anything`），在节点 UI 上提供 "Draw Mask" 按钮，点击后传入节点当前的 Tensor（转为 Base64）进行编辑，编辑完成后回调上传 Mask。
+4.  **独立 Image Editor**: 通过传入 `paintImage`，可以实现对图片的涂鸦、标记等功能，而不仅仅是遮罩。
+
+### 10.4 进阶：深度借用 UI 与保存逻辑 (Reuse Strategy)
+
+针对 "新建函数、自定义传参、只借用 UI 和保存/上传逻辑" 的需求，我们需要对 `useMaskEditorSaver.ts` 进行更细粒度的拆分，将 **"数据准备"**、**"上传"** 和 **"节点更新"** 三个步骤解耦。
+
+#### 10.4.1 核心逻辑拆解
+
+目前 `save()` 函数将所有逻辑耦合在一起。为了复用，建议将上传逻辑提取为独立服务：
+
+```typescript
+// src/composables/maskeditor/useMaskEditorSaver.ts (重构建议)
+
+// 1. 导出纯粹的上传逻辑，不依赖 dataStore/node
+export async function uploadEditorLayers(outputData: EditorOutputData, originalRef: ImageRef): Promise<EditorOutputData> {
+    // 复用原有的 uploadAllLayers 逻辑
+    const actualMaskedRef = await uploadMask(outputData.maskedImage, originalRef)
+    const actualPaintRef = await uploadImage(outputData.paintLayer, originalRef)
+    // ...
+    // 返回更新了 Ref 的数据对象
+    return {
+        ...outputData,
+        maskedImage: { ...outputData.maskedImage, ref: actualMaskedRef },
+        // ...
+    }
+}
+```
+
+#### 10.4.2 自定义入口函数实现
+
+实现一个完全独立的入口函数，不依赖 `LGraphNode`，但完整复用 UI 和上传机制：
+
+```typescript
+// 你的自定义业务逻辑文件
+
+import { useDialogStore } from '@/stores/dialogStore'
+import MaskEditorContent from '@/components/maskeditor/MaskEditorContent.vue'
+import { uploadEditorLayers } from '@/composables/maskeditor/useMaskEditorSaver'
+
+interface CustomEditOptions {
+    imageUrl: string; // 初始图片 URL
+    onSave: (uploadedRefs: EditorOutputData) => void; // 保存后的回调
+}
+
+export function openCustomImageEditor(options: CustomEditOptions) {
+    // 1. 构造符合 EditorInputData 接口的数据
+    // 注意：这里需要自行实现 loadFromUrl 逻辑，或者复用 useMaskEditorLoader 中的 helper
+    const customInputData = {
+        baseLayer: await loadImageLayer(options.imageUrl),
+        maskLayer: createBlankMask(), 
+        // 关键：传入自定义的保存处理器
+        saveHandler: async (outputData) => {
+            // A. 复用 ComfyUI 的上传逻辑
+            // 构造一个临时的 originalRef 用于上传参数
+            const tempRef = { filename: 'custom_edit.png', type: 'temp' };
+            const uploadedData = await uploadEditorLayers(outputData, tempRef);
+            
+            // B. 执行用户回调，将上传后的路径传出去
+            options.onSave(uploadedData);
+            
+            // C. 关闭弹窗
+            useDialogStore().closeDialog('global-mask-editor');
+        }
+    };
+
+    // 2. 打开弹窗 (复用 UI)
+    useDialogStore().showDialog({
+        key: 'global-mask-editor',
+        component: MaskEditorContent,
+        props: {
+            customData: customInputData // 需要 MaskEditorContent 支持此 Prop
+        },
+        // ... 保持原有样式配置
+    });
+}
+```
+
+#### 10.4.3 效果与优势
+
+通过这种方式，你实际上是**"借用"**了整个编辑器：
+
+1.  **UI 借用**: 直接使用 `MaskEditorContent`，获得完整的画布、笔刷、图层 UI。
+2.  **逻辑借用**: 
+    *   **编辑逻辑**: 笔刷绘制、撤销重做等完全由组件内部管理。
+    *   **合成逻辑**: `prepareOutputData` 依然在内部工作，生成最终的 Blob。
+    *   **上传逻辑**: 通过提取的 `uploadEditorLayers`，你不需要自己写 `FormData` 和 API 调用。
+3.  **完全解耦**: 
+    *   不需要 `LGraphNode` 存在。
+    *   `onSave` 回调给你的是**已经上传到服务器的文件路径** (filename, subfolder, type)。
+    *   你可以拿这个路径去更新任意变量、数据库，或者通过 API 发送给其他服务，而仅限于更新节点 Widget。
+
+### 10.5 终极方案：基于 Mock Node 的无侵入式集成 (Hack Strategy)
+
+鉴于 **"不能修改原生代码"** 的严格约束，上述修改源码的方案虽然优雅但不可行。我们必须采用一种 **"欺骗" (Mocking)** 策略，利用 JS 的动态特性，让 MaskEditor 以为它在编辑一个节点，但实际上是在编辑我们提供的任意数据。
+
+#### 10.5.1 原理分析
+
+1.  **利用已注册的命令**: `Comfy.MaskEditor` 扩展注册了一个命令 `Comfy.MaskEditor.OpenMaskEditor`。这个命令的逻辑是：获取当前选中的节点 (`app.canvas.selected_nodes`)，然后打开编辑器。
+2.  **利用 Duck Typing**: 编辑器并不检查节点是否真的在图表中，只要它长得像 `LGraphNode`（有 `imgs`, `widgets` 等属性），编辑器就能工作。
+3.  **拦截保存结果**: 编辑器保存时会更新节点的 `widgets` 并调用 `callback`。我们可以通过在伪造节点上挂载 callback 来截获上传后的文件路径。
+
+#### 10.5.2 实现代码 (可直接在你的扩展中使用)
+
+```javascript
+import { app } from "../../scripts/app.js"; // 假设在 web/js 环境下
+
+/**
+ * 打开 MaskEditor 编辑任意图片
+ * @param {string} imageUrl - 图片的 URL (必须是浏览器可访问的，如 /view?filename=...)
+ * @param {Function} onSave - 保存回调，接收 (filename, subfolder, type)
+ */
+export function openMaskEditorForImage(imageUrl, onSave) {
+    // 1. 构造 Mock Node
+    // 编辑器需要读取 node.imgs[0].src 作为底图
+    // 编辑器保存时会查找名为 'image' 的 widget 并更新它
+    const mockNode = {
+        id: -1, // 虚拟 ID
+        type: "MockNode",
+        title: "Mock Image Editor",
+        imgs: [{
+            src: imageUrl,
+            width: 512, // 尺寸不影响加载，编辑器会重新读取图片
+            height: 512
+        }],
+        widgets: [{
+            name: "image",
+            value: "", // 初始值
+            // 关键：拦截保存结果
+            callback: (newValue) => {
+                console.log("[MockEditor] Saved:", newValue);
+                // newValue 格式通常为: "clipspace/filename.png [input]"
+                // 解析出文件名
+                // 简单正则提取: (subfolder/)?filename.ext [type]
+                // 但通常编辑器返回的是标准格式，我们可以简单解析
+                
+                // 注意：useMaskEditorSaver 会更新 widget value
+                if (onSave) {
+                    onSave(newValue);
+                }
+            }
+        }],
+        // 模拟必要的方法防止报错
+        setDirtyCanvas: () => {},
+        setSize: () => {},
+        getBounding: () => [0,0,100,100],
+        isResizeable: () => false,
+        properties: {}
+    };
+
+    // 2. 找到 MaskEditor 的打开命令
+    const ext = app.extensions.find(e => e.name === "Comfy.MaskEditor");
+    if (!ext) {
+        console.error("Comfy.MaskEditor extension not found");
+        return;
+    }
+
+    const cmd = ext.commands.find(c => c.id === "Comfy.MaskEditor.OpenMaskEditor");
+    if (!cmd) {
+        console.error("OpenMaskEditor command not found");
+        return;
+    }
+
+    // 3. 实施欺骗：伪造选中状态并执行命令
+    const originalSelection = app.canvas.selected_nodes;
+    
+    // 临时替换选中节点为我们的 Mock Node
+    app.canvas.selected_nodes = { [mockNode.id]: mockNode };
+
+    try {
+        // 执行命令，这会调用 useMaskEditor().openMaskEditor(mockNode)
+        cmd.function();
+    } catch (e) {
+        console.error("Failed to open MaskEditor:", e);
+    } finally {
+        // 4. 恢复现场
+        app.canvas.selected_nodes = originalSelection;
+    }
+}
+```
+
+#### 10.5.3 使用示例
+
+假设你在开发一个自定义节点的右键菜单，或者在图库中添加按钮：
+
+```javascript
+// 在你的扩展代码中
+import { openMaskEditorForImage } from "./utils.js";
+
+// 按钮点击事件
+handleEditBtnClick(imageSrc) {
+    openMaskEditorForImage(imageSrc, (resultString) => {
+        // resultString 例如: "clipspace/clipspace-mask-123456.png [input]"
+        alert("编辑完成，保存路径: " + resultString);
+        
+        // 你可以将这个字符串发送给后端，或者更新当前节点的某个 widget
+        this.updateMyWidget(resultString);
+    });
+}
+```
+
+#### 10.5.4 局限性
+
+1.  **依赖内部实现**: 此方法依赖 `Comfy.MaskEditor` 扩展的内部结构（commands 数组），如果未来 ComfyUI 更改了扩展注册方式或命令 ID，此代码可能会失效.
+2.  **Clipspace 限制**: 新版 MaskEditor 似乎不支持通过 Clipspace 按钮打开（源码中逻辑缺失），因此必须使用上述 Command Hack 方法。
+3.  **图片 URL**: 传入的 `imageUrl` 必须是有效的。如果是上传的图片，通常格式为 `./view?filename=xxx&subfolder=yyy&type=input`。
+
+通过这种方式，你可以在**完全不修改 ComfyUI 源码**的情况下，复用其强大的 MaskEditor 功能。
