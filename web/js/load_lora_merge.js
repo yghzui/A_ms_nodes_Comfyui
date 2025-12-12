@@ -1,7 +1,6 @@
 import { app } from "../../../scripts/app.js";
 import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, isLowQuality, } from "./utils_canvas.js";
 import { RgthreeBaseWidget, RgthreeBetterButtonWidget, RgthreeDividerWidget, } from "./utils_widgets.js";
-import { rgthreeApi } from "./rgthree_api.js";
 import { moveArrayItem, removeArrayItem, showTopNotification } from "./shared_utils.js";
 import { rgthree } from "./rgthree.js";
 
@@ -21,8 +20,6 @@ async function showLoraChooser(event, callback, parentMenu, loras, buttonNode, b
             loras = ["None"];
         }
     }
-    
-    const menuItems = loras.map(lora => ({ content: lora, callback: () => callback(lora) }));
     
     let menuEvent = event;
     let targetX, targetY;
@@ -48,12 +45,15 @@ async function showLoraChooser(event, callback, parentMenu, loras, buttonNode, b
         menuEvent = new MouseEvent('contextmenu', { clientX: targetX, clientY: targetY, bubbles: true, cancelable: true, view: window });
     }
 
-    const contextMenu = new LiteGraph.ContextMenu(menuItems, {
+    const contextMenu = new LiteGraph.ContextMenu(loras, {
         event: menuEvent,
         parentMenu: parentMenu || undefined,
         title: "Select LoRA",
         scale: Math.max(1, canvas.ds?.scale || 1),
         className: "dark",
+        callback: (value) => {
+            if (callback) callback(value);
+        }
     });
 
     if (contextMenu && contextMenu.root && targetX !== undefined && targetY !== undefined) {
