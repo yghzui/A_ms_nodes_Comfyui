@@ -7,11 +7,19 @@ import { rgthree } from "./rgthree.js";
 
 console.log("Loaded load_lora_merge.js");
 
+import { api } from "../../../scripts/api.js";
+
 // Helper function to show the LoRA chooser menu
 async function showLoraChooser(event, callback, parentMenu, loras, buttonNode, buttonWidget) {
     const canvas = app.canvas;
     if (!loras) {
-        loras = ["None", ...(await rgthreeApi.getLoras().then((loras) => loras.map((l) => l.file)))];
+        try {
+            const loraFiles = await api.getModels('loras');
+            loras = ["None", ...loraFiles.map((l) => l.name)];
+        } catch (e) {
+            console.error("[LoadLoraMerge] Failed to fetch LoRAs:", e);
+            loras = ["None"];
+        }
     }
     
     const menuItems = loras.map(lora => ({ content: lora, callback: () => callback(lora) }));
