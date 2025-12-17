@@ -25,6 +25,7 @@ class LoadImageBatchAdvanced:
                 "normalize_mask": ("BOOLEAN", {"default": True, "label": "归一化遮罩"}),
                 # 新增：是否将透明通道应用到图像（将alpha乘到RGB）
                 "apply_alpha_to_image": ("BOOLEAN", {"default": False, "label": "应用透明到图像"}),
+                "reuse_mask": ("BOOLEAN", {"default": False, "label": "遮罩复用(同尺寸复用首个[input])"}),
             },
             "optional": {
                 # 增加一个刷新开关，当用户重新选择相同文件时也能强制刷新
@@ -38,28 +39,75 @@ class LoadImageBatchAdvanced:
     FUNCTION = "load_images"
     CATEGORY = "A_my_nodes/Image"
 
-    def load_images(self, image_paths, image_path_use="", normalize_mask=True, apply_alpha_to_image=False, trigger=0):
+    def load_images(self, image_paths, image_path_use="", normalize_mask=True, apply_alpha_to_image=False, reuse_mask=False, trigger=0):
         use_str = (image_path_use or '').strip() or (image_paths or '').strip()
         if not use_str:
             return ([], [], [], 0, "")
 
-        paths = use_str.split(',')
+        raw_paths = [p.strip() for p in use_str.split(',') if p.strip()]
         input_dir = folder_paths.get_input_directory()
         
         image_list = []
         mask_list = []
         path_list = []
 
-        for path in paths:
-            path = path.strip()
-            # 去除可能存在的 [input] 后缀
-            if path.endswith(" [input]"):
-                path = path[:-8]
-                
-            if not path:
+        size_to_edited_mask = {}
+
+        if reuse_mask:
+            for raw_path in raw_paths:
+                path_no_suffix = raw_path
+                if path_no_suffix.endswith(" [input]"):
+                    path_no_suffix = path_no_suffix[:-8]
+                else:
+                    continue
+
+                if not path_no_suffix:
+                    continue
+
+                image_path = os.path.join(input_dir, path_no_suffix)
+                if not os.path.exists(image_path):
+                    continue
+
+                try:
+                    img = Image.open(image_path)
+                    if img.mode == 'I':
+                        img = img.point(lambda i: i * (1 / 255))
+
+                    mask_np = None
+                    if 'A' in img.getbands():
+                        alpha = img.getchannel('A')
+                        mask_np = np.array(alpha).astype(np.float32) / 255.0
+                    elif img.mode == 'P' and 'transparency' in img.info:
+                        rgba = img.convert('RGBA')
+                        alpha = rgba.getchannel('A')
+                        mask_np = np.array(alpha).astype(np.float32) / 255.0
+                        img = rgba
+
+                    rgb_img = img.convert("RGB")
+                    width, height = rgb_img.size
+
+                    if mask_np is None:
+                        mask_np = np.zeros((height, width), dtype=np.float32)
+                    else:
+                        mask_np = 1.0 - mask_np
+                        if normalize_mask:
+                            mask_np = np.clip(mask_np, 0.0, 1.0)
+
+                    size_key = (width, height)
+                    if size_key not in size_to_edited_mask:
+                        size_to_edited_mask[size_key] = mask_np
+                except Exception as e:
+                    print(f"错误: 预扫描遮罩失败 {image_path}, 原因: {e}")
+
+        for idx, raw_path in enumerate(raw_paths):
+            path_no_suffix = raw_path
+            if path_no_suffix.endswith(" [input]"):
+                path_no_suffix = path_no_suffix[:-8]
+
+            if not path_no_suffix:
                 continue
-            
-            image_path = os.path.join(input_dir, path)
+
+            image_path = os.path.join(input_dir, path_no_suffix)
             if not os.path.exists(image_path):
                 print(f"警告: 文件不存在 {image_path}, 已跳过。")
                 continue
@@ -91,9 +139,11 @@ class LoadImageBatchAdvanced:
                 # 始终输出 RGB 图像（与 Comfy IMAGE 类型一致）
                 rgb_img = img.convert("RGB")
 
+                width, height = rgb_img.size
+
                 # 生成遮罩：如果没有透明信息则输出全零遮罩
                 if mask_np is None:
-                    mask_np = np.zeros((rgb_img.height, rgb_img.width), dtype=np.float32)
+                    mask_np = np.zeros((height, width), dtype=np.float32)
                 else:
                     # 与原生一致：mask = 1 - alpha
                     mask_np = 1.0 - mask_np
@@ -101,10 +151,15 @@ class LoadImageBatchAdvanced:
                         # 仍保持 0..1 区间
                         mask_np = np.clip(mask_np, 0.0, 1.0)
 
+                if reuse_mask and size_to_edited_mask:
+                    size_key = (width, height)
+                    if size_key in size_to_edited_mask:
+                        mask_np = size_to_edited_mask[size_key]
+
                 # 处理RGB图像（图像始终归一化）
                 image_np = np.array(rgb_img).astype(np.float32) / 255.0
 
-                # 可选：将透明通道应用到图像（将 alpha 乘到 RGB，上面 mask = 1-alpha 不变）
+                # 可选：将透明通道应用到图像（将alpha乘到RGB，上面 mask = 1-alpha 不变）
                 if apply_alpha_to_image and has_alpha:
                     # 上面 mask_np = 1 - alpha，因此 alpha = 1 - mask
                     alpha_np = 1.0 - mask_np
@@ -118,7 +173,7 @@ class LoadImageBatchAdvanced:
                 # 添加batch维度
                 image_list.append(image_tensor.unsqueeze(0))
                 mask_list.append(mask_tensor.unsqueeze(0))
-                path_list.append(os.path.join(input_dir, path))  # 保存有效的路径
+                path_list.append(os.path.join(input_dir, path_no_suffix))
             except Exception as e:
                 print(f"错误: 加载文件失败 {image_path}, 原因: {e}")
         

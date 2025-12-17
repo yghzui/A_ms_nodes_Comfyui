@@ -259,8 +259,52 @@ export function showLightbox(urls, currentIndex, type = 'image') {
  * @param {number} currentIndex - 当前图片索引
  */
 export function showImageLightbox(imagePaths, currentIndex) {
-    const imageUrls = imagePaths.map(path => api.apiURL(`/view?filename=${encodeURIComponent(path)}&type=input`));
-    showLightbox(imageUrls, currentIndex, 'image');
+    if (!imagePaths || imagePaths.length === 0) {
+        return;
+    }
+
+    const imageUrls = imagePaths.map(path => {
+        if (!path) return null;
+
+        let filename = path;
+        let type = 'input';
+        let subfolder = '';
+
+        const typeMatch = path.match(/^(.*)\s+\[(input|output|temp)\]$/);
+        if (typeMatch) {
+            filename = typeMatch[1];
+            type = typeMatch[2];
+        }
+
+        const lastSlash = filename.lastIndexOf('/');
+        const lastBackslash = filename.lastIndexOf('\\');
+        const splitIndex = Math.max(lastSlash, lastBackslash);
+
+        if (splitIndex !== -1) {
+            subfolder = filename.substring(0, splitIndex);
+            filename = filename.substring(splitIndex + 1);
+        }
+
+        const params = new URLSearchParams({
+            filename: filename,
+            type: type
+        });
+        if (subfolder) {
+            params.set('subfolder', subfolder);
+        }
+
+        return api.apiURL(`/view?${params.toString()}`);
+    }).filter(Boolean);
+
+    if (imageUrls.length === 0) {
+        return;
+    }
+
+    let index = typeof currentIndex === 'number' ? currentIndex : 0;
+    if (index < 0) index = 0;
+    if (index >= imageUrls.length) index = imageUrls.length - 1;
+
+    showLightbox(imageUrls, index, 'image');
 }
 
 /**
