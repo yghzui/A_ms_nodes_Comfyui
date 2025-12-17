@@ -401,7 +401,192 @@ async function refreshModelWidget(node, widgetName, folderName) {
 }
 ```
 
-## 10. 遮罩编辑器 (MaskEditor) 深度分析与改造
+## 10. 多文本输入节点 (TextInputBatch) 与画布交互
+
+本节总结 `TextInputBatch` 这类通过原生 HTML 元素（`input`/`textarea`）实现多文本输入的自定义节点，如何在保证良好编辑体验的同时，与 ComfyUI 画布缩放和拖拽（尤其是 Hand 模式）兼容。
+
+### 10.1 绝对定位输入框覆盖 Canvas 的问题
+
+自定义节点通常会：
+
+1.  通过 `ensureTextareas(node, layout, items)` 在 `canvas.parentElement` 上创建绝对定位的 `input` 和 `textarea`。
+2.  使用节点坐标 + `ds.offset` + `ds.scale` 计算 DOM 位置，使输入框看起来贴在节点上。
+3.  设置较高的 `z-index`（如 `100`），确保它们浮在 Canvas 之上。
+
+**问题**：当鼠标位于这些输入框上时，鼠标事件（尤其是 `wheel`、`mousedown`）都会落在 DOM 元素上，**不会冒泡到 `<canvas>`**，导致：
+
+*   画布无法使用中键/滚轮缩放；
+*   Hand 模式下无法在输入框区域拖动画布；
+*   只在输入区域外才能进行画布交互，体验较差。
+
+解决该问题的核心是：**显式地在输入框上转发或屏蔽部分事件，让 Canvas 的交互逻辑能正常工作**。
+
+### 10.2 滚轮优先滚动文本，再触发画布缩放
+
+对多行 `textarea`，希望实现自然的“单手”体验：
+
+1.  在中间区域滚轮：只滚动文本内容；
+2.  文本滚到顶/底后：继续同方向滚轮若干次后，才开始缩放画布。
+
+实现要点（参考 `custom_nodes/A_my_nodes/web/js/text_input_batch.js:452-533`）：
+
+1.  在 `textarea` 上监听 `wheel` 事件：
+
+```javascript
+ta.addEventListener('wheel', (e) => {
+  if (e.ctrlKey || e.shiftKey) {
+    e.stopPropagation();
+    return;
+  }
+  const el = ta;
+  const deltaY = e.deltaY || 0;
+  const scrollingDown = deltaY > 0;
+  const scrollingUp = deltaY < 0;
+  const maxScrollTop = el.scrollHeight - el.clientHeight;
+  const scrollTop = el.scrollTop;
+  const canScrollDown = scrollTop < maxScrollTop - 1;
+  const canScrollUp = scrollTop > 1;
+  const atBottom = !canScrollDown;
+  const atTop = !canScrollUp;
+
+  let edgeState = el.__edgeScrollState;
+  if (!edgeState) {
+    edgeState = { dir: 0, count: 0 };
+    el.__edgeScrollState = edgeState;
+  }
+
+  const dir = scrollingDown ? 1 : (scrollingUp ? -1 : 0);
+
+  // 中间区域：仅滚文本，重置状态
+  if (!atTop && !atBottom) {
+    edgeState.dir = 0;
+    edgeState.count = 0;
+    return;
+  }
+
+  if (dir === 0) {
+    return;
+  }
+
+  const atEdgeInDir = (dir > 0 && atBottom) || (dir < 0 && atTop);
+  if (!atEdgeInDir) {
+    edgeState.dir = 0;
+    edgeState.count = 0;
+    return;
+  }
+
+  // 第一次到边缘：只记录方向和次数，不缩放
+  if (edgeState.dir !== dir) {
+    edgeState.dir = dir;
+    edgeState.count = 1;
+    return;
+  }
+
+  // 同方向连续边缘滚动次数累加
+  edgeState.count += 1;
+  if (edgeState.count < 3) {
+    // 例如：第 1、2 次只滚文本，第 3 次才开始缩放
+    return;
+  }
+
+  // 触发画布缩放：把当前 wheel 事件“伪装”成从 canvas 发出的事件
+  const canvasEl = app?.canvas?.canvas;
+  if (!canvasEl || typeof WheelEvent === 'undefined') {
+    return;
+  }
+  const evt = new WheelEvent('wheel', {
+    deltaX: e.deltaX,
+    deltaY: e.deltaY,
+    deltaZ: e.deltaZ,
+    deltaMode: e.deltaMode,
+    clientX: e.clientX,
+    clientY: e.clientY,
+    ctrlKey: e.ctrlKey,
+    shiftKey: e.shiftKey,
+    altKey: e.altKey,
+    metaKey: e.metaKey,
+    buttons: e.buttons,
+    bubbles: true,
+    cancelable: true,
+  });
+  canvasEl.dispatchEvent(evt);
+  e.preventDefault();
+  e.stopPropagation();
+});
+```
+
+2.  交互含义：
+
+*   **中间区域**：直接交给浏览器默认行为，滚动文本；
+*   **刚到达边缘**：第一次继续滚时只记 `dir`+`count`，不缩放；
+*   **连续第 3 次（可配置）同方向滚**：通过 `WheelEvent` 转发到 Canvas，触发 ComfyUI 原有缩放逻辑；
+*   改变滚动方向或回到中间区域：重置状态，重新从“第一次到边缘”计算；
+*   按住 `Ctrl`/`Shift`：可保留为“仅滚文本”的特殊路径。
+
+这种设计能在不破坏文本滚动体验的前提下，让用户**单手滚轮**完成“读文本 → 滚到底 → 继续滚触发缩放画布”的自然操作。
+
+### 10.3 Hand 模式下禁用编辑，保留拖拽
+
+当 ComfyUI 选择 Hand 工具时，用户的预期是：
+
+*   鼠标在画布任意位置按下并拖动，都能平移画布；
+*   包括节点上的自定义 HTML 输入区域也应该变成“透明”，不再阻挡拖拽。
+
+由于自定义节点的输入框是 DOM 元素（而非 LiteGraph 内部 Widget），需要显式在 Hand 模式下禁用它们的鼠标事件。
+
+实现步骤：
+
+1.  定义一个基于 Canvas 光标的 Hand 模式检测函数（参考 `custom_nodes/A_my_nodes/web/js/text_input_batch.js:199-215`）：
+
+```javascript
+function isHandMode() {
+  const canvasWrapper = app?.canvas;
+  const canvasEl = canvasWrapper?.canvas;
+  if (!canvasEl) return false;
+  let cursor = canvasEl.style?.cursor;
+  if (!cursor && window.getComputedStyle) {
+    try {
+      cursor = window.getComputedStyle(canvasEl).cursor;
+    } catch (e) {
+      cursor = "";
+    }
+  }
+  if (!cursor) return false;
+  cursor = String(cursor).toLowerCase();
+  // Hand 工具通常会把光标设置为 grab/grabbing
+  return cursor.includes("grab");
+}
+```
+
+2.  在每次布局更新时，根据是否为 Hand 模式切换输入框的 `pointer-events`（参考 `custom_nodes/A_my_nodes/web/js/text_input_batch.js:588-595`）：
+
+```javascript
+const nodeVisibleX = sx + sw > 0 && sx < (parentRect.width || rect.width);
+const nodeVisibleY = sy + sh > 0 && sy < (parentRect.height || rect.height);
+const shouldShow = node.flags?.collapsed !== true && nodeVisibleX && nodeVisibleY;
+const hand = isHandMode();
+
+titleEl.style.visibility = shouldShow ? "visible" : "hidden";
+ta.style.visibility = shouldShow ? "visible" : "hidden";
+// Hand 模式下禁用鼠标事件，让事件穿透到 Canvas
+titleEl.style.pointerEvents = shouldShow && !hand ? "auto" : "none";
+ta.style.pointerEvents = shouldShow && !hand ? "auto" : "none";
+```
+
+3.  效果：
+
+*   普通模式：输入框照常可点可编辑；
+*   Hand 模式：输入框仍然可见，但完全不再拦截鼠标事件；
+*   在输入区域按下拖动，事件直接落在 Canvas 上，由 Hand 工具处理，实现“全画布可拖拽”的统一体验。
+
+### 10.4 设计经验小结
+
+1.  使用 HTML 输入框扩展节点 UI 时，必须意识到它们是**覆盖在 Canvas 上的独立事件层**，需要主动协调与画布交互的关系。
+2.  对滚轮等事件，推荐采用“**优先本地滚动，边缘多次滚动后再缩放**”的策略，而不是简单地全转发或全阻止。
+3.  对 Hand 等全局工具模式，可以通过读取 Canvas 的 `cursor` 状态推断当前模式，从而统一禁用/启用输入层的交互。
+4.  所有事件转发尽量依赖 `event.clientX/clientY` 等视口坐标，避免直接使用节点坐标，在 Subgraph/GroupNode、缩放平移等复杂场景下仍保持正确。
+
+## 11. 遮罩编辑器 (MaskEditor) 深度分析与改造
 
 ComfyUI 的新版 MaskEditor (`ComfyUI_frontend/src/components/maskeditor`) 实际上是一个功能完整的图像编辑器，不仅支持遮罩绘制，还支持图层合成（绘画层）。
 
