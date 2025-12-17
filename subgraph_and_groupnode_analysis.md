@@ -730,3 +730,227 @@ handleEditBtnClick(imageSrc) {
 3.  **图片 URL**: 传入的 `imageUrl` 必须是有效的。如果是上传的图片，通常格式为 `./view?filename=xxx&subfolder=yyy&type=input`。
 
 通过这种方式，你可以在**完全不修改 ComfyUI 源码**的情况下，复用其强大的 MaskEditor 功能。
+
+## 11. 节点输出 Preview Image 机制（静态图 / 动图 / 视频）
+
+本节说明前端是如何从后端输出构建节点上的图片预览（Preview Image），包括数据流、图片加载和 Canvas 渲染逻辑，便于在自定义节点或 Subgraph 场景下正确复用。
+
+### 11.1 数据来源：节点输出到预览 URL
+
+相关文件：
+
+*   `ComfyUI_frontend/src/stores/imagePreviewStore.ts`
+*   `ComfyUI_frontend/src/scripts/api.ts`
+
+核心流程：
+
+1.  **后端执行完成 → 输出结构**  
+    *   后端执行某个节点后，通过 WebSocket/HTTP 返回 `ExecutedWsMessage['output']`，其中常见结构为：  
+        *   `output.images: [{ filename, subfolder, type }, ...]`  
+        *   `output.animated: [true/false, ...]`（标记对应输出是否为动图）
+2.  **前端存储输出：`useNodeOutputStore`**  
+    *   `useNodeOutputStore()` 在 `imagePreviewStore.ts:39` 中定义，内部维护：  
+        *   `app.nodeOutputs[nodeLocatorId]`：节点输出原始结构。  
+        *   `app.nodePreviewImages[nodeLocatorId]`：已生成的预览 URL 队列。  
+    *   入口方法：  
+        *   `setNodeOutputsByExecutionId(executionId, outputs)`：根据执行 ID 写入 `app.nodeOutputs`（`imagePreviewStore.ts:196-205`）。  
+        *   `setNodePreviewsByExecutionId(executionId, previewImages)`：直接写入预览 URL（`imagePreviewStore.ts:214-227`）。  
+3.  **获取输出与预览：`getNodeOutputs` / `getNodePreviews`**  
+    *   `getNodeOutputs(node)`：根据当前 Graph + 节点 ID 计算 NodeLocatorId，从 `app.nodeOutputs` 取出对应输出（`imagePreviewStore.ts:63-67`）。  
+    *   `getNodePreviews(node)`：从 `app.nodePreviewImages` 读取已经缓存的预览 URL（`imagePreviewStore.ts:69-71`）。  
+4.  **构造预览 URL：`getNodeImageUrls(node)`**  
+    *   优先使用 `getNodePreviews(node)`（如果有手动注入的预览 URL）（`imagePreviewStore.ts:108-110`）。  
+    *   否则从 `getNodeOutputs(node)` 取 `outputs.images` 并生成 `/view` URL（`imagePreviewStore.ts:112-121`）：  
+        1.  根据 `isImageOutputs(node, outputs)` 判断是否是「普通静态图输出」：  
+            *   若节点本身为视频节点或 `node.animatedImages` 为真，则返回 `false`（`imagePreviewStore.ts:77-83`）。  
+            *   若没有 `images` 或包含 `svg`，也返回 `false`（`imagePreviewStore.ts:84-89`）。  
+        2.  若是静态图输出，则通过 `app.getPreviewFormatParam()` 生成如 `&preview=1&type=...` 的参数（`imagePreviewStore.ts:95-106`）。  
+        3.  通过 `parseFilePath(image)` + `new URLSearchParams(image)` 拼出查询串，再加上 `app.getRandParam()`（防缓存），最后调用 `api.apiURL('/view?...')` 得到完整 URL（`imagePreviewStore.ts:115-121`）。
+
+**要点：**
+
+*   Preview Image 的 URL 与 `/view?filename=...&subfolder=...&type=...` 一致，和 MaskEditor 部分的路径规则保持统一。
+*   是否走「静态图预览」取决于 `isImageOutputs` 判断，视频节点会走单独的视频预览逻辑（见后文）。
+
+### 11.2 节点侧图片 / 视频加载：`useNodeImage` / `useNodeVideo`
+
+相关文件：
+
+*   `ComfyUI_frontend/src/composables/node/useNodeImage.ts`
+
+公共加载器 `useNodePreview(node, options)`（`useNodeImage.ts:38-96`）：
+
+*   参数 `options`：
+    *   `loadElement(url)`：把单个 URL 转为 `HTMLImageElement` 或 `HTMLVideoElement`。  
+    *   `onLoaded(elements)`：所有媒体加载成功后的回调。  
+    *   `onFailedLoading()`：全部失败时的处理。
+*   内部逻辑：
+    1.  使用 `loadElementWithTimeout(url, retryCount)` 包裹 `loadElement`，带超时（`MEDIA_LOAD_TIMEOUT = 8192` ms）和最多一次重试（`MAX_RETRIES = 1`）（`useNodeImage.ts:45-59`）。  
+    2.  `loadElements(urls)` 并发加载所有 URL（`useNodeImage.ts:61-62`）。  
+    3.  对外暴露 `showPreview({ block?: boolean })`（`useNodeImage.ts:67-91`）：  
+        *   若 `node.isLoading` 为 true，则直接返回，防止重复加载。  
+        *   调用 `nodeOutputStore.getNodeImageUrls(node)` 获取 URL 列表。  
+        *   若 `options.block` 为真，加载期间将 `node.isLoading = true`。  
+        *   加载完成后过滤掉 `null`，将有效元素塞给 `onLoaded(validElements)`，并调用 `node.graph?.setDirtyCanvas(true)` 触发重绘。  
+        *   出错则调用 `onFailedLoading`，最后 `finally` 保证 `node.isLoading = false`。
+
+#### 11.2.1 静态图预览：`useNodeImage`
+
+*   `useNodeImage(node, callback?)`（`useNodeImage.ts:98-125`）：
+    *   将 `node.previewMediaType` 标记为 `'image'`。  
+    *   `loadElement(url)` 通过 `new Image()` 加载 URL，成功回调 `resolve(img)`，失败则 `resolve(null)`（`useNodeImage.ts:104-110`）。  
+    *   `onLoaded(elements)`：  
+        1.  将 `node.imageIndex = null`，表示当前处于「缩略图模式」。  
+        2.  将 `node.imgs = elements`。后续所有预览绘制逻辑都围绕 `node.imgs` 实现（`useNodeImage.ts:113-115`）。  
+        3.  调用可选 `callback()`。
+    *   `onFailedLoading` 时重置 `node.imgs = undefined`（`useNodeImage.ts:121-123`）。  
+    *   返回通用的 `showPreview()` 接口供外部调用。
+
+#### 11.2.2 视频预览：`useNodeVideo`
+
+*   `useNodeVideo(node, callback?)`（`useNodeImage.ts:127-202`）：  
+    *   将 `node.previewMediaType` 标记为 `'video'`。  
+    *   使用 `<video>` DOM 元素加载 URL，默认开启 `playsInline / controls / loop`（`useNodeImage.ts:149-165`）。  
+    *   计算视频在当前节点宽度下的合适宽高（`fitDimensionsToNodeWidth`，`useNodeImage.ts:137-147`）。  
+    *   通过 `node.addDOMWidget('video-preview', 'video', container, { canvasOnly: true, hideOnZoom: false })` 在节点上挂一个 DOM Widget（`useNodeImage.ts:167-179`）。  
+    *   `onLoaded(videoElements)` 中将 `<video>` 放入 `node.videoContainer`，并调用 `callback()`（`useNodeImage.ts:182-193`）。  
+    *   `onFailedLoading` 时重置 `node.videoContainer`。
+
+**要点：**
+
+*   对节点来说，Preview Image 实质就是：  
+    *   静态图：`node.imgs: HTMLImageElement[]`。  
+    *   视频：`node.videoContainer` 中的 `<video>` DOM。
+*   后续无论是 Canvas 绘制还是自定义 Lightbox，只要复用这两个字段，即可得到当前节点的预览媒体。
+
+### 11.3 Canvas 预览 Widget：`useImagePreviewWidget` 与节点绘制
+
+相关文件：
+
+*   `ComfyUI_frontend/src/renderer/extensions/vueNodes/widgets/composables/useImagePreviewWidget.ts`
+*   `ComfyUI_frontend/src/composables/node/useNodeCanvasImagePreview.ts`
+*   `ComfyUI_frontend/src/scripts/ui/imagePreview.ts`
+
+#### 11.3.1 Widget 构造与挂载：`useImagePreviewWidget` / `useNodeCanvasImagePreview`
+
+*   `ImagePreviewWidget` 继承自 `BaseWidget`（`useImagePreviewWidget.ts:239-299`）：  
+    *   类型为 `type: 'custom'`，`value` 只是占位。  
+    *   `serialize = false`，不会出现在工作流 JSON 中。  
+    *   `drawWidget(ctx)` 调用 `renderPreview(ctx, this.node, this.y, this.computedHeight)`，在节点内部 Canvas 区域绘制图片（`useImagePreviewWidget.ts:259-260`）。  
+    *   `onPointerDown` 中接入拖拽节点逻辑（委托给 `app.canvas`，`useImagePreviewWidget.ts:263-288`）。  
+    *   `computeLayoutSize` 返回最小高度 220（`useImagePreviewWidget.ts:293-297`）。
+*   工厂函数 `useImagePreviewWidget()`：  
+    *   返回一个 `widgetConstructor(node, inputSpec)`，内部通过 `node.addCustomWidget(new ImagePreviewWidget(...))` 将预览 Widget 挂到节点上（`useImagePreviewWidget.ts:301-311`）。
+*   `useNodeCanvasImagePreview()`（`useNodeCanvasImagePreview.ts`）：  
+    *   `showCanvasImagePreview(node)`：  
+        *   若 `node.imgs` 为空，直接返回。  
+        *   若 `node.widgets` 中不存在名为 `'$$canvas-image-preview'` 的 Widget，则调用 `imagePreviewWidget(node, { type: 'IMAGE_PREVIEW', name: '$$canvas-image-preview' })` 新建一个 `ImagePreviewWidget`（`useNodeCanvasImagePreview.ts:13-24`）。  
+    *   `removeCanvasImagePreview(node)`：  
+        *   查找名为 `'$$canvas-image-preview'` 的 Widget，调用 `onRemove()` 并从 `node.widgets` 列表中删除（`useNodeCanvasImagePreview.ts:26-41`）。
+
+#### 11.3.2 多图缩略图与大图模式：`renderPreview`
+
+核心绘制逻辑在 `renderPreview` 中（`useImagePreviewWidget.ts:15-237`）：
+
+1.  **点击识别**：  
+    *   通过 `canvas.graph_mouse` 获取鼠标在画布中的坐标。  
+    *   利用 `node.pointerDown` 记录按下的图片 index 和坐标，鼠标释放时若坐标未变，则认为是点击而不是拖拽，从而更新 `node.imageIndex`（`useImagePreviewWidget.ts:24-31`）。
+2.  **数据准备**：  
+    *   `const imgs = node.imgs ?? []`；`numImages = imgs.length`（`useImagePreviewWidget.ts:34-36`）。  
+    *   若只有一张图片且 `imageIndex` 为空，自动进入单图模式（`useImagePreviewWidget.ts:37-40`）。  
+    *   从设置中读取 `Comfy.Node.AllowImageSizeDraw`，决定是否在图下方绘制「宽 × 高」文字（`useImagePreviewWidget.ts:42-44`）。
+3.  **缩略图矩阵模式（imageIndex == null）**：  
+    *   判断是否所有图片的宽高比相同（`is_all_same_aspect_ratio(imgs)`）。  
+        *   若不相同，则构造一个方形占位图数组，用 `calculateImageGrid(fakeImgs, dw, dh)` 计算网格，避免严重拉伸（`useImagePreviewWidget.ts:56-76`）。  
+        *   若相同，则直接 `calculateImageGrid(imgs, dw, dh)`（`useImagePreviewWidget.ts:78-83`）。  
+    *   遍历每张图片计算所在行列 `(row, col)`，转换为绘制坐标 `(x, y)`（`useImagePreviewWidget.ts:88-93`）。  
+    *   使用 `LiteGraph.isInsideRectangle` 判断鼠标是否悬停在某个格子上：  
+        *   若是，设置 `node.overIndex = i`，调整 `ctx.filter` 和光标样式，模拟 hover / click 效果（`useImagePreviewWidget.ts:95-114`）。  
+        *   将每个 cell 的矩形信息保存在 `node.imageRects` 中，供其他逻辑（例如右键菜单、Lightbox）使用（`useImagePreviewWidget.ts:86-88, 116-117`）。  
+    *   按比例缩放图片填满 cell，必要时画矩形边框（`useImagePreviewWidget.ts:118-143`）。  
+    *   若没有任何 cell 被 hover，清空 `node.pointerDown` 与 `node.overIndex`（`useImagePreviewWidget.ts:149-152`）。
+4.  **单图大图模式（imageIndex != null）**：  
+    *   取当前 `img = imgs[imageIndex]`，根据节点宽高 `dw / dh` 计算缩放（`useImagePreviewWidget.ts:156-167`）。  
+    *   居中绘制在节点内部 Canvas 区域（`useImagePreviewWidget.ts:168-170`）。  
+    *   若 `Comfy.Node.AllowImageSizeDraw` 为真，在图下方绘制 `宽 × 高` 文本（`useImagePreviewWidget.ts:172-179`）。
+5.  **翻页与关闭按钮**：  
+    *   内部 `drawButton(x, y, size, text)` 负责绘制按钮矩形并检测点击（`useImagePreviewWidget.ts:182-220`）。  
+    *   当 `numImages > 1` 时：  
+        *   在右下角绘制翻页按钮，文本为 `当前索引/总数`（`useImagePreviewWidget.ts:222-225`）。  
+        *   点击时将下一张 index 写入 `node.pointerDown.index`，在下一轮绘制时切换图片（`useImagePreviewWidget.ts:226-229`）。  
+        *   在右上角绘制关闭按钮 `"x"`，点击时将 `node.pointerDown.index` 设为 `null`，回到缩略图矩阵模式（`useImagePreviewWidget.ts:232-235`）。
+
+#### 11.3.3 键盘控制：左右翻页与退出
+
+`litegraphService.ts` 中通过 `addNodeKeyHandler` 为节点挂载了统一的 `onKeyDown`（`litegraphService.ts:777-820`）：
+
+*   前提条件：节点未折叠、`this.imgs` 非空且 `this.imageIndex !== null`（处于单图模式）（`litegraphService.ts:786-787`）。  
+*   `ArrowLeft` / `ArrowRight`：  
+    *   左键减一、右键加一，并对 `this.imgs.length` 取模实现循环翻页（`litegraphService.ts:792-803`）。  
+*   `Escape`：  
+    *   将 `this.imageIndex = null`，回到缩略图模式（`litegraphService.ts:809-812`）。  
+*   处理成功后阻止默认事件和后续传播（`litegraphService.ts:814-818`）。
+
+### 11.4 总调度入口：`updatePreviews` 与节点生命周期
+
+相关文件：
+
+*   `ComfyUI_frontend/src/services/litegraphService.ts`
+
+#### 11.4.1 `updatePreviews(node)`：判断何时加载 / 更新预览
+
+*   `addDrawBackgroundHandler(nodeClass)` 中将所有节点类的 `onDrawBackground` 指向 `updatePreviews(this)`（`litegraphService.ts:763-775`）。  
+    *   即：每次节点需要绘制背景时，都会尝试更新预览。
+*   `updatePreviews(node, callback?)` 包装了 `unsafeUpdatePreviews.call(node, callback)` 并捕获异常（`litegraphService.ts:702-707`）。
+*   `unsafeUpdatePreviews(this, callback?)` 逻辑（`litegraphService.ts:709-756`）：  
+    1.  若节点已折叠（`this.flags.collapsed`），直接返回。  
+    2.  通过 `useNodeOutputStore()` 获取 `output` 与 `preview`：  
+        *   `output = nodeOutputStore.getNodeOutputs(this)`。  
+        *   `preview = nodeOutputStore.getNodePreviews(this)`（`litegraphService.ts:718-719`）。  
+    3.  判断是否有新的输出 / 预览：  
+        *   `isNewOutput = output && this.images !== output.images`。  
+        *   `isNewPreview = preview && this.preview !== preview`（`litegraphService.ts:721-723`）。  
+        *   有新数据时更新 `this.images` / `this.preview`（`litegraphService.ts:724-725`）。  
+    4.  若有新输出/预览：  
+        *   将 `this.animatedImages` 设置为 `output?.animated?.find(Boolean)`（`litegraphService.ts:728-729`）。  
+        *   根据文件名和节点类型判断是否是视频：  
+            *   若 `this.animatedImages` 为真且任一文件名包含 `webp` 或 `png`，视为动图。  
+            *   否则若 `this.animatedImages` 为真但文件名不含上述后缀，或 `isVideoNode(this)` 为真，则视为视频（`litegraphService.ts:730-738`）。  
+        *   若是视频：调用 `useNodeVideo(this, callback).showPreview()`。  
+        *   否则：调用 `useNodeImage(this, callback).showPreview()`（`litegraphService.ts:739-743`）。  
+    5.  若最终 `this.imgs` 仍为空，说明没有可用图片，直接返回（`litegraphService.ts:746-747`）。  
+    6.  根据 `this.animatedImages` 决定采用哪种展示方式：  
+        *   若为真：  
+            *   `removeCanvasImagePreview(this)`，移除静态图 Canvas Widget。  
+            *   `showAnimatedPreview(this)`，使用 `useNodeAnimatedImage()` 以 DOM Widget 动态显示动图（`litegraphService.ts:749-751`）。  
+        *   否则：  
+            *   `removeAnimatedPreview(this)`，移除动画 DOM Widget。  
+            *   `showCanvasImagePreview(this)`，使用 Canvas Widget 绘制静态图（`litegraphService.ts:752-755`）。
+
+#### 11.4.2 对 Subgraph / ProxyWidget 的影响
+
+*   Subgraph 外层节点本质上也是 `LGraphNode`，只要其 `nodeId` 对应的输出被写入 `useNodeOutputStore`，就会走与普通节点一致的 Preview 流程。  
+*   内部节点若将某个 Widget 晋升为 `ProxyWidget`，只要该节点最终有图片输出，同样通过 `updatePreviews` 驱动预览，差异只在于：  
+    *   拖拽 / 右键菜单中如果要打开 Lightbox 或 MaskEditor，需要注意坐标体系（详见前文 ProxyWidget 小节：必须使用 `event.clientX/Y` 而不是 `node.pos`）。  
+*   对于自定义 Subgraph 或 GroupNode 的开发者：  
+    *   如需在外层节点上展示内部节点的输出预览，可以：  
+        1.  让内部节点产生实际 `IMAGE` 输出（正常执行即可）。  
+        2.  或者手动调用 `useNodeOutputStore().setNodePreviewsByNodeId(nodeId, previewUrls)`，给外层节点直接注入预览 URL。  
+    *   一旦 `app.nodeOutputs` / `app.nodePreviewImages` 中的数据准备好，`updatePreviews` 会自动处理静态图 / 动图 / 视频的展示，无需手动操作 `node.imgs`。
+
+### 11.5 对自定义节点 / 扩展的实践建议
+
+1.  **不要手动绕过 `useNodeOutputStore`**：  
+    *   自己拼 `node.imgs = [...]` 虽然也能画，但丢失了与后端输出的关联，可能影响重新执行时的预览刷新与内存回收。  
+2.  **复用 `/view` 路径规则**：  
+    *   无论是 Preview Image 还是 MaskEditor，都应将 `filename` 与 `subfolder` 拆开传给 `/view`，避免子目录 404 问题。  
+3.  **为自定义输出显式设置 ResultItem**：  
+    *   若你的节点在前端主动生成图片文件名，可以构造 `ResultItem` 并调用：  
+        *   `setNodeOutputs(node, filenames, { folder: 'input' | 'output', isAnimated })`。  
+    *   这样可以保证 Preview / Gallery / MaskEditor 等所有后续功能都能复用统一数据结构。  
+4.  **Subgraph 中的 Lightbox / 右键预览**：  
+    *   可以通过 `node.imgs` + `node.imageIndex` / `node.overIndex` 决定当前高亮或被选中的图片，再利用前文的 Mock Node 技巧打开 MaskEditor，或者自定义 Lightbox 对话框。  
+5.  **注意动画与视频节点的区分**：  
+    *   若你的自定义节点输出动图或视频，务必正确设置 `animated` 标记或让 `isVideoNode(node)` 能识别你的节点类型，以便 `updatePreviews` 自动走 `useNodeVideo`/`useNodeAnimatedImage` 路径。
+
+通过理解这一整套 Preview Image 机制，可以在不修改 ComfyUI 核心代码的前提下，为自定义节点、Subgraph、GroupNode 以及外部扩展可靠地接入图片预览、动图以及视频预览功能，并与 MaskEditor 的路径解析规则保持完全一致。

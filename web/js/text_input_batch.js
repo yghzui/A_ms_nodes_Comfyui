@@ -196,6 +196,23 @@ function installAddButton(node) {
     node.__addButtonInstalled = true;
 }
 
+function isHandMode() {
+    const canvasWrapper = app?.canvas;
+    const canvasEl = canvasWrapper?.canvas;
+    if (!canvasEl) return false;
+    let cursor = canvasEl.style?.cursor;
+    if (!cursor && window.getComputedStyle) {
+        try {
+            cursor = window.getComputedStyle(canvasEl).cursor;
+        } catch(e) {
+            cursor = "";
+        }
+    }
+    if (!cursor) return false;
+    cursor = String(cursor).toLowerCase();
+    return cursor.includes("grab");
+}
+
 function getWidgetsBottom(node) {
     // 动态计算当前widgets区域的底部Y，避免重叠
     let bottom = 0;
@@ -456,7 +473,7 @@ function ensureTextareas(node, layout, items) {
                 }
             });
             
-            // 右键菜单
+            // 右键菜单与滚轮行为
             if (!ta.__ctxInstalled) {
                 ta.addEventListener('contextmenu', (e) => {
                     e.preventDefault(); 
@@ -464,6 +481,73 @@ function ensureTextareas(node, layout, items) {
                     showItemContextMenu(node, i, e);
                 });
                 ta.addEventListener('keydown', (e) => { e.stopPropagation(); });
+                ta.addEventListener('wheel', (e) => {
+                    if (e.ctrlKey || e.shiftKey) {
+                        e.stopPropagation();
+                        return;
+                    }
+                    const el = ta;
+                    const deltaY = e.deltaY || 0;
+                    const scrollingDown = deltaY > 0;
+                    const scrollingUp = deltaY < 0;
+                    const maxScrollTop = el.scrollHeight - el.clientHeight;
+                    const scrollTop = el.scrollTop;
+                    const canScrollDown = scrollTop < maxScrollTop - 1;
+                    const canScrollUp = scrollTop > 1;
+                    const atBottom = !canScrollDown;
+                    const atTop = !canScrollUp;
+                    let edgeState = el.__edgeScrollState;
+                    if (!edgeState) {
+                        edgeState = { dir: 0, count: 0 };
+                        el.__edgeScrollState = edgeState;
+                    }
+                    const dir = scrollingDown ? 1 : (scrollingUp ? -1 : 0);
+                    if (!atTop && !atBottom) {
+                        edgeState.dir = 0;
+                        edgeState.count = 0;
+                        return;
+                    }
+                    if (dir === 0) {
+                        return;
+                    }
+                    const atEdgeInDir = (dir > 0 && atBottom) || (dir < 0 && atTop);
+                    if (!atEdgeInDir) {
+                        edgeState.dir = 0;
+                        edgeState.count = 0;
+                        return;
+                    }
+                    if (edgeState.dir !== dir) {
+                        edgeState.dir = dir;
+                        edgeState.count = 1;
+                        return;
+                    }
+                    edgeState.count += 1;
+                    if (edgeState.count < 3) {
+                        return;
+                    }
+                    const canvasEl = app?.canvas?.canvas;
+                    if (!canvasEl || typeof WheelEvent === 'undefined') {
+                        return;
+                    }
+                    const evt = new WheelEvent('wheel', {
+                        deltaX: e.deltaX,
+                        deltaY: e.deltaY,
+                        deltaZ: e.deltaZ,
+                        deltaMode: e.deltaMode,
+                        clientX: e.clientX,
+                        clientY: e.clientY,
+                        ctrlKey: e.ctrlKey,
+                        shiftKey: e.shiftKey,
+                        altKey: e.altKey,
+                        metaKey: e.metaKey,
+                        buttons: e.buttons,
+                        bubbles: true,
+                        cancelable: true
+                    });
+                    canvasEl.dispatchEvent(evt);
+                    e.preventDefault();
+                    e.stopPropagation();
+                });
                 ta.__ctxInstalled = true;
             }
             
@@ -505,10 +589,11 @@ function ensureTextareas(node, layout, items) {
         const nodeVisibleX = sx + sw > 0 && sx < (parentRect.width || rect.width);
         const nodeVisibleY = sy + sh > 0 && sy < (parentRect.height || rect.height);
         const shouldShow = node.flags?.collapsed !== true && nodeVisibleX && nodeVisibleY;
+        const hand = isHandMode();
         titleEl.style.visibility = shouldShow ? 'visible' : 'hidden';
         ta.style.visibility = shouldShow ? 'visible' : 'hidden';
-        titleEl.style.pointerEvents = shouldShow ? 'auto' : 'none';
-        ta.style.pointerEvents = shouldShow ? 'auto' : 'none';
+        titleEl.style.pointerEvents = shouldShow && !hand ? 'auto' : 'none';
+        ta.style.pointerEvents = shouldShow && !hand ? 'auto' : 'none';
     }
 
     // 清理多余的元素
