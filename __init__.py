@@ -180,7 +180,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     # 新增显示名称
     "ImageToSequenceWithMask": "ImageToSequenceWithMask 图像序列与遮罩生成 by ms",
     "TextInputBatch": "PromptInputBatch 提示词 by ms",
-    "TextDictChecker": "TextDictChecker 文本字典检查 by ms",
+    "TextDictChecker": "TextDictChecker 文本字典提示词检查 by ms",
     "ImageExpand": "ImageExpand 图像扩展节点 by ms",
     "ImageBlendAdvanceMy": "ImageBlendAdvanceMy 增强版图像混合节点 by ms",
     # 新增显示名称：图像截取节点
@@ -189,6 +189,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "IndexSelector": "IndexSelector 索引选择器 by ms",
     # 新增显示名称：图像拼接多输入节点
     "ImageConcatMultiMs": "ImageConcatMultiMs 图像拼接(多输入动态) by ms",
+    "ImageEncryptXorPreview": "ImageEncryptXorPreview 图像加密预览输出节点 by ms",
 }
 
 WEB_DIRECTORY = "./web/js"

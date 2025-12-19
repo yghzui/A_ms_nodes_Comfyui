@@ -18,8 +18,10 @@ app.registerExtension({
             const secondsWidget = node.widgets.find(w => w.name === "seconds");
             const fpsWidget = node.widgets.find(w => w.name === "fps");
             const lengthWidget = node.widgets.find(w => w.name === "length");
+            const stepsWidget = node.widgets.find(w => w.name === "steps");
+            const middleStepsWidget = node.widgets.find(w => w.name === "middle_steps");
 
-            if (!useSecondsWidget || !secondsWidget || !fpsWidget || !lengthWidget) {
+            if (!useSecondsWidget || !secondsWidget || !fpsWidget || !lengthWidget || !stepsWidget || !middleStepsWidget) {
                 console.error("[I2VConfigureNode] UI: 无法找到所有必要的控件。");
                 return;
             }
@@ -80,8 +82,47 @@ app.registerExtension({
                     }
                 }
             };
+
+            const updateMiddleStepsState = () => {
+                if (!stepsWidget || !middleStepsWidget) {
+                    return;
+                }
+                const steps = parseInt(stepsWidget.value ?? 0) || 0;
+                let middle = parseInt(middleStepsWidget.value ?? 0) || 0;
+
+                if (steps <= 1) {
+                    middle = 1;
+                } else {
+                    if (middle < 1) {
+                        middle = 1;
+                    }
+                    if (middle >= steps) {
+                        middle = Math.floor(steps / 2);
+                    }
+                }
+
+                if (middleStepsWidget.element) {
+                    if (typeof middleStepsWidget.element.min !== "undefined") {
+                        middleStepsWidget.element.min = 1;
+                    }
+                    if (typeof middleStepsWidget.element.max !== "undefined") {
+                        middleStepsWidget.element.max = steps > 1 ? steps - 1 : 1;
+                    }
+                }
+
+                if (middle !== middleStepsWidget.value) {
+                    middleStepsWidget.value = middle;
+                    if (middleStepsWidget.element) {
+                        middleStepsWidget.element.value = middle;
+                    }
+                    node.setDirtyCanvas(true, false);
+                    if (node.onResize) {
+                        node.onResize();
+                    }
+                }
+            };
             
-            [useSecondsWidget, secondsWidget, fpsWidget].forEach(widget => {
+            [useSecondsWidget, secondsWidget, fpsWidget, stepsWidget, middleStepsWidget].forEach(widget => {
                 const originalCallback = widget.callback;
                 widget.callback = (value, ...args) => {
                     if(originalCallback) {
@@ -89,13 +130,17 @@ app.registerExtension({
                        originalCallback.apply(widget, [value, ...args]);
                     }
                     // 延迟执行状态更新，确保所有控件值都已更新
-                    setTimeout(() => updateLengthState(), 1);
+                    setTimeout(() => {
+                        updateLengthState();
+                        updateMiddleStepsState();
+                    }, 1);
                 };
             });
             
             // 初始化时设置正确的状态
              setTimeout(() => {
                  updateLengthState();
+                 updateMiddleStepsState();
                  // 强制重绘节点以确保UI状态正确显示
                  if (node.graph && node.graph.canvas) {
                      node.graph.canvas.setDirty(true, false);

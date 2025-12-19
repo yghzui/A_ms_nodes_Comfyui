@@ -94,7 +94,7 @@ class LoadLoraMerge:
             if output_model is not None:
                 try:
                     output_model, _ = nodes.LoraLoader().load_lora(output_model, None, lora_name, strength, 0)
-                    # print(f"[LoadLoraMerge] 💡Applied LoRA to model: {lora_name}")
+                    print(f"[LoadLoraMerge] 💡Applied LoRA to model: {lora_name}")
                 except Exception as e:
                     print(f"[LoadLoraMerge] ❌ Failed to apply LoRA to model: {lora_name}, {e}")
                     # Continue to next LoRA even if one fails
@@ -112,7 +112,7 @@ class LoadLoraMerge:
                     "low_mem_load": low_mem_load,
                     "merge_loras": merge_loras,
                 })
-                # print(f"[LoadLoraMerge] 💡Collected LoRA for WanVideo: {lora_name}")
+                print(f"[LoadLoraMerge] 💡Collected LoRA for WanVideo: {lora_name}")
             except Exception as e:
                 print(f"[LoadLoraMerge] ❌ Failed to find LoRA path for WanVideo part: {lora_name}, {e}")
 

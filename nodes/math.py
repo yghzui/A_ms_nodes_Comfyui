@@ -48,6 +48,7 @@ class I2VConfigureNode:
                 "output_height": ("INT", {"default": 768, "min": 64, "max": 8192, "tooltip": "输出视频的高度"}),
                 "length": ("INT", {"default": 33, "min": 1, "max": 8192, "tooltip": "生成视频的总帧数。如果启用了'使用秒数控制长度'，此项将被覆盖"}),
                 "steps": ("INT", {"default": 12, "min": 1, "max": 100, "tooltip": "采样步数"}),
+                "middle_steps": ("INT", {"default": 6, "min": 1, "max": 100, "tooltip": "中间步数"}),
                 "batch_size": ("INT", {"default": 12, "min": 1, "max": 100, "tooltip": "批处理大小"}),
                 "use_seconds_for_length": ("BOOLEAN", {"default": False, "tooltip": "如果启用，总帧数将根据 '秒数' * '帧率' + 1 计算得出"}), # 控制是否使用秒数计算length
                 "seconds": ("INT", {"default": 2, "min": 1, "max": 1000, "tooltip": "视频时长（秒）"}), # 秒数
@@ -58,25 +59,33 @@ class I2VConfigureNode:
             }
         }
 
-    RETURN_TYPES = ("INT", "INT", "INT", "INT", "INT", "INT", "FLOAT")
-    RETURN_NAMES = ("width", "height", "length", "steps", "batch_size", "seconds", "fps")
+    RETURN_TYPES = ("INT", "INT", "INT", "INT", "INT", "INT", "INT", "FLOAT","INT")
+    RETURN_NAMES = ("width", "height", "length", "steps", "middle_steps", "batch_size", "seconds", "fps","fps_int")
     FUNCTION = "adjust_i2v_config"
     CATEGORY = "A_my_nodes/math"
 
-    def adjust_i2v_config(self, enable_ratio_adjustment, output_width, output_height, length, steps, batch_size, use_seconds_for_length, seconds, fps, images=None):
+    def adjust_i2v_config(self, enable_ratio_adjustment, output_width, output_height, length, steps, middle_steps, batch_size, use_seconds_for_length, seconds, fps, images=None):
         # 如果启用秒数控制, 则根据秒数和帧率计算总帧数
         if use_seconds_for_length:
             length = seconds * fps + 1
 
+        if steps <= 1:
+            middle_steps = 1
+        else:
+            if middle_steps < 1:
+                middle_steps = 1
+            elif middle_steps >= steps:
+                middle_steps = steps // 2
+
         # 如果没有输入图像，直接返回输入的宽高参数
         if images is None:
-            return (output_width, output_height, length, steps, batch_size, seconds, float(fps))
+            return (output_width, output_height, length, steps, middle_steps, batch_size, seconds, float(fps),fps)
 
         # 从图像张量中获取尺寸信息 (n,h,w,c)
         _, input_height, input_width, _ = images.shape
         
         if not enable_ratio_adjustment:
-            return (output_width, output_height, length, steps, batch_size, seconds, float(fps))
+            return (output_width, output_height, length, steps, middle_steps, batch_size, seconds, float(fps),fps)
         
         # 计算输入和输出的宽高比
         input_ratio = input_width / input_height
@@ -88,7 +97,7 @@ class I2VConfigureNode:
             # 交换输出的宽和高
             output_width, output_height = output_height, output_width
             
-        return (output_width, output_height, length, steps, batch_size, seconds, float(fps))
+        return (output_width, output_height, length, steps, middle_steps, batch_size, seconds, float(fps),fps)
 
 class FramesSplitCalculator:
     def __init__(self):
