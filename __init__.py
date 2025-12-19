@@ -8,7 +8,7 @@ from .nodes.mask_nodes import *
 from .nodes.text_nodes import *
 from .nodes.notice import NoticeSound
 from .nodes.resize_image_by_person import ResizeImageByPerson,CropInfoToNumbers
-from .nodes.math import AspectRatioAdjuster,I2VConfigureNode, FramesSplitCalculator, FramesSegmentSlicer, ImagesConcatWithOverlap, ImageTakeLast
+from .nodes.math import AspectRatioAdjuster,I2VConfigureNode, ResolutionPresetNode, FramesSplitCalculator, FramesSegmentSlicer, ImagesConcatWithOverlap, ImageTakeLast
 from .nodes.face_flip import FaceFlip
 from .nodes.create_color_image_mask import CreateColorImageAndMask
 # 导入新的批量加载节点
@@ -94,6 +94,7 @@ NODE_CLASS_MAPPINGS = {
     "NoticeSound": NoticeSound,
     "AspectRatioAdjuster": AspectRatioAdjuster,
     "I2VConfigureNode": I2VConfigureNode,
+    "ResolutionPresetNode": ResolutionPresetNode,
     "FramesSplitCalculator": FramesSplitCalculator,
     "FramesSegmentSlicer": FramesSegmentSlicer,
     "ImagesConcatWithOverlap": ImagesConcatWithOverlap,
@@ -157,6 +158,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "NoticeSound": "铃声提醒节点 by ms",
     "AspectRatioAdjuster": "宽高比调整节点 by ms",
     "I2VConfigureNode": "I2V配置节点 by ms",
+    "ResolutionPresetNode": "宽高预设节点 by ms",
     "FramesSplitCalculator": "循环 按帧数切分计算(含重叠) by ms",
     "FramesSegmentSlicer": "循环 按索引截取图像与遮罩段 by ms",
     "ImagesConcatWithOverlap": "循环 按重叠覆盖拼接图像 by ms",
@@ -189,7 +191,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "IndexSelector": "IndexSelector 索引选择器 by ms",
     # 新增显示名称：图像拼接多输入节点
     "ImageConcatMultiMs": "ImageConcatMultiMs 图像拼接(多输入动态) by ms",
-    "ImageEncryptXorPreview": "ImageEncryptXorPreview 图像加密预览输出节点 by ms",
 }
 
 WEB_DIRECTORY = "./web/js"

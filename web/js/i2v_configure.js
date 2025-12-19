@@ -142,10 +142,277 @@ app.registerExtension({
                  updateLengthState();
                  updateMiddleStepsState();
                  // 强制重绘节点以确保UI状态正确显示
-                 if (node.graph && node.graph.canvas) {
+         if (node.graph && node.graph.canvas) {
                      node.graph.canvas.setDirty(true, false);
                  }
              }, 10);
+        };
+    },
+});
+
+app.registerExtension({
+    name: "A_my_nodes.ResolutionPresetNode.UI",
+    async beforeRegisterNodeDef(nodeType, nodeData) {
+        if (nodeData.name !== "ResolutionPresetNode") {
+            return;
+        }
+
+        const ensureResolutionPresetUI = (node) => {
+            if (!node || !node.widgets) {
+                return;
+            }
+            if (node._resolutionPresetInit) {
+                return;
+            }
+
+            const presetWidget = node.widgets.find(w => w.name === "preset");
+            const customPresetsWidget = node.widgets.find(w => w.name === "custom_presets");
+
+            if (!presetWidget || !customPresetsWidget) {
+                console.error("[ResolutionPresetNode] UI: 无法找到必要控件。");
+                return;
+            }
+
+            customPresetsWidget.computeSize = () => [0, -4];
+
+            const builtinPresets = [
+                { id: "512x768", w: 512, h: 768 },
+                { id: "1024x1440", w: 1024, h: 1440 },
+                { id: "1280x1980", w: 1280, h: 1980 },
+            ];
+
+            const parseCustomPresets = () => {
+                let raw = customPresetsWidget.value;
+                if (typeof raw !== "string") {
+                    raw = "";
+                }
+                if (!raw) {
+                    return {};
+                }
+                try {
+                    const data = JSON.parse(raw);
+                    if (!data || typeof data !== "object") {
+                        return {};
+                    }
+                    const result = {};
+                    for (const key of Object.keys(data)) {
+                        const item = data[key] || {};
+                        const w = parseInt(item.w);
+                        const h = parseInt(item.h);
+                        if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+                            continue;
+                        }
+                        const choose = !!item.choose;
+                        result[key] = { w, h, choose };
+                    }
+                    return result;
+                } catch (e) {
+                    console.error("[ResolutionPresetNode] UI: 解析 custom_presets 失败", e);
+                    return {};
+                }
+            };
+
+            const saveCustomPresets = (obj) => {
+                try {
+                    const json = JSON.stringify(obj);
+                    customPresetsWidget.value = json;
+                    if (customPresetsWidget.element) {
+                        customPresetsWidget.element.value = json;
+                    }
+                } catch (e) {
+                    console.error("[ResolutionPresetNode] UI: 保存 custom_presets 失败", e);
+                }
+            };
+
+            const buildOptions = (customMap) => {
+                const options = builtinPresets.map(p => p.id);
+                for (const key of Object.keys(customMap)) {
+                    if (!options.includes(key)) {
+                        options.push(key);
+                    }
+                }
+                return options;
+            };
+
+            const syncPresetOptions = () => {
+                const custom = parseCustomPresets();
+                const options = buildOptions(custom);
+
+                presetWidget.options = presetWidget.options || {};
+                presetWidget.options.values = options;
+
+                let selected = presetWidget.value;
+                const chosenKey = Object.keys(custom).find(k => custom[k].choose);
+                if (chosenKey) {
+                    selected = chosenKey;
+                } else {
+                    if (!selected || !options.includes(selected)) {
+                        selected = options[0];
+                    }
+                }
+
+                if (selected !== presetWidget.value) {
+                    presetWidget.value = selected;
+                    if (presetWidget.element) {
+                        presetWidget.element.value = selected;
+                    }
+                }
+
+                node.setDirtyCanvas(true, false);
+                if (node.onResize) {
+                    node.onResize();
+                }
+            };
+
+            const openPresetManager = () => {
+                const custom = parseCustomPresets();
+                const keys = Object.keys(custom);
+                let message = "当前自定义宽高预设：\n";
+                if (keys.length === 0) {
+                    message += "  (无)\n";
+                } else {
+                    keys.forEach((key, index) => {
+                        const item = custom[key];
+                        const flag = item.choose ? " *默认" : "";
+                        message += `${index}: ${key} => ${item.w}x${item.h}${flag}\n`;
+                    });
+                }
+                message += "\n输入操作：a=新增, e=编辑, d=删除, c=取消";
+                const op = window.prompt(message, "a");
+                if (!op) {
+                    return;
+                }
+                const action = op.trim().toLowerCase();
+
+                if (action === "a") {
+                    const wStr = window.prompt("输入宽度", "512");
+                    if (!wStr) {
+                        return;
+                    }
+                    const hStr = window.prompt("输入高度", "768");
+                    if (!hStr) {
+                        return;
+                    }
+                    const w = parseInt(wStr, 10);
+                    const h = parseInt(hStr, 10);
+                    if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+                        alert("宽高必须为正整数。");
+                        return;
+                    }
+                    let id = `${w}x${h}`;
+                    let suffix = 1;
+                    while (custom[id]) {
+                        id = `${w}x${h}_${suffix++}`;
+                    }
+                    let choose = false;
+                    if (window.confirm("是否将此预设设为默认?")) {
+                        choose = true;
+                        for (const k of Object.keys(custom)) {
+                            custom[k].choose = false;
+                        }
+                    }
+                    custom[id] = { w, h, choose };
+                    saveCustomPresets(custom);
+                    syncPresetOptions();
+                } else if (action === "d") { 
+                    if (keys.length === 0) {
+                        alert("当前没有自定义预设可删除。");
+                        return;
+                    }
+                    const indexStr = window.prompt("输入要删除的预设索引", "0");
+                    if (!indexStr) {
+                        return;
+                    }
+                    const idx = parseInt(indexStr, 10);
+                    if (!Number.isFinite(idx) || idx < 0 || idx >= keys.length) {
+                        alert("索引无效。");
+                        return;
+                    }
+                    const key = keys[idx];
+                    if (!window.confirm(`确定删除预设 ${key} 吗?`)) {
+                        return;
+                    }
+                    delete custom[key];
+                    saveCustomPresets(custom);
+                    syncPresetOptions();
+                } else if (action === "e") {
+                    if (keys.length === 0) {
+                        alert("当前没有自定义预设可编辑。");
+                        return;
+                    }
+                    const indexStr = window.prompt("输入要编辑的预设索引", "0");
+                    if (!indexStr) {
+                        return;
+                    }
+                    const idx = parseInt(indexStr, 10);
+                    if (!Number.isFinite(idx) || idx < 0 || idx >= keys.length) {
+                        alert("索引无效。");
+                        return;
+                    }
+                    const key = keys[idx];
+                    const item = custom[key];
+                    const wStr = window.prompt("编辑宽度", String(item.w));
+                    if (!wStr) {
+                        return;
+                    }
+                    const hStr = window.prompt("编辑高度", String(item.h));
+                    if (!hStr) {
+                        return;
+                    }
+                    const w = parseInt(wStr, 10);
+                    const h = parseInt(hStr, 10);
+                    if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
+                        alert("宽高必须为正整数。");
+                        return;
+                    }
+                    let newId = `${w}x${h}`;
+                    let suffix = 1;
+                    if (newId !== key) {
+                        while (custom[newId] && newId !== key) {
+                            newId = `${w}x${h}_${suffix++}`;
+                        }
+                    } else {
+                        newId = key;
+                    }
+                    const setDefault = window.confirm("是否将此预设设为默认? 取消则保留原来默认设置。");
+                    if (setDefault) {
+                        for (const k of Object.keys(custom)) {
+                            custom[k].choose = false;
+                        }
+                    }
+                    const choose = setDefault ? true : !!item.choose;
+                    if (newId !== key) {
+                        delete custom[key];
+                    }
+                    custom[newId] = { w, h, choose };
+                    saveCustomPresets(custom);
+                    syncPresetOptions();
+                }
+            };
+
+            node.addWidget("button", "管理自定义宽高", null, () => {
+                openPresetManager();
+            }, { serialize: false });
+
+            node._resolutionPresetSync = syncPresetOptions;
+            node._resolutionPresetInit = true;
+
+            syncPresetOptions();
+        };
+
+        const originalOnNodeCreated = nodeType.prototype.onNodeCreated;
+        nodeType.prototype.onNodeCreated = function () {
+            originalOnNodeCreated?.apply(this, arguments);
+            ensureResolutionPresetUI(this);
+        };
+
+        const originalOnConfigure = nodeType.prototype.onConfigure;
+        nodeType.prototype.onConfigure = function () {
+            originalOnConfigure?.apply(this, arguments);
+            ensureResolutionPresetUI(this);
+            if (this._resolutionPresetSync) {
+                this._resolutionPresetSync();
+            }
         };
     },
 });
