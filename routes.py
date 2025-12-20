@@ -7,7 +7,54 @@ from folder_paths import get_output_directory
 # 全局标志，用于防止重复注册
 _routes_registered = False
 
-# 定义路由处理函数 - 提供实际的文件服务功能
+
+def get_resolution_presets_file_path():
+    base_dir = os.path.dirname(os.path.realpath(__file__))
+    return os.path.join(base_dir, "resolution_presets.json")
+
+
+async def get_resolution_presets(request):
+    file_path = get_resolution_presets_file_path()
+    data = {}
+    if os.path.isfile(file_path):
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            if isinstance(raw, dict):
+                data = raw
+        except Exception:
+            data = {}
+    return web.json_response({"presets": data})
+
+
+async def save_resolution_presets(request):
+    try:
+        body = await request.json()
+    except Exception:
+        return web.Response(
+            status=400,
+            text=json.dumps({"error": "invalid json"}),
+            content_type="application/json",
+        )
+    presets = body.get("presets")
+    if not isinstance(presets, dict):
+        return web.Response(
+            status=400,
+            text=json.dumps({"error": "presets must be an object"}),
+            content_type="application/json",
+        )
+    file_path = get_resolution_presets_file_path()
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(presets, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return web.Response(
+            status=500,
+            text=json.dumps({"error": str(e)}),
+            content_type="application/json",
+        )
+    return web.json_response({"success": True})
+
 async def serve_output_file(request):
     """处理静态输出文件请求 - 提供实际的文件服务功能"""
     path = request.match_info["path"]
@@ -106,21 +153,34 @@ def register_routes():
         if hasattr(PromptServer, 'instance') and PromptServer.instance is not None:
             # 检查路由是否已经存在
             existing_routes = [route.path for route in PromptServer.instance.routes]
-            
-            # 注册静态文件服务路由
+
             if "/static_output/{path:.*}" not in existing_routes:
-                PromptServer.instance.routes.get("/static_output/{path:.*}")(serve_output_file)
+                PromptServer.instance.routes.get("/static_output/{path:.*}")(
+                    serve_output_file
+                )
                 print("✅ 静态文件服务路由 /static_output/{path:.*} 注册成功！")
             else:
                 print("⚠️ 路由 /static_output/{path:.*} 已经存在，跳过注册")
-            
-            # 注册删除文件API路由
+
             if "/delete_output_file" not in existing_routes:
-                PromptServer.instance.routes.post("/delete_output_file")(delete_output_file)
+                PromptServer.instance.routes.post("/delete_output_file")(
+                    delete_output_file
+                )
                 print("✅ 删除文件API路由 /delete_output_file 注册成功！")
             else:
                 print("⚠️ 路由 /delete_output_file 已经存在，跳过注册")
-                
+
+            if "/a_my_nodes/resolution_presets" not in existing_routes:
+                PromptServer.instance.routes.get("/a_my_nodes/resolution_presets")(
+                    get_resolution_presets
+                )
+                PromptServer.instance.routes.post("/a_my_nodes/resolution_presets")(
+                    save_resolution_presets
+                )
+                print("✅ 分辨率预设路由 /a_my_nodes/resolution_presets 注册成功！")
+            else:
+                print("⚠️ 路由 /a_my_nodes/resolution_presets 已经存在，跳过注册")
+
             _routes_registered = True  # 设置注册标志
         else:
             print("⚠️ PromptServer.instance 未初始化，路由注册延迟")

@@ -1,4 +1,5 @@
 import json
+import os
 
 
 class AspectRatioAdjuster:
@@ -136,12 +137,24 @@ class ResolutionPresetNode:
         }
 
     def _parse_custom_presets(self, custom_presets):
-        if not custom_presets:
-            return {}
+        data = {}
         try:
-            data = json.loads(custom_presets)
+            base_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+            file_path = os.path.join(base_dir, "resolution_presets.json")
+            if os.path.isfile(file_path):
+                with open(file_path, "r", encoding="utf-8") as f:
+                    file_data = json.load(f)
+                if isinstance(file_data, dict):
+                    data = file_data
         except Exception:
-            return {}
+            data = {}
+        if not data and custom_presets:
+            try:
+                text_data = json.loads(custom_presets)
+                if isinstance(text_data, dict):
+                    data = text_data
+            except Exception:
+                data = {}
         if not isinstance(data, dict):
             return {}
         result = {}

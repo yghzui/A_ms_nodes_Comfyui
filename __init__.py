@@ -8,7 +8,7 @@ from .nodes.mask_nodes import *
 from .nodes.text_nodes import *
 from .nodes.notice import NoticeSound
 from .nodes.resize_image_by_person import ResizeImageByPerson,CropInfoToNumbers
-from .nodes.math import AspectRatioAdjuster,I2VConfigureNode, ResolutionPresetNode, FramesSplitCalculator, FramesSegmentSlicer, ImagesConcatWithOverlap, ImageTakeLast
+from .nodes.math import AspectRatioAdjuster,I2VConfigureNode, FramesSplitCalculator, FramesSegmentSlicer, ImagesConcatWithOverlap, ImageTakeLast
 from .nodes.face_flip import FaceFlip
 from .nodes.create_color_image_mask import CreateColorImageAndMask
 # 导入新的批量加载节点
@@ -36,6 +36,7 @@ from .nodes.image_expand import ImageExpand
 from .nodes.ImageBlendAdvance_my import ImageBlendAdvanceMy
 # 新增导入：图像拼接多输入节点
 from .nodes.imageconcatmultims import ImageConcatMultiMs
+from .nodes.resolutionpreset import ResolutionPresetNode
 
 # 延迟注册路由 - 确保在ComfyUI完全初始化后注册
 def register_custom_routes():
