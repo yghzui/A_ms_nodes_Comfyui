@@ -159,8 +159,10 @@ app.registerExtension({
                 }
                 widthWidget.options.min = 16;
                 widthWidget.options.step = 16;
+                widthWidget.options.precision = 0; // 强制整数
                 heightWidget.options.min = 16;
                 heightWidget.options.step = 16;
+                heightWidget.options.precision = 0; // 强制整数
             };
 
             const buildOptions = (customMap) => {
