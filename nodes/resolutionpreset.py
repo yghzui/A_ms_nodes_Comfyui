@@ -1,5 +1,11 @@
 import os
 import json
+
+def get_resolution_presets_file_path():
+    # 获取当前文件 (nodes/resolutionpreset.py) 的上级目录 (nodes) 的上级目录 (A_my_nodes)
+    base_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    return os.path.join(base_dir, "resolution_presets.json")
+
 class ResolutionPresetNode:
     def __init__(self):
         pass
@@ -35,8 +41,7 @@ class ResolutionPresetNode:
     def _parse_custom_presets(self, custom_presets):
         data = {}
         try:
-            base_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-            file_path = os.path.join(base_dir, "resolution_presets.json")
+            file_path = get_resolution_presets_file_path()
             if os.path.isfile(file_path):
                 with open(file_path, "r", encoding="utf-8") as f:
                     file_data = json.load(f)

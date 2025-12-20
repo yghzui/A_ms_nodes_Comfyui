@@ -3,14 +3,10 @@ import json
 from aiohttp import web
 from server import PromptServer
 from folder_paths import get_output_directory
+from .nodes.resolutionpreset import get_resolution_presets_file_path
 
 # 全局标志，用于防止重复注册
 _routes_registered = False
-
-
-def get_resolution_presets_file_path():
-    base_dir = os.path.dirname(os.path.realpath(__file__))
-    return os.path.join(base_dir, "resolution_presets.json")
 
 
 async def get_resolution_presets(request):
@@ -22,15 +18,22 @@ async def get_resolution_presets(request):
                 raw = json.load(f)
             if isinstance(raw, dict):
                 data = raw
-        except Exception:
+                print(f"📖 [ResolutionPreset] 成功读取预设文件: {file_path}, 包含 {len(data)} 个预设")
+            else:
+                print(f"⚠️ [ResolutionPreset] 预设文件格式错误 (非字典): {type(raw)}")
+        except Exception as e:
+            print(f"❌ [ResolutionPreset] 读取预设文件失败: {e}")
             data = {}
+    else:
+        print(f"ℹ️ [ResolutionPreset] 预设文件不存在: {file_path}")
     return web.json_response({"presets": data})
 
 
 async def save_resolution_presets(request):
     try:
         body = await request.json()
-    except Exception:
+    except Exception as e:
+        print(f"❌ [ResolutionPreset] 解析请求JSON失败: {e}")
         return web.Response(
             status=400,
             text=json.dumps({"error": "invalid json"}),
@@ -38,6 +41,7 @@ async def save_resolution_presets(request):
         )
     presets = body.get("presets")
     if not isinstance(presets, dict):
+        print(f"❌ [ResolutionPreset] presets格式错误: {type(presets)}")
         return web.Response(
             status=400,
             text=json.dumps({"error": "presets must be an object"}),
@@ -45,9 +49,12 @@ async def save_resolution_presets(request):
         )
     file_path = get_resolution_presets_file_path()
     try:
+        print(f"💾 [ResolutionPreset] 正在保存预设到: {file_path}")
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(presets, f, ensure_ascii=False, indent=2)
+        print(f"✅ [ResolutionPreset] 预设保存成功")
     except Exception as e:
+        print(f"❌ [ResolutionPreset] 保存文件失败: {e}")
         return web.Response(
             status=500,
             text=json.dumps({"error": str(e)}),
@@ -194,7 +201,7 @@ def delayed_register_routes():
     import time
     
     def _register():
-        max_attempts = 10
+        max_attempts = 30  # 增加尝试次数
         attempt = 0
         
         while attempt < max_attempts:
@@ -203,15 +210,16 @@ def delayed_register_routes():
                     register_routes()
                     break
                 else:
-                    print(f"⏳ 等待PromptServer初始化... (尝试 {attempt + 1}/{max_attempts})")
+                    if attempt % 5 == 0: # 减少日志频率
+                        print(f"⏳ [A_my_nodes] 等待PromptServer初始化... (尝试 {attempt + 1}/{max_attempts})")
                     time.sleep(1)
                     attempt += 1
             except Exception as e:
-                print(f"❌ 延迟注册失败: {e}")
+                print(f"❌ [A_my_nodes] 延迟注册失败: {e}")
                 attempt += 1
         
         if attempt >= max_attempts:
-            print("❌ 路由注册超时，PromptServer可能未正确初始化")
+            print("❌ [A_my_nodes] 路由注册超时，PromptServer可能未正确初始化")
     
     # 在后台线程中执行延迟注册
     thread = threading.Thread(target=_register, daemon=True)

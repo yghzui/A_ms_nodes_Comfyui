@@ -97,15 +97,25 @@ app.registerExtension({
 
             const saveCustomPresetsToServer = async (obj) => {
                 try {
-                    await api.fetchApi("/a_my_nodes/resolution_presets", {
+                    const resp = await api.fetchApi("/a_my_nodes/resolution_presets", {
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
                         },
                         body: JSON.stringify({ presets: obj || {} }),
                     });
+                    if (resp.status !== 200) {
+                        try {
+                            const errorData = await resp.json();
+                            alert(`保存预设失败: ${resp.status} - ${errorData.error || '未知错误'}`);
+                        } catch (e) {
+                            alert(`保存预设失败: ${resp.status}`);
+                        }
+                        console.error("[ResolutionPresetNode] UI: 服务器返回错误", resp);
+                    }
                 } catch (e) {
                     console.error("[ResolutionPresetNode] UI: 保存全局预设到服务器失败", e);
+                    alert("保存预设请求失败: " + e);
                 }
             };
 
@@ -115,12 +125,18 @@ app.registerExtension({
                 }
                 node._resolutionPresetLoadedFromServer = true;
                 try {
+                    console.log("[ResolutionPresetNode] UI: 正在从服务器加载预设...");
                     const resp = await api.fetchApi("/a_my_nodes/resolution_presets");
                     if (resp && resp.ok) {
                         const data = await resp.json();
+                        console.log("[ResolutionPresetNode] UI: 服务器返回预设数据", data);
                         if (data && typeof data === "object" && data.presets && typeof data.presets === "object") {
                             setCustomPresetsLocal(data.presets);
+                            // 强制同步一次，确保UI更新
+                            syncPresetOptions();
                         }
+                    } else {
+                        console.error("[ResolutionPresetNode] UI: 服务器响应异常", resp.status);
                     }
                 } catch (e) {
                     console.error("[ResolutionPresetNode] UI: 从服务器加载全局预设失败", e);
@@ -160,18 +176,22 @@ app.registerExtension({
             const syncPresetOptions = () => {
                 const custom = getCustomPresets();
                 const options = buildOptions(custom);
+                console.log("[ResolutionPresetNode] UI: 同步预设选项", options);
 
                 presetWidget.options = presetWidget.options || {};
                 presetWidget.options.values = options;
 
                 let selected = presetWidget.value;
-                const chosenKey = Object.keys(custom).find(k => custom[k].choose);
-                if (chosenKey) {
-                    selected = chosenKey;
-                } else {
-                    if (!selected || !options.includes(selected)) {
+                
+                // 只有当当前选中的值无效（不在选项列表中）时，才尝试使用默认值
+                if (!selected || !options.includes(selected)) {
+                    const chosenKey = Object.keys(custom).find(k => custom[k].choose);
+                    if (chosenKey && options.includes(chosenKey)) {
+                        selected = chosenKey;
+                    } else {
                         selected = options[0];
                     }
+                    console.log(`[ResolutionPresetNode] UI: 当前值无效，重置为: ${selected}`);
                 }
 
                 if (selected !== presetWidget.value) {
@@ -241,12 +261,12 @@ app.registerExtension({
                         targetId = `${baseId}_${suffix++}`;
                     }
                 }
-                const setDefault = window.confirm("是否将此预设设为默认? 取消则不会改变默认设置。");
-                if (setDefault) {
-                    for (const k of Object.keys(custom)) {
-                        custom[k].choose = false;
-                    }
-                }
+                const setDefault = false; // 移除弹窗，默认不改变默认设置
+                // if (setDefault) {
+                //     for (const k of Object.keys(custom)) {
+                //         custom[k].choose = false;
+                //     }
+                // }
                 const choose = setDefault ? true : (custom[targetId] && !!custom[targetId].choose);
                 custom[targetId] = { w, h, choose };
                 setCustomPresetsLocal(custom);
@@ -256,6 +276,7 @@ app.registerExtension({
                     presetWidget.element.value = targetId;
                 }
                 syncPresetOptions();
+                // alert(`预设 ${targetId} 保存成功！`); 
             };
 
             const deleteCurrentPreset = async () => {
@@ -282,10 +303,6 @@ app.registerExtension({
                 await saveCustomPresetsToServer(custom);
                 syncPresetOptions();
             };
-
-            node.addWidget("button", "使用当前预设宽高", null, () => {
-                applyCurrentPresetToWidthHeight();
-            }, { serialize: false });
 
             node.addWidget("button", "保存/更新预设", null, () => {
                 saveCurrentWidthHeightAsPreset();
