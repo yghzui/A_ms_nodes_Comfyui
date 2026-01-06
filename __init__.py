@@ -19,7 +19,7 @@ from .nodes.wan_video_lora_batch import WanVideoLoraBatch
 from .nodes.load_lora_merge import LoadLoraMerge
 from .nodes.index_selector import IndexSelector
 from .nodes.my_batch_manager import MyBatchManager
-
+from .nodes.image_batch_accumulator import ImageBatchAccumulator
 from .nodes.show_result_last import ShowResultLast
 from .nodes.manual_video_input import ManualVideoInput
 from .nodes.load_video import LoadVideoFromFolder
@@ -135,6 +135,7 @@ NODE_CLASS_MAPPINGS = {
     "MyBatchManager": MyBatchManager,
     # 新增注册：图像拼接多输入节点
     "ImageConcatMultiMs": ImageConcatMultiMs,
+    "ImageBatchAccumulator": ImageBatchAccumulator,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by ms",
@@ -197,6 +198,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "MyBatchManager": "MyBatchManager 循环管理器 by ms",
     # 新增显示名称：图像拼接多输入节点
     "ImageConcatMultiMs": "ImageConcatMultiMs 图像拼接(多输入动态) by ms",
+    "ImageBatchAccumulator": "ImageBatchAccumulator 图像批量累加器 by ms",
 }
 
 WEB_DIRECTORY = "./web/js"
