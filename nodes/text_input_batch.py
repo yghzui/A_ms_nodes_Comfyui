@@ -21,7 +21,8 @@ class TextInputBatch:
                 "index": ("INT", {"default": 0, "min": 0, "max": 100000000, "tooltip": "返回第几个字符串（从0开始）。越界则回退到第一个"}),
             },
             "optional": {
-                "columns": ("INT", {"default": 2, "min": 1, "max": 8, "tooltip": "布局列数（1-8）"})
+                "columns": ("INT", {"default": 2, "min": 1, "max": 8, "tooltip": "布局列数（1-8）"}),
+                "batch_manager": ("MY_BATCH_MANAGER",),
             },
             "hidden": {
                 # 字符串列表容器（前端写入，后端解析）；隐藏以避免未加载前端脚本时出现可见输入框
@@ -35,7 +36,7 @@ class TextInputBatch:
     FUNCTION = "aggregate_strings"
     CATEGORY = "A_my_nodes/text"
 
-    def aggregate_strings(self, index=0, strings_json="[]", columns=2):
+    def aggregate_strings(self, index=0, strings_json="[]", columns=2, batch_manager=None):
         # 健壮解析 JSON
         try:
             data = json.loads(strings_json) if isinstance(strings_json, str) else []
@@ -48,10 +49,8 @@ class TextInputBatch:
         dict_output_list=[]
         titles_dict = {}
         entries = []
-        try:
-            current_index = int(index) if index is not None else 0
-        except Exception:
-            current_index = 0
+        
+        # 构建 entries 列表
         if isinstance(data, list):
             for i, item in enumerate(data):
                 if isinstance(item, dict) and "title" in item and "content" in item:
@@ -61,6 +60,21 @@ class TextInputBatch:
                     content = str(item) if item is not None else ""
                     title = f"prompt_{i}"
                 entries.append((i, title, content))
+
+        # --- Batch Manager 逻辑 ---
+        if batch_manager is not None:
+            # 告诉管理器总共有多少条数据
+            batch_manager.total_count = len(entries)
+            # 从管理器获取当前应该使用的索引
+            current_index = batch_manager.current_index
+            print(f"TextInputBatch: 接管控制，使用 BatchManager 索引 {current_index}/{len(entries)}")
+        else:
+            try:
+                current_index = int(index) if index is not None else 0
+            except Exception:
+                current_index = 0
+        # ------------------------
+
         if len(entries) > 0:
             if current_index < 0 or current_index >= len(entries):
                 current_index = 0

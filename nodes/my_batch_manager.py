@@ -1,0 +1,41 @@
+
+from .batch_utils import MyBatchManagerObj
+
+class MyBatchManager:
+    def __init__(self):
+        self.batch_obj = MyBatchManagerObj()
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "start_index": ("INT", {"default": 0, "min": 0, "step": 1}),
+            },
+            "hidden": {
+                "prompt": "PROMPT",
+                "unique_id": "UNIQUE_ID",
+            }
+        }
+
+    RETURN_TYPES = ("MY_BATCH_MANAGER",)
+    RETURN_NAMES = ("batch_manager",)
+    FUNCTION = "create_batch"
+    CATEGORY = "A_my_nodes/logic"
+
+    def create_batch(self, start_index=0, prompt=None, unique_id=None):
+        # 检查是否是重入队（循环中的）运行
+        requeue = 0
+        if prompt and unique_id:
+            inputs = prompt[unique_id].get('inputs', {})
+            requeue = inputs.get('requeue', 0)
+
+        # 如果是第一次运行 (requeue=0)，重置状态
+        if requeue == 0:
+            self.batch_obj.reset()
+            self.batch_obj.current_index = start_index
+            self.batch_obj.is_running = True
+            print(f"BatchManager: 初始化，起始索引 {start_index}")
+        else:
+            print(f"BatchManager: 循环运行中，当前索引 {self.batch_obj.current_index}")
+
+        return (self.batch_obj,)

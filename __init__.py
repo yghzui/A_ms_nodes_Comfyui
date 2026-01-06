@@ -18,6 +18,7 @@ from .nodes.load_lora_batch import LoadLoraBatch
 from .nodes.wan_video_lora_batch import WanVideoLoraBatch
 from .nodes.load_lora_merge import LoadLoraMerge
 from .nodes.index_selector import IndexSelector
+from .nodes.my_batch_manager import MyBatchManager
 
 from .nodes.show_result_last import ShowResultLast
 from .nodes.manual_video_input import ManualVideoInput
@@ -130,6 +131,7 @@ NODE_CLASS_MAPPINGS = {
     "ImageTakeLast": ImageTakeLast,
     "LoadLoraMerge": LoadLoraMerge,
     "IndexSelector": IndexSelector,
+    "MyBatchManager": MyBatchManager,
     # 新增注册：图像拼接多输入节点
     "ImageConcatMultiMs": ImageConcatMultiMs,
 }
@@ -190,6 +192,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageTakeLast": "ImageTakeLast 图像截取(后N张) by ms",
     "LoadLoraMerge": "LoadLoraMerge 合并加载LoRA by ms",
     "IndexSelector": "IndexSelector 索引选择器 by ms",
+    "MyBatchManager": "MyBatchManager 循环管理器 by ms",
     # 新增显示名称：图像拼接多输入节点
     "ImageConcatMultiMs": "ImageConcatMultiMs 图像拼接(多输入动态) by ms",
 }

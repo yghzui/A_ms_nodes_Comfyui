@@ -2,6 +2,8 @@ import os
 import json
 from typing import List, Tuple, Any
 from folder_paths import get_output_directory
+from .batch_utils import requeue_workflow_unchecked
+
 class ShowResultLast:
     """显示结果节点 - 解析MP4文件并显示在文本框中"""
     
@@ -26,6 +28,7 @@ class ShowResultLast:
             },
             "optional": {
                 "show_all_files": ("BOOLEAN", {"default": False}),
+                "batch_manager": ("MY_BATCH_MANAGER",),
             }
         }
     
@@ -110,7 +113,7 @@ class ShowResultLast:
         
         return final_files
     
-    def execute(self, Filenames, show_all_files: bool = False):
+    def execute(self, Filenames, show_all_files: bool = False, batch_manager=None):
         """执行节点逻辑"""
         print(f"ShowResultLast: 接收到文件路径数据: {Filenames}")
         
@@ -145,14 +148,43 @@ class ShowResultLast:
         
         print(f"ShowResultLast: 过滤后剩余 {len(filtered_mp4_files)} 个MP4文件")
         
+        # --- Batch Manager Logic Start ---
+        final_files_to_show = filtered_mp4_files
+        status_text = ""
+        
+        if batch_manager:
+            # Add current results to manager
+            batch_manager.results.extend(filtered_mp4_files)
+            
+            # Increment index
+            batch_manager.current_index += 1
+            print(f"ShowResultLast: Batch Progress {batch_manager.current_index}/{batch_manager.total_count}")
+            
+            if batch_manager.current_index < batch_manager.total_count:
+                # Need to continue loop
+                print("ShowResultLast: Triggering requeue...")
+                requeue_workflow_unchecked()
+                status_text = f"正在处理第 {batch_manager.current_index} / {batch_manager.total_count} 个任务...\n"
+                # During loop, we don't show partial results in the preview to avoid flickering/confusion,
+                # or we can show them if desired. For now, let's keep it clean and only show status.
+                final_files_to_show = [] 
+            else:
+                # Loop finished
+                print("ShowResultLast: Batch processing complete. Showing all results.")
+                final_files_to_show = batch_manager.results
+                status_text = "批量处理完成！所有结果如下：\n"
+                # Reset manager state
+                batch_manager.is_running = False
+        # --- Batch Manager Logic End ---
+        
         # 构建显示文本列表
-        if filtered_mp4_files:
+        if final_files_to_show:
             # 将所有MP4文件路径合并为一个字符串
-            display_text = "找到的MP4文件:\n"
-            for i, mp4_file in enumerate(filtered_mp4_files, 1):
+            display_text = status_text + "找到的MP4文件:\n"
+            for i, mp4_file in enumerate(final_files_to_show, 1):
                 display_text += f"{i}. {mp4_file}\n"
         else:
-            display_text = "未找到MP4文件"
+            display_text = status_text + ("" if status_text else "未找到MP4文件")
         
         # 如果启用显示所有文件，也显示原始数据
         if show_all_files:
@@ -160,13 +192,18 @@ class ShowResultLast:
         
         print(f"ShowResultLast: 显示文本: {display_text}")
         return_data = []
-        if filtered_mp4_files:
-            for mp4_file in filtered_mp4_files:
-                relative_path = os.path.relpath(mp4_file, self.output_dir)
-                return_data.append(relative_path)
+        if final_files_to_show:
+            for mp4_file in final_files_to_show:
+                try:
+                    relative_path = os.path.relpath(mp4_file, self.output_dir)
+                    return_data.append(relative_path)
+                except Exception as e:
+                    print(f"Error calculating relpath for {mp4_file}: {e}")
+                    
         # 返回UI更新数据，让前端能够接收
         return {
             "ui": {
                 "text": return_data  # 作为一个元素的列表返回
-            }
+            },
+            "result": (display_text,)
         }
