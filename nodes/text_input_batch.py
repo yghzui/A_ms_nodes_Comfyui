@@ -46,14 +46,20 @@ class TextInputBatch:
         # --- Batch Manager 逻辑 (提前到数据构建前) ---
         # 预先计算 current_index，因为在构建 entries 时需要用到它
         
-        # 1. 找出所有已启用的索引
+        # 1. 找出所有已启用的索引 (且内容不为空)
         enabled_indices = []
         if isinstance(data, list):
             for i, item in enumerate(data):
                 is_enabled = True
+                content = ""
                 if isinstance(item, dict):
                     is_enabled = item.get("enabled", True)
-                if is_enabled:
+                    content = str(item.get("content", "")).strip()
+                else:
+                    content = str(item).strip() if item is not None else ""
+                
+                # 只有启用且内容不为空的才会被计入批次循环
+                if is_enabled and content != "":
                     enabled_indices.append(i)
         
         # 2. 根据启用列表计算 current_index
