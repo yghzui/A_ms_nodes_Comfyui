@@ -36,6 +36,7 @@ app.registerExtension({
             let customPresetCache = null;
             let widthWidget = null;
             let heightWidget = null;
+            let stepWidget = null; // 新增步长控件
 
             const parseCustomPresetsFromWidget = () => {
                 let raw = customPresetsWidget.value;
@@ -144,24 +145,107 @@ app.registerExtension({
             };
 
             const ensureWidthHeightWidgets = () => {
-                if (widthWidget && heightWidget) {
-                    return;
+                // 先尝试查找已存在的 widget
+                if (!stepWidget && node.widgets) {
+                    stepWidget = node.widgets.find(w => w.name === "步长");
                 }
-                widthWidget = node.addWidget("number", "宽", 0, () => {
-                });
-                heightWidget = node.addWidget("number", "高", 0, () => {
-                });
+                if (!widthWidget && node.widgets) {
+                    widthWidget = node.widgets.find(w => w.name === "宽");
+                }
+                if (!heightWidget && node.widgets) {
+                    heightWidget = node.widgets.find(w => w.name === "高");
+                }
+
+                // 如果发现有 widget 但配置不正确（比如还是浮点数），则移除重建
+                // 这一步非常关键，因为 ComfyUI 会缓存 widget 状态
+                if (stepWidget && stepWidget.options && stepWidget.options.precision !== 0) {
+                     node.widgets.splice(node.widgets.indexOf(stepWidget), 1);
+                     stepWidget = null;
+                }
+                if (widthWidget && widthWidget.options && widthWidget.options.precision !== 0) {
+                     node.widgets.splice(node.widgets.indexOf(widthWidget), 1);
+                     widthWidget = null;
+                }
+                if (heightWidget && heightWidget.options && heightWidget.options.precision !== 0) {
+                     node.widgets.splice(node.widgets.indexOf(heightWidget), 1);
+                     heightWidget = null;
+                }
+
+                // 如果三个控件都存在且配置正确，直接返回
+                if (widthWidget && heightWidget && stepWidget) {
+                     // 再次确保 options 设置正确
+                     if (widthWidget.options) widthWidget.options.precision = 0;
+                     if (heightWidget.options) heightWidget.options.precision = 0;
+                     if (stepWidget.options) stepWidget.options.precision = 0;
+                     return;
+                }
+                
+                // 添加步长控件
+                if (!stepWidget) {
+                    stepWidget = node.addWidget("number", "步长", 8, (v) => {
+                         // 当步长改变时，更新宽高控件的 step 属性，并立即对齐当前宽高
+                         const step = Math.max(1, parseInt(v, 10) || 1);
+                         if (widthWidget) {
+                             widthWidget.options.step = step * 10;
+                             // 立即对齐宽度
+                             const w = parseInt(widthWidget.value, 10);
+                             if (w % step !== 0) {
+                                 widthWidget.value = Math.round(w / step) * step;
+                             }
+                         }
+                         if (heightWidget) {
+                             heightWidget.options.step = step * 10;
+                             // 立即对齐高度
+                             const h = parseInt(heightWidget.value, 10);
+                             if (h % step !== 0) {
+                                 heightWidget.value = Math.round(h / step) * step;
+                             }
+                         }
+                    });
+                    // 显式设置 stepWidget 的选项，确保显示为整数
+                    stepWidget.options = stepWidget.options || {};
+                    stepWidget.options.min = 1;
+                    stepWidget.options.max = 128;
+                    stepWidget.options.step = 1;
+                    stepWidget.options.precision = 0; // 强制整数
+                }
+
+                if (!widthWidget) {
+                    widthWidget = node.addWidget("number", "宽", 0, (v) => {
+                         // 宽高改变时自动对齐步长
+                         const step = stepWidget ? (parseInt(stepWidget.value, 10) || 1) : 8;
+                         const val = parseInt(v, 10);
+                         if (val % step !== 0) {
+                             widthWidget.value = Math.round(val / step) * step;
+                         }
+                    });
+                }
+                
+                if (!heightWidget) {
+                    heightWidget = node.addWidget("number", "高", 0, (v) => {
+                         // 宽高改变时自动对齐步长
+                         const step = stepWidget ? (parseInt(stepWidget.value, 10) || 1) : 8;
+                         const val = parseInt(v, 10);
+                         if (val % step !== 0) {
+                             heightWidget.value = Math.round(val / step) * step;
+                         }
+                    });
+                }
+
                 if (!widthWidget.options) {
                     widthWidget.options = {};
                 }
                 if (!heightWidget.options) {
                     heightWidget.options = {};
                 }
-                widthWidget.options.min = 16;
-                widthWidget.options.step = 16;
+                
+                const currentStep = stepWidget ? (parseInt(stepWidget.value, 10) || 1) : 8;
+                widthWidget.options.min = currentStep;
+                widthWidget.options.step = currentStep * 10;
                 widthWidget.options.precision = 0; // 强制整数
-                heightWidget.options.min = 16;
-                heightWidget.options.step = 16;
+                
+                heightWidget.options.min = currentStep;
+                heightWidget.options.step = currentStep * 10;
                 heightWidget.options.precision = 0; // 强制整数
             };
 

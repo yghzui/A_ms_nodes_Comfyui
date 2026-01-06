@@ -29,9 +29,9 @@ class TextInputBatch:
             },
         }
 
-    RETURN_TYPES = ("STRING", "STRING", "INT", "STRING", "STRING")
-    RETURN_NAMES = ("strings", "selected", "count", "dict_output", "selected_title")
-    OUTPUT_IS_LIST = (True, False, False, False, False)
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "INT", "STRING", "STRING")
+    RETURN_NAMES = ("strings", "selected", "selected_title", "count", "dict_output", "dict_output_list")
+    OUTPUT_IS_LIST = (True, False, False, False, False, True)
     FUNCTION = "aggregate_strings"
     CATEGORY = "A_my_nodes/text"
 
@@ -45,46 +45,49 @@ class TextInputBatch:
         # {{ AURA-X: Modify - 修改启用状态逻辑，确保只有当前选中索引对应项目启用. }}
         # 处理新的数据结构，支持标题和启用状态
         strings_list = []
+        dict_output_list=[]
         titles_dict = {}
-        
-        # 获取当前选中索引
+        entries = []
         try:
             current_index = int(index) if index is not None else 0
         except Exception:
             current_index = 0
-        
         if isinstance(data, list):
-            # 兼容旧版本数据结构
             for i, item in enumerate(data):
                 if isinstance(item, dict) and "title" in item and "content" in item:
-                    # 新版本数据结构
                     title = item.get("title", f"prompt_{i}")
                     content = str(item.get("content", ""))
-                    # 启用状态：只有当前选中索引对应的项目为True
-                    enabled = (i == current_index)
-                    strings_list.append(content)
-                    titles_dict[title] = {"prompt": content, "enable": enabled}
                 else:
-                    # 旧版本数据结构，自动生成标题
                     content = str(item) if item is not None else ""
                     title = f"prompt_{i}"
-                    # 启用状态：只有当前选中索引对应的项目为True
-                    enabled = (i == current_index)
-                    strings_list.append(content)
-                    titles_dict[title] = {"prompt": content, "enable": enabled}
-
-        # 计算选中值和选中标题
+                entries.append((i, title, content))
+        if len(entries) > 0:
+            if current_index < 0 or current_index >= len(entries):
+                current_index = 0
+        filtered_entries = []
+        for i, title, content in entries:
+            if i == current_index or content.strip() != "":
+                filtered_entries.append((i, title, content))
         selected = ""
         selected_title = ""
-        if len(strings_list) > 0:
-            # 确保索引在有效范围内
-            if current_index < 0 or current_index >= len(strings_list):
-                current_index = 0
-            selected = strings_list[current_index]
-            # 获取对应的标题
-            title_keys = list(titles_dict.keys())
-            if current_index < len(title_keys):
-                selected_title = title_keys[current_index]
+        if len(filtered_entries) > 0:
+            for i, title, content in filtered_entries:
+                if i == current_index:
+                    selected = content
+                    selected_title = title
+                    break
+            if selected_title == "":
+                selected = filtered_entries[0][2]
+                selected_title = filtered_entries[0][1]
+        for j in range(len(filtered_entries)):
+            titles_dict_temp={}
+            for i, title, content in filtered_entries:
+                titles_dict_temp[title] = {"prompt": content, "enable": (i == j)}
+            dict_output_list.append(titles_dict_temp)
+  
+        for i, title, content in filtered_entries:
+                strings_list.append(content)
+                titles_dict[title] = {"prompt": content, "enable": (i == current_index)}
 
         # 返回：完整列表(JSON字符串) 与 选中项
         try:
@@ -106,5 +109,5 @@ class TextInputBatch:
         except Exception:
             dict_output = "{}"
         
-        # 返回：完整列表(列表)、选中项、数量、字典输出、选中标题
-        return (list_out, selected, len(list_out), dict_output, selected_title)
+        # 返回：完整列表(列表)、选中项、选中标题.数量、字典输出、字典输出列表
+        return (list_out, selected,selected_title, len(list_out),dict_output,dict_output_list)
