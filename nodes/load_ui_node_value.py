@@ -13,6 +13,8 @@ class GetNodeInputValue:
            
             "optional": {
                 # 目标节点ID（仅用于前端逻辑记录，后端不处理）
+                # 注意：这里定义为 STRING 而不是 COMBO，是为了允许前端动态设置值而不触发后端验证错误
+                # 前端 JS 会将其转换为下拉框
                 "target_node_id": ("STRING", {"default": ""}),
                 # 目标输入选项名（仅用于前端逻辑记录，后端不处理）
                 "target_input_name": ("STRING", {"default": ""}),

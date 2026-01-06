@@ -2,220 +2,267 @@ import { app } from "../../../scripts/app.js";
 
 console.log("Patching node: GetNodeInputValue.js");
 
-// 为节点添加“选择目标节点和输入选项”的下拉菜单
+// 核心逻辑
 function installNodeSelector(node) {
-    // 1. 添加“目标节点”下拉框
-    let nodeSelectWidget = node.widgets?.find(w => w.name === "target_node_id");
-    if (!nodeSelectWidget) {
-        // 如果后端定义了 target_node_id 为 optional，它可能已经存在（如果是 combo 类型？）
-        // 后端定义的是 STRING，所以默认会创建一个 text widget。
-        // 我们需要把它变成 combo，或者如果它已经是 text，我们可以替换它或者利用它。
-        // 但 ComfyUI 前端通常会把 STRING 渲染为 text input。
-        // 为了变成下拉框，我们通常是先 remove 原来的 widget，再 add 一个新的 combo widget。
-        // 或者如果后端定义是 STRING，我们可以直接覆盖它的类型？
-        
-        // 检查现有的 widget
-        const existingWidget = node.widgets?.find(w => w.name === "target_node_id");
-        if (existingWidget) {
-            // 如果存在且不是 combo，可能需要替换
-            if (existingWidget.type !== "combo") {
-                // 移除旧的 text widget
-                const index = node.widgets.indexOf(existingWidget);
-                if (index > -1) node.widgets.splice(index, 1);
-                
-                // 添加新的 combo widget
-                nodeSelectWidget = node.addWidget("combo", "target_node_id", "", (value) => {
-                    updateInputOptions(node, value);
-                });
-            } else {
-                nodeSelectWidget = existingWidget;
-                nodeSelectWidget.callback = (value) => {
-                    updateInputOptions(node, value);
-                };
+    // 1. 获取原有的 Widget (保持它们为 Text 输入框)
+    const targetNodeIdWidget = node.widgets?.find(w => w.name === "target_node_id");
+    const targetInputNameWidget = node.widgets?.find(w => w.name === "target_input_name");
+    const capturedValueWidget = node.widgets?.find(w => w.name === "captured_value");
+
+    if (!targetNodeIdWidget || !targetInputNameWidget) return;
+
+    // 2. 创建或获取辅助 Combo Widget
+    // 命名使用 helper 后缀，标签使用中文提示
+    let nodeSelector = node.widgets.find(w => w.name === "select_node_helper");
+    if (!nodeSelector) {
+        nodeSelector = node.addWidget("combo", "select_node_helper", "", (value) => {
+            // 当选择节点时
+            const realId = extractId(value);
+            // 1. 填入原来的输入框
+            if (targetNodeIdWidget) {
+                targetNodeIdWidget.value = realId;
             }
-        } else {
-            // 如果不存在（比如是 hidden），新建
-            nodeSelectWidget = node.addWidget("combo", "target_node_id", "", (value) => {
-                updateInputOptions(node, value);
-            });
-        }
-        nodeSelectWidget.name = "target_node_id";
-        nodeSelectWidget.tooltip = "选择要获取值的目标节点";
+            // 2. 更新第二个选择框
+            updateInputOptions(realId);
+        }, { values: [] });
+        nodeSelector.label = "🔍 选择节点 (Select Node)";
     }
 
-    // 2. 添加“目标输入选项”下拉框
-    let inputSelectWidget = node.widgets?.find(w => w.name === "target_input_name");
-    if (!inputSelectWidget) {
-        const existingWidget = node.widgets?.find(w => w.name === "target_input_name");
-        if (existingWidget) {
-             if (existingWidget.type !== "combo") {
-                const index = node.widgets.indexOf(existingWidget);
-                if (index > -1) node.widgets.splice(index, 1);
-                
-                inputSelectWidget = node.addWidget("combo", "target_input_name", "", (value) => {
-                    updateCapturedValue(node, value);
-                });
-            } else {
-                inputSelectWidget = existingWidget;
-                inputSelectWidget.callback = (value) => {
-                    updateCapturedValue(node, value);
-                };
+    let inputSelector = node.widgets.find(w => w.name === "select_input_helper");
+    if (!inputSelector) {
+        inputSelector = node.addWidget("combo", "select_input_helper", "", (value) => {
+            // 当选择参数时
+            // 1. 填入原来的输入框
+            if (targetInputNameWidget) {
+                targetInputNameWidget.value = value;
             }
-        } else {
-            inputSelectWidget = node.addWidget("combo", "target_input_name", "", (value) => {
-                updateCapturedValue(node, value);
-            });
-        }
-        inputSelectWidget.name = "target_input_name";
-        inputSelectWidget.tooltip = "选择目标节点的输入选项";
+            // 2. 触发值获取
+            updateCapturedValue();
+        }, { values: [] });
+        inputSelector.label = "🔍 选择参数 (Select Input)";
     }
 
-    // 新增：捕获并更新值
-    const updateCapturedValue = (node, selectedInputName) => {
-        const targetNodeIdWidget = node.widgets?.find(w => w.name === "target_node_id");
-        if (!targetNodeIdWidget) return;
+    // 3. 调整 Widget 顺序
+    // 期望顺序: 
+    // 1. select_node_helper
+    // 2. target_node_id
+    // 3. select_input_helper
+    // 4. target_input_name
+    // 5. captured_value
+    
+    const desiredOrder = [
+        "select_node_helper",
+        "target_node_id",
+        "select_input_helper",
+        "target_input_name",
+        "captured_value"
+    ];
+    
+    node.widgets.sort((a, b) => {
+        const ia = desiredOrder.indexOf(a.name);
+        const ib = desiredOrder.indexOf(b.name);
+        // 如果不在列表里，放到最后
+        if (ia === -1) return 1;
+        if (ib === -1) return -1;
+        return ia - ib;
+    });
+
+
+    // 4. 定义功能函数
+
+    // 提取 ID (从 "10 - NodeName" 格式中)
+    const extractId = (val) => {
+        if (!val) return "";
+        const match = String(val).match(/^(\d+)\s*-?/);
+        return match ? match[1] : val;
+    };
+
+    // 更新捕获的值
+    const updateCapturedValue = () => {
+        // 使用实际输入框的值，这样即使用户手动输入也能工作
         const targetNodeId = targetNodeIdWidget.value;
-        
-        const graph = node.graph || app.graph;
-        const targetNode = graph.nodes?.find(n => String(n.id) === targetNodeId);
-        const capturedValueWidget = node.widgets?.find(w => w.name === "captured_value");
+        const selectedInputName = targetInputNameWidget.value;
         
         if (!capturedValueWidget) return;
 
+        const graph = node.graph || app.graph;
+        if (!graph) return;
+
+        const targetNode = graph.nodes?.find(n => String(n.id) === targetNodeId);
+        
         let capturedValue = "";
         
-        if (targetNode) {
-            // 尝试从 widgets 中查找
-            if (targetNode.widgets) {
-                const targetWidget = targetNode.widgets.find(w => w.name === selectedInputName);
-                if (targetWidget) {
-                    const val = targetWidget.value;
-                    if (typeof val === 'object' && val !== null) {
-                        try {
-                            capturedValue = JSON.stringify(val);
-                        } catch(e) {
-                            capturedValue = String(val);
-                        }
-                    } else {
+        if (targetNode && targetNode.widgets) {
+            const targetWidget = targetNode.widgets.find(w => w.name === selectedInputName);
+            if (targetWidget) {
+                const val = targetWidget.value;
+                if (typeof val === 'object' && val !== null) {
+                    try {
+                        capturedValue = JSON.stringify(val);
+                    } catch(e) {
                         capturedValue = String(val);
                     }
+                } else {
+                    capturedValue = String(val);
                 }
             }
         }
         
-        // 更新显示
         if (capturedValueWidget.value !== capturedValue) {
             capturedValueWidget.value = capturedValue;
-            // 如果 captured_value widget 有 callback，可能需要触发它？
             if (capturedValueWidget.callback) {
                 capturedValueWidget.callback(capturedValue);
             }
         }
     };
 
-    // 4. 初始化下拉选项
-    const initNodeOptions = () => {
+    // 更新参数选择框的选项
+    const updateInputOptions = (targetNodeId) => {
         const graph = node.graph || app.graph;
-        const nodes = graph.nodes || [];
-        const options = nodes.map(n => ({
-            value: String(n.id),
-            text: `${n.id} - ${n.title || n.type}` 
-        }));
-        nodeSelectWidget.options.values = options.map(o => o.value);
-        nodeSelectWidget.options.labels = options.map(o => o.text);
-        
-        // 尝试恢复之前的选择并更新值
-        if (nodeSelectWidget.value && inputSelectWidget.value) {
-            updateCapturedValue(node, inputSelectWidget.value);
-        }
-    };
+        if (!graph) return;
 
-    // 5. 更新输入选项的下拉列表
-    const updateInputOptions = (node, targetNodeId) => {
-        const graph = node.graph || app.graph;
         const targetNode = graph.nodes?.find(n => String(n.id) === targetNodeId);
-        if (!targetNode) {
-            inputSelectWidget.options.values = [];
-            inputSelectWidget.options.labels = [];
-            return;
-        }
-
+        
         const inputOptions = [];
-        if (targetNode.widgets) {
+        if (targetNode && targetNode.widgets) {
             targetNode.widgets.forEach(w => {
-                // 排除不需要的 widget 类型（如按钮）
                 if (w.type !== 'button') {
-                    inputOptions.push({
-                        value: w.name,
-                        text: w.name
-                    });
+                    inputOptions.push(w.name);
                 }
             });
         }
-        // inputs 通常不作为 widget 值获取源，除非它们是 converted widgets
-        // 这里简化逻辑，只获取 widgets
 
-        inputSelectWidget.options.values = inputOptions.map(o => o.value);
-        inputSelectWidget.options.labels = inputOptions.map(o => o.text);
+        inputSelector.options.values = inputOptions;
         
-        // 如果当前值在新列表中不存在，则重置
-        if (!inputOptions.some(o => o.value === inputSelectWidget.value)) {
-            inputSelectWidget.value = inputOptions.length > 0 ? inputOptions[0].value : "";
+        // 如果当前 helper 的值不在新列表中，清空
+        if (inputSelector.value && !inputOptions.includes(inputSelector.value)) {
+            inputSelector.value = "";
         }
         
-        // 更新值
-        updateCapturedValue(node, inputSelectWidget.value);
+        // 尝试自动更新一下值（针对手动输入 ID 的情况）
+        updateCapturedValue();
     };
 
-    // 初始化
-    initNodeOptions();
-    
-    // 监听鼠标进入事件，动态更新节点列表
+    // 初始化节点选择框的选项
+    const initNodeOptions = () => {
+        const graph = node.graph || app.graph;
+        if (!graph) return;
+
+        const nodes = graph.nodes || [];
+        const options = nodes.map(n => ({
+            id: String(n.id),
+            text: `${n.id} - ${n.title || n.type}` 
+        }));
+        
+        options.sort((a, b) => parseInt(a.id) - parseInt(b.id));
+
+        nodeSelector.options.values = options.map(o => o.text);
+    };
+
+    // 5. 事件监听
+
+    // 监听手动输入：当用户手动修改 Text Widget 时，也要触发逻辑
+    // 实现双向绑定：文本框修改 -> 更新下拉框选中状态
+    const originalNodeIdCallback = targetNodeIdWidget.callback;
+    targetNodeIdWidget.callback = function(value) {
+        if (originalNodeIdCallback) originalNodeIdCallback(value);
+        
+        // 1. 尝试在下拉框中找到对应的项并选中
+        if (nodeSelector && nodeSelector.options && nodeSelector.options.values) {
+            // 选项格式可能是 "10 - Title"
+            const match = nodeSelector.options.values.find(opt => {
+                const optId = extractId(opt);
+                return String(optId) === String(value);
+            });
+            if (match) {
+                nodeSelector.value = match;
+            } else {
+                // 如果找不到匹配项（可能是无效ID），可以清空下拉或保持原样
+                // nodeSelector.value = ""; 
+            }
+        }
+
+        // 2. 更新参数列表
+        updateInputOptions(value);
+    };
+
+    const originalInputNameCallback = targetInputNameWidget.callback;
+    targetInputNameWidget.callback = function(value) {
+        if (originalInputNameCallback) originalInputNameCallback(value);
+        
+        // 1. 同步下拉框
+        if (inputSelector && inputSelector.options && inputSelector.options.values) {
+            if (inputSelector.options.values.includes(value)) {
+                inputSelector.value = value;
+            }
+        }
+
+        // 2. 触发值获取
+        updateCapturedValue();
+    };
+
+    // 鼠标进入时刷新列表
     const originalOnMouseEnter = node.onMouseEnter;
     node.onMouseEnter = function(event, pos, canvas) {
         initNodeOptions();
-        // 每次鼠标进入也尝试更新一下值（以防目标节点值变了）
-        if (inputSelectWidget.value) {
-            updateCapturedValue(node, inputSelectWidget.value);
-        }
         
+        // 确保参数列表也是最新的
+        if (targetNodeIdWidget.value) {
+            updateInputOptions(targetNodeIdWidget.value);
+        }
+
         if (originalOnMouseEnter) {
             return originalOnMouseEnter.call(this, event, pos, canvas);
         }
     };
+
+    // 初始化执行一次
+    initNodeOptions();
+    if (targetNodeIdWidget.value) {
+        updateInputOptions(targetNodeIdWidget.value);
+    }
+
+    // 6. 隐藏原始输入框
+    // 它们仍然存在于 node.widgets 中以保证数据被保存，但不可见
+    // 我们在最后隐藏它们，以免影响上面的逻辑
+    const hideWidget = (w) => {
+        if (!w) return;
+        w.computeSize = () => [0, -4]; // 尽可能不占用空间
+        w.type = "converted-widget";   // 更改类型以防止默认绘制
+        w.draw = () => {};             // 空绘制函数
+    };
+
+    hideWidget(targetNodeIdWidget);
+    hideWidget(targetInputNameWidget);
 }
 
-
-// 注册节点UI扩展
+// 注册扩展
 app.registerExtension({
     name: "A_my_nodes.GetNodeInputValue.UI",
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name !== "GetNodeInputValue") return;
 
-        // 节点创建时初始化UI
         const origOnNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function() {
             if (origOnNodeCreated) origOnNodeCreated.apply(this, arguments);
             
-            // 找到 captured_value 控件并设为只读
-            // 注意：widgets 可能还未完全初始化，或者顺序问题
-            // 但通常在 onNodeCreated 后，widgets 应该有了
-            
-            // 安装节点选择器
             installNodeSelector(this);
             
-            // 调整 captured_value 的外观
+            // 设置 captured_value 只读
             const capturedWidget = this.widgets?.find(w => w.name === "captured_value");
-            if (capturedWidget) {
-                // 如果是 customtext (textarea)，可以通过 inputEl 设置
-                if (capturedWidget.inputEl) {
-                    capturedWidget.inputEl.readOnly = true;
-                    capturedWidget.inputEl.style.opacity = 0.8;
-                    capturedWidget.inputEl.style.backgroundColor = "#222";
-                }
-                // 移到最后，或者指定位置？
-                // 默认位置由 backend 定义决定
+            if (capturedWidget && capturedWidget.inputEl) {
+                capturedWidget.inputEl.readOnly = true;
+                capturedWidget.inputEl.style.opacity = 0.8;
             }
+        };
+        
+        // 处理 Reload 后的恢复
+        const origOnConfigure = nodeType.prototype.onConfigure;
+        nodeType.prototype.onConfigure = function() {
+            if (origOnConfigure) origOnConfigure.apply(this, arguments);
+            setTimeout(() => {
+                installNodeSelector(this);
+            }, 100);
         };
     },
 });
