@@ -6,6 +6,9 @@ console.log("Patching node: text_input_batch.js");
 // {{ AURA-X: Add - Tooltip工具类，用于显示悬浮提示. }}
 const Tooltip = {
     _el: null,
+    _timer: null,
+    _delay: 500, // 延迟显示时间（毫秒）
+
     get el() {
         if (!this._el) {
             this._el = document.createElement('div');
@@ -48,7 +51,20 @@ const Tooltip = {
             el.style.top = (y - rect.height) + 'px';
         }
     },
+    scheduleShow(x, y, title, content) {
+        this.cancelTimer();
+        this._timer = setTimeout(() => {
+            this.show(x, y, title, content);
+        }, this._delay);
+    },
+    cancelTimer() {
+        if (this._timer) {
+            clearTimeout(this._timer);
+            this._timer = null;
+        }
+    },
     hide() {
+        this.cancelTimer();
         if (this._el) this._el.style.display = 'none';
     }
 };
@@ -570,7 +586,7 @@ function ensureTextareas(node, layout, items) {
                 const currentItems = getItems(node);
                 const currentItem = currentItems[i];
                 if (currentItem) {
-                    Tooltip.show(e.clientX, e.clientY, currentItem.title, currentItem.content);
+                    Tooltip.scheduleShow(e.clientX, e.clientY, currentItem.title, currentItem.content);
                 }
             });
             titleEl.addEventListener('mouseleave', () => {
@@ -623,7 +639,7 @@ function ensureTextareas(node, layout, items) {
                 const currentItems = getItems(node);
                 const currentItem = currentItems[i];
                 if (currentItem) {
-                    Tooltip.show(e.clientX, e.clientY, currentItem.title, currentItem.content);
+                    Tooltip.scheduleShow(e.clientX, e.clientY, currentItem.title, currentItem.content);
                 }
             });
             ta.addEventListener('mouseleave', () => {
