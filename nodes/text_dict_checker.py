@@ -6,6 +6,7 @@
 # - 如果不在返回false，如果在根据enable字段返回对应值
 
 import json
+import re
 
 
 class TextDictChecker:
@@ -18,7 +19,7 @@ class TextDictChecker:
             "required": {
                 "dict_input": ("STRING", {"default": "{}", "tooltip": "输入包含标题、内容、启用状态的字典，或直接输入字符串"}),
                 "key_to_check": ("STRING", {"default": "", "tooltip": "要检查的字符串key"}),
-                "check_mode": (["absolute", "start_with", "contains"], {"default": "absolute", "tooltip": "匹配模式"}),
+                "check_mode": (["absolute", "start_with", "contains", "regex"], {"default": "absolute", "tooltip": "匹配模式"}),
             },
         }
 
@@ -53,6 +54,13 @@ class TextDictChecker:
                 matched_keys = [k for k in data_dict.keys() if isinstance(k, str) and k.startswith(key_to_check)]
             elif check_mode == "contains":
                 matched_keys = [k for k in data_dict.keys() if isinstance(k, str) and key_to_check in k]
+            elif check_mode == "regex":
+                try:
+                    pattern = re.compile(key_to_check)
+                    matched_keys = [k for k in data_dict.keys() if isinstance(k, str) and pattern.search(k)]
+                except re.error:
+                    print(f"TextDictChecker: Invalid regex pattern '{key_to_check}'")
+                    matched_keys = []
             else:
                 if key_to_check in data_dict:
                     matched_keys = [key_to_check]
@@ -87,7 +95,11 @@ class TextDictChecker:
             matched = False
             
             # 支持多个关键字，以分号分隔
-            keys = [k.strip() for k in key_to_check.split(';') if k.strip()]
+            # 如果是正则模式，不进行分割，直接将整个字符串作为正则模式
+            if check_mode == "regex":
+                keys = [key_to_check]
+            else:
+                keys = [k.strip() for k in key_to_check.split(';') if k.strip()]
             
             for key in keys:
                 if check_mode == "absolute":
@@ -102,6 +114,13 @@ class TextDictChecker:
                     if key in input_str:
                         matched = True
                         break
+                elif check_mode == "regex":
+                    try:
+                        if re.search(key, input_str):
+                            matched = True
+                            break
+                    except re.error:
+                        print(f"TextDictChecker: Invalid regex pattern '{key}'")
                 else:
                     if input_str == key:
                         matched = True

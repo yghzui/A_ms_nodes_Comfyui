@@ -18,7 +18,7 @@ function ensureStringsJsonWidget(node) {
 }
 
 // {{ AURA-X: Modify - 更新数据结构支持标题+内容格式，兼容旧版数据. }}
-// {{ AURA-X: Modify - 更新getItems函数，确保启用状态只有当前选中索引对应项目为true，其他为false. }}
+// {{ AURA-X: Modify - 更新getItems函数，支持读取enabled状态，默认为true，且强制当前选中项为true. }}
 function getItems(node) {
     try {
         const widget = node.widgets.find(w => w.name === "strings_json");
@@ -29,18 +29,22 @@ function getItems(node) {
         
         return arr.map((item, index) => {
             if (typeof item === 'object' && item !== null && 'title' in item && 'content' in item) {
-                // 新格式数据，根据当前索引设置启用状态
+                // 新格式数据
+                // 如果是当前选中项，强制enabled为true
+                // 否则使用保存的enabled状态，如果未定义则默认为true
+                const isSelected = index === currentIndex;
                 return {
                     title: String(item.title || `prompt_${index}`),
                     content: String(item.content || ""),
-                    enabled: index === currentIndex // 只有当前选中索引的项目启用
+                    enabled: isSelected ? true : (item.enabled !== false)
                 };
             } else {
-                // 旧格式数据，自动转换，根据当前索引设置启用状态
+                // 旧格式数据，转换为新格式
+                const isSelected = index === currentIndex;
                 return {
                     title: `prompt_${index}`,
                     content: String(item || ""),
-                    enabled: index === currentIndex // 只有当前选中索引的项目启用
+                    enabled: true // 旧数据默认全部启用
                 };
             }
         });
@@ -49,24 +53,24 @@ function getItems(node) {
     }
 }
 
-// {{ AURA-X: Modify - 更新setItems函数，在保存数据时根据当前选中索引设置启用状态. }}
+// {{ AURA-X: Modify - 更新setItems函数，保存enabled状态. }}
 function setItems(node, arr) {
     const currentIndex = getCurrentIndex(node); // 获取当前选中索引
     
-    // 确保数组中的每个项目都是正确的格式，并设置启用状态
+    // 确保数组中的每个项目都是正确的格式
     const formattedArr = arr.map((item, index) => {
+        const isSelected = index === currentIndex;
         if (typeof item === 'object' && item !== null) {
             return {
                 title: String(item.title || `prompt_${index}`),
                 content: String(item.content || ""),
-                enabled: index === currentIndex // 只有当前选中索引的项目启用
+                enabled: isSelected ? true : (item.enabled !== false)
             };
         } else {
-            // 兼容旧格式
             return {
                 title: `prompt_${index}`,
                 content: String(item || ""),
-                enabled: index === currentIndex // 只有当前选中索引的项目启用
+                enabled: true
             };
         }
     });
@@ -394,7 +398,7 @@ function showItemContextMenu(node, index, event) {
     }
 }
 
-// {{ AURA-X: Add - 创建标题和内容的UI元素，在输入框上方添加标题输入. }}
+// {{ AURA-X: Add - 创建标题、内容和开关的UI元素. }}
 function ensureTextareas(node, layout, items) {
     const ds = app?.canvas?.ds;
     const canvas = app?.canvas?.canvas;
@@ -408,6 +412,7 @@ function ensureTextareas(node, layout, items) {
     // 初始化元素数组
     if (!node.__taEls) node.__taEls = [];
     if (!node.__titleEls) node.__titleEls = [];
+    if (!node.__toggleEls) node.__toggleEls = []; // 新增开关数组
 
     const currentIndex = getCurrentIndex(node);
 
@@ -417,6 +422,44 @@ function ensureTextareas(node, layout, items) {
         
         const item = items[i];
         const isSelected = i === currentIndex;
+        
+        // 创建或更新开关 (Checkbox)
+        let toggleEl = node.__toggleEls[i];
+        if (!toggleEl) {
+            toggleEl = document.createElement('input');
+            toggleEl.type = 'checkbox';
+            toggleEl.style.cssText = `position: absolute; z-index: 101; cursor: pointer; margin: 0;`;
+            
+            // 开关事件处理
+            toggleEl.addEventListener('change', (e) => {
+                const arr = getItems(node);
+                if (i < arr.length) {
+                    // 如果是当前选中项，禁止关闭（虽然UI上会禁用，但这里也做一层保护）
+                    if (i === getCurrentIndex(node)) {
+                        toggleEl.checked = true;
+                        arr[i].enabled = true;
+                    } else {
+                        arr[i].enabled = toggleEl.checked;
+                    }
+                    setItems(node, arr);
+                    // 触发重绘以更新样式
+                    const newItems = getItems(node);
+                    const newCells = layoutCells(node, newItems);
+                    ensureTextareas(node, newCells, newItems);
+                }
+            });
+            
+            // 防止滚轮事件穿透
+            toggleEl.addEventListener('wheel', (e) => { e.stopPropagation(); });
+            
+            container.appendChild(toggleEl);
+            node.__toggleEls[i] = toggleEl;
+        }
+        
+        // 更新开关状态
+        toggleEl.checked = item.enabled !== false;
+        // 如果是当前选中项，禁用交互（强制开启）
+        toggleEl.disabled = isSelected;
         
         // 创建或更新标题输入框
         let titleEl = node.__titleEls[i];
@@ -566,10 +609,22 @@ function ensureTextareas(node, layout, items) {
         
         // 标题输入框位置（在内容框上方）
         const titleHeight = 24;
+        const toggleWidth = 20; // 开关宽度
+        
+        // 设置开关位置和大小
+        toggleEl.style.left = `${sx + sw - toggleWidth * ds.scale - 2}px`; // 靠右
+        toggleEl.style.top = `${sy + 4 * ds.scale}px`; // 垂直居中微调
+        toggleEl.style.width = `${16 * ds.scale}px`;
+        toggleEl.style.height = `${16 * ds.scale}px`;
+        toggleEl.style.transform = `scale(${1})`; // 保持原生大小，或者根据ds.scale缩放
+        // 简单处理：使用zoom或scale
+        // toggleEl.style.zoom = ds.scale; 
+        
         // 设置标题输入框位置和大小（使用CSS缩放保持与节点比例一致）
+        // 标题宽度减少，为开关留出空间
         titleEl.style.left = `${sx}px`;
         titleEl.style.top = `${sy}px`;
-        titleEl.style.width = `${Math.max(40, Math.round(cell.w))}px`;
+        titleEl.style.width = `${Math.max(20, Math.round(cell.w - toggleWidth - 4))}px`; // 减去开关宽度和间距
         titleEl.style.height = `${Math.round(titleHeight)}px`;
         titleEl.style.transform = `scale(${ds.scale})`;
         
@@ -585,15 +640,32 @@ function ensureTextareas(node, layout, items) {
         titleEl.style.fontSize = `${titleFontPx}px`;
         ta.style.fontSize = `${fontPx}px`;
         
+        // 视觉反馈：如果未启用，降低不透明度
+        if (item.enabled === false && !isSelected) {
+            titleEl.style.opacity = '0.5';
+            ta.style.opacity = '0.5';
+            titleEl.style.color = '#888';
+            ta.style.color = '#888';
+        } else {
+            titleEl.style.opacity = '1';
+            ta.style.opacity = '1';
+            titleEl.style.color = '#eee';
+            ta.style.color = '#eee';
+        }
+
         // 设置可见性 - 节点未折叠且在容器可视范围内才显示
         const nodeVisibleX = sx + sw > 0 && sx < (parentRect.width || rect.width);
         const nodeVisibleY = sy + sh > 0 && sy < (parentRect.height || rect.height);
         const shouldShow = node.flags?.collapsed !== true && nodeVisibleX && nodeVisibleY;
         const hand = isHandMode();
+        
         titleEl.style.visibility = shouldShow ? 'visible' : 'hidden';
         ta.style.visibility = shouldShow ? 'visible' : 'hidden';
+        toggleEl.style.visibility = shouldShow ? 'visible' : 'hidden';
+        
         titleEl.style.pointerEvents = shouldShow && !hand ? 'auto' : 'none';
         ta.style.pointerEvents = shouldShow && !hand ? 'auto' : 'none';
+        toggleEl.style.pointerEvents = shouldShow && !hand ? 'auto' : 'none';
     }
 
     // 清理多余的元素
@@ -605,9 +677,14 @@ function ensureTextareas(node, layout, items) {
         const el = node.__titleEls[j];
         if (el && el.remove) el.remove();
     }
+    for (let j = items.length; j < (node.__toggleEls?.length || 0); j++) {
+        const el = node.__toggleEls[j];
+        if (el && el.remove) el.remove();
+    }
     
     node.__taEls.length = items.length;
     node.__titleEls.length = items.length;
+    node.__toggleEls.length = items.length;
     
     // 更新样式以反映当前选中的索引
     updateTextareaStyles(node);
@@ -765,6 +842,7 @@ function installViewportSync(node) {
     const hide = () => {
         if (node.__taEls) for (const el of node.__taEls) if (el?.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; }
         if (node.__titleEls) for (const el of node.__titleEls) if (el?.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; }
+        if (node.__toggleEls) for (const el of node.__toggleEls) if (el?.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; }
     };
     const show = () => {
         const items = getItems(node);

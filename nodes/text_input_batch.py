@@ -43,6 +43,42 @@ class TextInputBatch:
         except Exception:
             data = []
 
+        # --- Batch Manager 逻辑 (提前到数据构建前) ---
+        # 预先计算 current_index，因为在构建 entries 时需要用到它
+        
+        # 1. 找出所有已启用的索引
+        enabled_indices = []
+        if isinstance(data, list):
+            for i, item in enumerate(data):
+                is_enabled = True
+                if isinstance(item, dict):
+                    is_enabled = item.get("enabled", True)
+                if is_enabled:
+                    enabled_indices.append(i)
+        
+        # 2. 根据启用列表计算 current_index
+        if batch_manager is not None:
+            # 如果有启用的条目，仅在启用条目中循环
+            if len(enabled_indices) > 0:
+                batch_manager.total_count = len(enabled_indices)
+                # 获取在 enabled_indices 中的相对索引
+                batch_idx = batch_manager.current_index
+                # 映射回实际索引 (防止越界)
+                if batch_idx >= len(enabled_indices):
+                    batch_idx = batch_idx % len(enabled_indices)
+                current_index = enabled_indices[batch_idx]
+                print(f"TextInputBatch: BatchManager filtered index {batch_idx}/{len(enabled_indices)} -> Real index {current_index}")
+            else:
+                # 如果没有启用的条目，回退到默认行为（处理总数为0的情况）
+                batch_manager.total_count = 1 
+                current_index = 0
+        else:
+            try:
+                current_index = int(index) if index is not None else 0
+            except Exception:
+                current_index = 0
+        # ------------------------
+
         # {{ AURA-X: Modify - 修改启用状态逻辑，确保只有当前选中索引对应项目启用. }}
         # 处理新的数据结构，支持标题和启用状态
         strings_list = []
@@ -56,53 +92,50 @@ class TextInputBatch:
                 if isinstance(item, dict) and "title" in item and "content" in item:
                     title = item.get("title", f"prompt_{i}")
                     content = str(item.get("content", ""))
+                    # 默认启用，除非明确设置为False
+                    enabled = item.get("enabled", True)
                 else:
                     content = str(item) if item is not None else ""
                     title = f"prompt_{i}"
-                entries.append((i, title, content))
-
-        # --- Batch Manager 逻辑 ---
-        if batch_manager is not None:
-            # 告诉管理器总共有多少条数据
-            batch_manager.total_count = len(entries)
-            # 从管理器获取当前应该使用的索引
-            current_index = batch_manager.current_index
-            print(f"TextInputBatch: 接管控制，使用 BatchManager 索引 {current_index}/{len(entries)}")
-        else:
-            try:
-                current_index = int(index) if index is not None else 0
-            except Exception:
-                current_index = 0
-        # ------------------------
-
+                    enabled = True
+                
+                # 如果是当前选中的索引，强制视为启用（虽然前端也做了限制，后端双重保障）
+                if i == current_index:
+                    enabled = True
+                    
+                entries.append({"index": i, "title": title, "content": content, "enabled": enabled})
+        
+        # 确保 current_index 在有效范围内
         if len(entries) > 0:
-            if current_index < 0 or current_index >= len(entries):
-                current_index = 0
-        filtered_entries = []
-        for i, title, content in entries:
-            if i == current_index or content.strip() != "":
-                filtered_entries.append((i, title, content))
+            current_index = max(0, min(current_index, len(entries) - 1))
+            
+        # 筛选启用的条目用于列表输出
+        filtered_entries = [e for e in entries if e["enabled"]]
+        
+        # 获取选中项（基于原始索引）
         selected = ""
         selected_title = ""
-        if len(filtered_entries) > 0:
-            for i, title, content in filtered_entries:
-                if i == current_index:
-                    selected = content
-                    selected_title = title
-                    break
-            if selected_title == "":
-                selected = filtered_entries[0][2]
-                selected_title = filtered_entries[0][1]
-        # for j in range(len(filtered_entries)):
-        #     titles_dict_temp={}
-        #     for i, title, content in filtered_entries:
-        #         titles_dict_temp[title] = {"prompt": content, "enable": (i == j)}
-        #     dict_output_list.append(titles_dict_temp)
-  
-        for i, title, content in filtered_entries:
-                strings_list.append(content)
-                titles_dict[title] = {"prompt": content, "enable": (i == current_index)}
-                dict_output_list.append(json.dumps({title: content}, ensure_ascii=False))
+        if len(entries) > 0 and current_index < len(entries):
+            selected = entries[current_index]["content"]
+            selected_title = entries[current_index]["title"]
+        
+        # 如果选中项为空且过滤列表不为空，回退到过滤列表的第一个（兜底逻辑，通常不需要）
+        if selected == "" and len(filtered_entries) > 0:
+             # 注意：这里的逻辑可能需要根据实际需求调整。
+             # 如果选中的确实是空字符串，应该返回空。
+             # 但为了保持兼容性，如果selected为空，尝试取第一个启用的非空？
+             # 原有逻辑：if selected_title == "": selected = filtered_entries[0]...
+             # 我们保持简单：selected就是selected。
+             pass
+
+        # 生成输出列表
+        for entry in filtered_entries:
+            strings_list.append(entry["content"])
+            # dict_output_list 包含所有启用的项
+            # 这里的enable属性是指是否被当前index选中
+            is_selected = (entry["index"] == current_index)
+            titles_dict[entry["title"]] = {"prompt": entry["content"], "enable": is_selected}
+            dict_output_list.append(json.dumps({entry["title"]: entry["content"]}, ensure_ascii=False))
 
         # 返回：完整列表(JSON字符串) 与 选中项
         try:
@@ -125,7 +158,7 @@ class TextInputBatch:
             dict_output = "{}"
         
         # 返回：完整列表(列表)、选中项、选中标题.数量、字典输出、字典输出列表
-        return (list_out, selected,selected_title, len(list_out),dict_output,dict_output_list)
+        return (list_out, selected, selected_title, len(list_out), dict_output, dict_output_list)
 
 
 class TextDictSplitter:
