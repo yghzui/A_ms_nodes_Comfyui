@@ -42,7 +42,7 @@ class TextDictChecker:
             pass
 
         if not isinstance(key_to_check, str) or key_to_check == "":
-            return (False, "", False)
+            return {"ui": {"text": ["False"]}, "result": (False, "", False)}
 
         # 2. 如果是字典，执行原有逻辑
         if is_json_dict:
@@ -66,7 +66,7 @@ class TextDictChecker:
                     matched_keys = [key_to_check]
 
             if not matched_keys:
-                return (False, "", False)
+                return {"ui": {"text": ["False"]}, "result": (False, "", False)}
 
             chosen_key = None
             first_key = matched_keys[0]
@@ -84,10 +84,11 @@ class TextDictChecker:
 
             item = data_dict[chosen_key]
             if not isinstance(item, dict):
-                return (True, str(item), True)
+                return {"ui": {"text": ["True"]}, "result": (True, str(item), True)}
             prompt_content = item.get("prompt", "")
             is_enabled = item.get("enable", True)
-            return (True, prompt_content, is_enabled)
+            ui_text = "True" if is_enabled else "False"
+            return {"ui": {"text": [ui_text]}, "result": (True, prompt_content, is_enabled)}
         
         # 3. 如果不是字典（普通字符串），执行字符串匹配逻辑
         else:
@@ -127,6 +128,6 @@ class TextDictChecker:
                         break
             
             if matched:
-                return (True, input_str, True)
+                return {"ui": {"text": ["True"]}, "result": (True, input_str, True)}
             else:
-                return (False, "", False)
+                return {"ui": {"text": ["False"]}, "result": (False, "", False)}
