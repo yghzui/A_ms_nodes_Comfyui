@@ -3,6 +3,56 @@ import { rgthree } from "./rgthree.js"; // 统一右键菜单定位使用的事�
 
 console.log("Patching node: text_input_batch.js");
 
+// {{ AURA-X: Add - Tooltip工具类，用于显示悬浮提示. }}
+const Tooltip = {
+    _el: null,
+    get el() {
+        if (!this._el) {
+            this._el = document.createElement('div');
+            this._el.style.cssText = `
+                position: absolute;
+                display: none;
+                background: white;
+                color: black;
+                border: 1px solid #ccc;
+                padding: 10px;
+                z-index: 999999;
+                font-family: "Microsoft YaHei", sans-serif;
+                font-size: 14px;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+                pointer-events: none;
+                white-space: pre-wrap;
+                max-width: 800px;
+                line-height: 1.5;
+                border-radius: 6px;
+                text-align: left;
+            `;
+            document.body.appendChild(this._el);
+        }
+        return this._el;
+    },
+    show(x, y, title, content) {
+        const el = this.el;
+        el.innerHTML = `<div style="font-weight:bold; margin-bottom:5px; border-bottom:1px solid #eee; padding-bottom:5px;">${title}</div><div>${content}</div>`;
+        el.style.display = 'block';
+        el.style.left = (x + 15) + 'px'; // 鼠标右侧显示
+        el.style.top = y + 'px';
+        
+        // 简单的边界检查，防止溢出屏幕右侧和底部
+        const rect = el.getBoundingClientRect();
+        if (rect.right > window.innerWidth) {
+            el.style.left = (window.innerWidth - rect.width - 10) + 'px';
+        }
+        if (rect.bottom > window.innerHeight) {
+            // 如果底部溢出，尝试向上显示
+            el.style.top = (y - rect.height) + 'px';
+        }
+    },
+    hide() {
+        if (this._el) this._el.style.display = 'none';
+    }
+};
+
 function ensureStringsJsonWidget(node) {
     let w = node.widgets?.find(w => w.name === "strings_json");
     if (!w) {
@@ -513,6 +563,22 @@ function ensureTextareas(node, layout, items) {
                     setItems(node, arr);
                 }
             });
+
+            // 悬浮显示 Tooltip
+            titleEl.addEventListener('mouseenter', (e) => {
+                if (document.activeElement === titleEl) return; // 编辑状态不显示
+                const currentItems = getItems(node);
+                const currentItem = currentItems[i];
+                if (currentItem) {
+                    Tooltip.show(e.clientX, e.clientY, currentItem.title, currentItem.content);
+                }
+            });
+            titleEl.addEventListener('mouseleave', () => {
+                Tooltip.hide();
+            });
+            titleEl.addEventListener('mousedown', () => {
+                Tooltip.hide();
+            });
             
             // 支持Enter键确认，Escape键取消
             titleEl.addEventListener('keydown', (e) => {
@@ -549,6 +615,22 @@ function ensureTextareas(node, layout, items) {
                     arr[i].content = ta.value;
                     setItems(node, arr);
                 }
+            });
+
+            // 悬浮显示 Tooltip
+            ta.addEventListener('mouseenter', (e) => {
+                if (document.activeElement === ta) return; // 编辑状态不显示
+                const currentItems = getItems(node);
+                const currentItem = currentItems[i];
+                if (currentItem) {
+                    Tooltip.show(e.clientX, e.clientY, currentItem.title, currentItem.content);
+                }
+            });
+            ta.addEventListener('mouseleave', () => {
+                Tooltip.hide();
+            });
+            ta.addEventListener('mousedown', () => {
+                Tooltip.hide();
             });
             
             // 右键菜单与滚轮行为
