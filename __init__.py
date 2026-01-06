@@ -28,7 +28,7 @@ from .nodes.load_latent_upload import LoadLatentUpload
 # 新增导入：图像序列与遮罩生成节点
 from .nodes.math import ImageToSequenceWithMask
 # 新增导入：文本批量输入
-from .nodes.text_input_batch import TextInputBatch
+from .nodes.text_input_batch import TextInputBatch, TextDictSplitter
 # 新增导入：文本字典检查节点
 from .nodes.text_dict_checker import TextDictChecker
 # 新增导入：图像扩展节点
@@ -121,6 +121,7 @@ NODE_CLASS_MAPPINGS = {
     "ImageToSequenceWithMask": ImageToSequenceWithMask,
     # 新增注册：文本批量输入
     "TextInputBatch": TextInputBatch,
+    "TextDictSplitter": TextDictSplitter,
     # 新增注册：文本字典检查节点
     "TextDictChecker": TextDictChecker,
     # 新增注册：图像扩展节点
@@ -185,6 +186,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     # 新增显示名称
     "ImageToSequenceWithMask": "ImageToSequenceWithMask 图像序列与遮罩生成 by ms",
     "TextInputBatch": "PromptInputBatch 提示词 by ms",
+    "TextDictSplitter": "TextDictSplitter 字典拆分 by ms",
     "TextDictChecker": "TextDictChecker 文本字典提示词检查 by ms",
     "ImageExpand": "ImageExpand 图像扩展节点 by ms",
     "ImageBlendAdvanceMy": "ImageBlendAdvanceMy 增强版图像混合节点 by ms",

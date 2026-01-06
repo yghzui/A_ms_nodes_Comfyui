@@ -93,15 +93,16 @@ class TextInputBatch:
             if selected_title == "":
                 selected = filtered_entries[0][2]
                 selected_title = filtered_entries[0][1]
-        for j in range(len(filtered_entries)):
-            titles_dict_temp={}
-            for i, title, content in filtered_entries:
-                titles_dict_temp[title] = {"prompt": content, "enable": (i == j)}
-            dict_output_list.append(titles_dict_temp)
+        # for j in range(len(filtered_entries)):
+        #     titles_dict_temp={}
+        #     for i, title, content in filtered_entries:
+        #         titles_dict_temp[title] = {"prompt": content, "enable": (i == j)}
+        #     dict_output_list.append(titles_dict_temp)
   
         for i, title, content in filtered_entries:
                 strings_list.append(content)
                 titles_dict[title] = {"prompt": content, "enable": (i == current_index)}
+                dict_output_list.append(json.dumps({title: content}, ensure_ascii=False))
 
         # 返回：完整列表(JSON字符串) 与 选中项
         try:
@@ -125,3 +126,33 @@ class TextInputBatch:
         
         # 返回：完整列表(列表)、选中项、选中标题.数量、字典输出、字典输出列表
         return (list_out, selected,selected_title, len(list_out),dict_output,dict_output_list)
+
+
+class TextDictSplitter:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "dict_item": ("STRING", {"forceInput": True, "tooltip": "输入的单个字典项(JSON字符串)"}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING", "STRING")
+    RETURN_NAMES = ("key", "value")
+    FUNCTION = "split_dict"
+    CATEGORY = "A_my_nodes/text"
+
+    def split_dict(self, dict_item):
+        key = ""
+        value = ""
+        try:
+            # 尝试解析 JSON
+            data = json.loads(dict_item)
+            if isinstance(data, dict) and len(data) > 0:
+                # 获取第一个键值对
+                key = list(data.keys())[0]
+                value = str(data[key])
+        except Exception:
+            # 如果解析失败，返回空
+            pass
+        return (key, value)
