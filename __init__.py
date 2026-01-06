@@ -38,6 +38,9 @@ from .nodes.ImageBlendAdvance_my import ImageBlendAdvanceMy
 # 新增导入：图像拼接多输入节点
 from .nodes.imageconcatmultims import ImageConcatMultiMs
 from .nodes.resolutionpreset import ResolutionPresetNode
+from .nodes.load_ui_node_value import GetNodeInputValue
+
+
 
 # 延迟注册路由 - 确保在ComfyUI完全初始化后注册
 def register_custom_routes():
@@ -136,6 +139,7 @@ NODE_CLASS_MAPPINGS = {
     # 新增注册：图像拼接多输入节点
     "ImageConcatMultiMs": ImageConcatMultiMs,
     "ImageBatchAccumulator": ImageBatchAccumulator,
+    "GetNodeInputValue": GetNodeInputValue,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by ms",
@@ -199,6 +203,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     # 新增显示名称：图像拼接多输入节点
     "ImageConcatMultiMs": "ImageConcatMultiMs 图像拼接(多输入动态) by ms",
     "ImageBatchAccumulator": "ImageBatchAccumulator 图像批量累加器 by ms",
+    "GetNodeInputValue": "获取节点输入值 by ms",
 }
 
 WEB_DIRECTORY = "./web/js"
