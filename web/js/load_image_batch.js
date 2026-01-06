@@ -753,13 +753,15 @@ function drawNodeImages(node, ctx) {
         const buttonSpacing = 10;
         const buttonY = node.size[1] - buttonHeight - 5;
         const selectW = 60;
+        const deselectW = 70;
         const invertW = 60;
         const clearW = 90;
         const showSelectedW = 90;
         const reuseMaskW = 100;
         const rangeW = 110;
         const selectAllButtonX = 10;
-        const invertSelectionButtonX = selectAllButtonX + selectW + buttonSpacing;
+        const deselectAllButtonX = selectAllButtonX + selectW + buttonSpacing;
+        const invertSelectionButtonX = deselectAllButtonX + deselectW + buttonSpacing;
         const clearSelectedButtonX = invertSelectionButtonX + invertW + buttonSpacing;
         const clearUnselectedButtonX = clearSelectedButtonX + clearW + buttonSpacing;
         const showSelectedButtonX = clearUnselectedButtonX + clearW + buttonSpacing;
@@ -767,6 +769,9 @@ function drawNodeImages(node, ctx) {
         const rangeButtonX = reuseMaskButtonX + reuseMaskW + buttonSpacing;
         const mouseInSelectAllButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
             node._customMouseX >= selectAllButtonX && node._customMouseX <= selectAllButtonX + selectW &&
+            node._customMouseY >= buttonY && node._customMouseY <= buttonY + buttonHeight;
+        const mouseInDeselectAllButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
+            node._customMouseX >= deselectAllButtonX && node._customMouseX <= deselectAllButtonX + deselectW &&
             node._customMouseY >= buttonY && node._customMouseY <= buttonY + buttonHeight;
         const mouseInInvertSelectionButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
             node._customMouseX >= invertSelectionButtonX && node._customMouseX <= invertSelectionButtonX + invertW &&
@@ -812,6 +817,7 @@ function drawNodeImages(node, ctx) {
             ctx.fillText(text, x + w / 2, y + h / 2);
         }
         drawButton(selectAllButtonX, selectW, '全选', mouseInSelectAllButton);
+        drawButton(deselectAllButtonX, deselectW, '全不选', mouseInDeselectAllButton);
         drawButton(invertSelectionButtonX, invertW, '反选', mouseInInvertSelectionButton);
         drawButton(clearSelectedButtonX, clearW, '清除选中', mouseInClearSelectedButton);
         drawButton(clearUnselectedButtonX, clearW, '清除未选', mouseInClearUnselectedButton);
@@ -822,6 +828,12 @@ function drawNodeImages(node, ctx) {
             x: selectAllButtonX,
             y: buttonY,
             width: selectW,
+            height: buttonHeight
+        };
+        node._customDeselectAllButtonRect = {
+            x: deselectAllButtonX,
+            y: buttonY,
+            width: deselectW,
             height: buttonHeight
         };
         node._customInvertSelectionButtonRect = {
@@ -1351,6 +1363,22 @@ function populate(imagePaths) {
                     e.stopPropagation();
                     if (this._customSelectedImages && this._customSelectedImages.length > 0) {
                         this._customSelectedImages.fill(true);
+                        updateWidgetValue(this);
+                        app.graph.setDirtyCanvas(true, false);
+                    }
+                    return true;
+                }
+            }
+            if (this._customDeselectAllButtonRect) {
+                const ax = nodePos[0] + this._customDeselectAllButtonRect.x;
+                const ay = nodePos[1] + this._customDeselectAllButtonRect.y;
+                const aw = this._customDeselectAllButtonRect.width;
+                const ah = this._customDeselectAllButtonRect.height;
+                if (e.canvasX >= ax && e.canvasX <= ax + aw && e.canvasY >= ay && e.canvasY <= ay + ah) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (this._customSelectedImages && this._customSelectedImages.length > 0) {
+                        this._customSelectedImages.fill(false);
                         updateWidgetValue(this);
                         app.graph.setDirtyCanvas(true, false);
                     }

@@ -181,6 +181,41 @@ function bindColumnsChange(node) {
     w.__columnsCbInstalled = true;
 }
 
+function installSelectionTools(node) {
+    if (node.__selectionToolsInstalled) return;
+    
+    // 统一更新函数
+    const updateAll = (newItems) => {
+        setItems(node, newItems);
+        // 需要更新布局和文本框样式以反映启用状态
+        const layout = layoutCells(node, newItems);
+        ensureTextareas(node, layout, newItems);
+        app.graph.setDirtyCanvas(true, true);
+    };
+
+    const selectAllBtn = node.addWidget("button", "全选", null, () => {
+        const items = getItems(node);
+        items.forEach(item => item.enabled = true);
+        updateAll(items);
+    });
+    selectAllBtn.options.serialize = false;
+
+    const deselectAllBtn = node.addWidget("button", "全不选", null, () => {
+        const items = getItems(node);
+        items.forEach(item => item.enabled = false);
+        updateAll(items);
+    });
+    deselectAllBtn.options.serialize = false;
+
+    const invertBtn = node.addWidget("button", "反选", null, () => {
+        const items = getItems(node);
+        items.forEach(item => item.enabled = !item.enabled);
+        updateAll(items);
+    });
+    invertBtn.options.serialize = false;
+    
+    node.__selectionToolsInstalled = true;
+}
 function installAddButton(node) {
     if (node.__addButtonInstalled) return;
     const addBtn = node.addWidget("button", "➕ 添加字符串", null, () => {
@@ -715,9 +750,12 @@ function layoutCells(node, items) {
     const availW = node.size[0] - PADDING * 2;
     const cellW = Math.floor((availW - GAP * (cols - 1)) / cols);
     const startY = PADDING + getWidgetsBottom(node);
+    
+    // 预留底部按钮区域高度
+    const BUTTON_AREA_H = 40;
 
     const requiredH = rows * MIN_H + GAP * Math.max(0, rows - 1);
-    const minTotalH = startY + requiredH + PADDING;
+    const minTotalH = startY + requiredH + PADDING + BUTTON_AREA_H;
     if (node.size[1] < minTotalH) {
         if (typeof node.setSize === 'function') {
             node.setSize([node.size[0], minTotalH]);
@@ -727,7 +765,7 @@ function layoutCells(node, items) {
         app.graph.setDirtyCanvas(true, true);
     }
 
-    const availH = Math.max(0, node.size[1] - startY - PADDING);
+    const availH = Math.max(0, node.size[1] - startY - PADDING - BUTTON_AREA_H);
     const cellH = Math.max(MIN_H, Math.floor((availH - GAP * (rows - 1)) / rows));
 
     const cells = [];
@@ -755,6 +793,74 @@ function installDrawingHandlers(node) {
     const origDraw = node.onDrawForeground;
     node.onDrawForeground = function(ctx) {
         if (origDraw) origDraw.call(this, ctx);
+        
+        // 绘制自定义按钮
+        if (this.flags?.collapsed) return;
+        
+        const buttonHeight = 25;
+        const buttonSpacing = 10;
+        // 按钮位置在节点底部，layoutCells 会预留空间
+        // 使用实际的高度减去按钮高度和间距
+        const buttonY = this.size[1] - buttonHeight - 5;
+        
+        const selectW = 60;
+        const deselectW = 70;
+        const invertW = 60;
+        
+        // 按钮水平排列，居中或靠左？参考 load_image_batch 是靠左
+        const startX = 10;
+        const selectAllButtonX = startX;
+        const deselectAllButtonX = selectAllButtonX + selectW + buttonSpacing;
+        const invertSelectionButtonX = deselectAllButtonX + deselectW + buttonSpacing;
+        
+        // 检查鼠标悬浮状态
+        const mouseInSelectAllButton = this._customMouseX !== undefined && this._customMouseY !== undefined &&
+            this._customMouseX >= selectAllButtonX && this._customMouseX <= selectAllButtonX + selectW &&
+            this._customMouseY >= buttonY && this._customMouseY <= buttonY + buttonHeight;
+            
+        const mouseInDeselectAllButton = this._customMouseX !== undefined && this._customMouseY !== undefined &&
+            this._customMouseX >= deselectAllButtonX && this._customMouseX <= deselectAllButtonX + deselectW &&
+            this._customMouseY >= buttonY && this._customMouseY <= buttonY + buttonHeight;
+            
+        const mouseInInvertSelectionButton = this._customMouseX !== undefined && this._customMouseY !== undefined &&
+            this._customMouseX >= invertSelectionButtonX && this._customMouseX <= invertSelectionButtonX + invertW &&
+            this._customMouseY >= buttonY && this._customMouseY <= buttonY + buttonHeight;
+            
+        const r = 6;
+        function drawButton(x, w, text, hover) {
+            const y = buttonY, h = buttonHeight;
+            ctx.fillStyle = hover ? 'rgba(235,235,240,0.95)' : 'rgba(235,235,240,0.85)';
+            ctx.strokeStyle = hover ? 'rgba(80,80,90,0.9)' : 'rgba(120,120,130,0.8)';
+            ctx.lineWidth = hover ? 2 : 1;
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.lineTo(x + w - r, y);
+            ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+            ctx.lineTo(x + w, y + h - r);
+            ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+            ctx.lineTo(x + r, y + h);
+            ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+            ctx.lineTo(x, y + r);
+            ctx.quadraticCurveTo(x, y, x + r, y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(30,30,35,1)';
+            ctx.font = 'bold 13px "Microsoft YaHei", Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, x + w / 2, y + h / 2);
+        }
+        
+        drawButton(selectAllButtonX, selectW, '全选', mouseInSelectAllButton);
+        drawButton(deselectAllButtonX, deselectW, '全不选', mouseInDeselectAllButton);
+        drawButton(invertSelectionButtonX, invertW, '反选', mouseInInvertSelectionButton);
+        
+        // 保存按钮区域供点击检测
+        this._customSelectAllButtonRect = { x: selectAllButtonX, y: buttonY, width: selectW, height: buttonHeight };
+        this._customDeselectAllButtonRect = { x: deselectAllButtonX, y: buttonY, width: deselectW, height: buttonHeight };
+        this._customInvertSelectionButtonRect = { x: invertSelectionButtonX, y: buttonY, width: invertW, height: buttonHeight };
+        
         relayoutAndUpdate(ctx);
     };
 
@@ -777,6 +883,112 @@ function installDrawingHandlers(node) {
             for (const el of this.__titleEls) { try { el.remove(); } catch(e) {} }
             this.__titleEls = [];
         }
+        // 清理开关
+        if (this.__toggleEls) {
+            for (const el of this.__toggleEls) { try { el.remove(); } catch(e) {} }
+            this.__toggleEls = [];
+        }
+    };
+    
+    // 添加交互事件处理
+    node.onMouseDown = function(e) {
+        // 保存鼠标位置用于悬浮效果（虽然onMouseDown只在点击时触发，但我们可以借此更新位置）
+        // 更好的方式是实现 onMouseMove，但 LiteGraph 默认可能不频繁触发重绘
+        // 这里主要处理点击
+        
+        const nodePos = this.pos;
+        // e.canvasX/Y 是画布坐标，我们需要相对于节点的坐标？
+        // LiteGraph 的 onMouseDown 传入的 e 包含了 canvasX, canvasY
+        // 但我们在 drawButton 中使用的是相对于节点的坐标 (0,0 是节点左上角)
+        // 实际上 LiteGraph 的 onDrawForeground 的 ctx 是变换过的，原点在节点左上角
+        // 所以我们需要将鼠标坐标转换为节点内坐标
+        
+        // 修正：LiteGraph 的事件处理通常会把局部坐标传给 onMouseDown?
+        // 不，LiteGraph 的 onMouseDown 参数 e 是 MouseEvent 或者是经过处理的对象
+        // 通常 e.canvasX 是世界坐标。
+        // 但如果我们看 load_image_batch.js，它使用的是 e.canvasX 和 nodePos
+        // 让我们参考 load_image_batch.js 的实现
+        
+        // 在 load_image_batch.js 中：
+        // const ax = nodePos[0] + this._customSelectAllButtonRect.x;
+        // if (e.canvasX >= ax ...
+        
+        // 所以我们需要使用 nodePos 加上按钮的相对坐标来检测
+        
+        if (this.flags?.collapsed) return;
+        
+        // 统一更新函数
+        const updateAll = (newItems) => {
+            setItems(this, newItems);
+            // 需要更新布局和文本框样式以反映启用状态
+            const layout = layoutCells(this, newItems);
+            ensureTextareas(this, layout, newItems);
+            app.graph.setDirtyCanvas(true, true);
+        };
+
+        if (this._customSelectAllButtonRect) {
+            const ax = nodePos[0] + this._customSelectAllButtonRect.x;
+            const ay = nodePos[1] + this._customSelectAllButtonRect.y;
+            if (e.canvasX >= ax && e.canvasX <= ax + this._customSelectAllButtonRect.width &&
+                e.canvasY >= ay && e.canvasY <= ay + this._customSelectAllButtonRect.height) {
+                const items = getItems(this);
+                items.forEach(item => item.enabled = true);
+                updateAll(items);
+                return true; // 阻止事件传播
+            }
+        }
+        
+        if (this._customDeselectAllButtonRect) {
+            const ax = nodePos[0] + this._customDeselectAllButtonRect.x;
+            const ay = nodePos[1] + this._customDeselectAllButtonRect.y;
+            if (e.canvasX >= ax && e.canvasX <= ax + this._customDeselectAllButtonRect.width &&
+                e.canvasY >= ay && e.canvasY <= ay + this._customDeselectAllButtonRect.height) {
+                const items = getItems(this);
+                items.forEach(item => item.enabled = false);
+                updateAll(items);
+                return true;
+            }
+        }
+        
+        if (this._customInvertSelectionButtonRect) {
+            const ax = nodePos[0] + this._customInvertSelectionButtonRect.x;
+            const ay = nodePos[1] + this._customInvertSelectionButtonRect.y;
+            if (e.canvasX >= ax && e.canvasX <= ax + this._customInvertSelectionButtonRect.width &&
+                e.canvasY >= ay && e.canvasY <= ay + this._customInvertSelectionButtonRect.height) {
+                const items = getItems(this);
+                items.forEach(item => item.enabled = !item.enabled);
+                updateAll(items);
+                return true;
+            }
+        }
+        
+        return false;
+    };
+    
+    // 添加 onMouseMove 以支持悬浮效果
+    node.onMouseMove = function(e) {
+        // 计算相对于节点的坐标
+        const x = e.canvasX - this.pos[0];
+        const y = e.canvasY - this.pos[1];
+        
+        this._customMouseX = x;
+        this._customMouseY = y;
+        
+        // 简单判断是否在按钮区域，触发重绘
+        // 为了性能，可以只在进入/离开按钮区域时 setDirty
+        // 这里简化处理，只要移动就重绘（注意性能，如果卡顿则需要优化）
+        // 由于是 Canvas 绘制，悬浮变色需要重绘
+        // 只有当鼠标在底部区域时才重绘
+        if (y > this.size[1] - 40) {
+             app.graph.setDirtyCanvas(true, false);
+        }
+    };
+    
+    // 鼠标离开节点时清除状态
+    node.onMouseLeave = function(e) {
+        this._customMouseX = undefined;
+        this._customMouseY = undefined;
+        app.graph.setDirtyCanvas(true, false);
     };
 }
 
@@ -877,6 +1089,7 @@ app.registerExtension({
         nodeType.prototype.onNodeCreated = function() {
             if (origOnNodeCreated) origOnNodeCreated.apply(this, arguments);
             ensureStringsJsonWidget(this);
+            // installSelectionTools(this); // Removed in favor of canvas buttons
             installAddButton(this);
             installDrawingHandlers(this);
             installViewportSync(this);
@@ -889,6 +1102,7 @@ app.registerExtension({
         nodeType.prototype.configure = function(info) {
             if (origConfigure) origConfigure.apply(this, arguments);
             ensureStringsJsonWidget(this);
+            // installSelectionTools(this); // Removed in favor of canvas buttons
             installAddButton(this);
             installDrawingHandlers(this);
             installViewportSync(this);
