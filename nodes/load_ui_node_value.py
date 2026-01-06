@@ -21,7 +21,7 @@ class GetNodeInputValue:
             },
             "required": {
                 # 捕获的值（由前端自动填充）
-                "captured_value": ("STRING", {"default": "", "multiline": False}),
+                "captured_value": ("STRING", {"default": "", "multiline": True}),
             },
         }
 

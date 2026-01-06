@@ -149,7 +149,17 @@ function installNodeSelector(node) {
         if (!graph) return;
 
         const nodes = graph.nodes || [];
-        const options = nodes.map(n => ({
+        // 过滤：只保留有非按钮类型 widget 的节点
+        const validNodes = nodes.filter(n => {
+            // 排除自己（防止循环引用，虽然只是读取值，但逻辑上不应该选自己）
+            if (n.id === node.id) return false;
+            
+            // 检查是否有有效的 widget (非 button)
+            if (!n.widgets || n.widgets.length === 0) return false;
+            return n.widgets.some(w => w.type !== 'button');
+        });
+
+        const options = validNodes.map(n => ({
             id: String(n.id),
             text: `${n.id} - ${n.title || n.type}` 
         }));
