@@ -1,4 +1,5 @@
 import torch
+import comfy.model_management
 from .batch_utils import requeue_workflow_unchecked
 
 class ImageBatchAccumulator:
@@ -27,7 +28,7 @@ class ImageBatchAccumulator:
             batch_manager.results = []
             
         # Add current image to results
-        # Clone to avoid reference issues if upstream modifies it (though unlikely in Comfy)
+        # Clone to avoid reference issues
         batch_manager.results.append(image.clone())
         
         # Increment index
@@ -37,26 +38,30 @@ class ImageBatchAccumulator:
         
         # Check if loop is finished
         if batch_manager.current_index < batch_manager.total_count:
-             # Trigger requeue
-             print("ImageBatchAccumulator: Triggering requeue...")
+             # Trigger requeue for the next step
+             print("ImageBatchAccumulator: Triggering requeue and stopping current execution...")
              requeue_workflow_unchecked()
-        else:
-             # Loop finished
-             print("ImageBatchAccumulator: Batch complete.")
-             # Reset batch manager state
-             batch_manager.is_running = False
              
-        # Always return the accumulated batch so far
-        # This ensures that even in intermediate steps, we have a valid output
-        if not batch_manager.results:
-            # Should not happen given we just appended, but safety check
-            return (image,)
-            
+             # Stop downstream nodes from executing gracefully
+             # Using InterruptProcessingException prevents the error popup in UI
+             # and just stops the current run. The queued run will pick up next.
+             raise comfy.model_management.InterruptProcessingException()
+        
+        # Loop finished
+        print("ImageBatchAccumulator: Batch complete.")
+        
+        # Reset batch manager state
+        batch_manager.is_running = False
+        
+        # Concatenate and return final result
         try:
             # Concatenate all tensors in the list along the batch dimension (dim 0)
             final_batch = torch.cat(batch_manager.results, dim=0)
+            # Clear results to free memory
+            batch_manager.results = []
             return (final_batch,)
         except Exception as e:
             print(f"ImageBatchAccumulator Error: Failed to concatenate images. {e}")
             # Fallback to current image if concatenation fails (e.g. dimension mismatch)
+            # But since we are finished, we must return something.
             return (image,)

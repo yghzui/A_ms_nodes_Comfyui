@@ -1,5 +1,6 @@
 import os
 import json
+import comfy.model_management
 from typing import List, Tuple, Any
 from folder_paths import get_output_directory
 from .batch_utils import requeue_workflow_unchecked
@@ -162,12 +163,12 @@ class ShowResultLast:
             
             if batch_manager.current_index < batch_manager.total_count:
                 # Need to continue loop
-                print("ShowResultLast: Triggering requeue...")
+                print("ShowResultLast: Triggering requeue and stopping current execution...")
                 requeue_workflow_unchecked()
                 status_text = f"正在处理第 {batch_manager.current_index} / {batch_manager.total_count} 个任务...\n"
-                # During loop, we don't show partial results in the preview to avoid flickering/confusion,
-                # or we can show them if desired. For now, let's keep it clean and only show status.
-                final_files_to_show = [] 
+                
+                # Stop downstream nodes gracefully
+                raise comfy.model_management.InterruptProcessingException()
             else:
                 # Loop finished
                 print("ShowResultLast: Batch processing complete. Showing all results.")
@@ -175,6 +176,8 @@ class ShowResultLast:
                 status_text = "批量处理完成！所有结果如下：\n"
                 # Reset manager state
                 batch_manager.is_running = False
+                # Clear results to avoid memory leaks
+                batch_manager.results = []
         # --- Batch Manager Logic End ---
         
         # 构建显示文本列表
