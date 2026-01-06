@@ -23,8 +23,8 @@ class TextDictChecker:
             },
         }
 
-    RETURN_TYPES = ("BOOLEAN", "STRING", "BOOLEAN")
-    RETURN_NAMES = ("key_exists", "prompt_content", "is_enabled")
+    RETURN_TYPES = ("BOOLEAN", "STRING", "BOOLEAN", "STRING")
+    RETURN_NAMES = ("key_exists", "prompt_content", "is_enabled", "dict_input")
     FUNCTION = "check_dict_key"
     CATEGORY = "A_my_nodes/text"
 
@@ -42,7 +42,7 @@ class TextDictChecker:
             pass
 
         if not isinstance(key_to_check, str) or key_to_check == "":
-            return {"ui": {"text": ["False"]}, "result": (False, "", False)}
+            return {"ui": {"text": ["False"]}, "result": (False, "", False, dict_input)}
 
         # 2. 如果是字典，执行原有逻辑
         if is_json_dict:
@@ -66,7 +66,7 @@ class TextDictChecker:
                     matched_keys = [key_to_check]
 
             if not matched_keys:
-                return {"ui": {"text": ["False"]}, "result": (False, "", False)}
+                return {"ui": {"text": ["False"]}, "result": (False, "", False, dict_input)}
 
             chosen_key = None
             first_key = matched_keys[0]
@@ -84,11 +84,11 @@ class TextDictChecker:
 
             item = data_dict[chosen_key]
             if not isinstance(item, dict):
-                return {"ui": {"text": ["True"]}, "result": (True, str(item), True)}
+                return {"ui": {"text": ["True"]}, "result": (True, str(item), True, dict_input)}
             prompt_content = item.get("prompt", "")
             is_enabled = item.get("enable", True)
             ui_text = "True" if is_enabled else "False"
-            return {"ui": {"text": [ui_text]}, "result": (True, prompt_content, is_enabled)}
+            return {"ui": {"text": [ui_text]}, "result": (True, prompt_content, is_enabled, dict_input)}
         
         # 3. 如果不是字典（普通字符串），执行字符串匹配逻辑
         else:
@@ -128,6 +128,6 @@ class TextDictChecker:
                         break
             
             if matched:
-                return {"ui": {"text": ["True"]}, "result": (True, input_str, True)}
+                return {"ui": {"text": ["True"]}, "result": (True, input_str, True, dict_input)}
             else:
-                return {"ui": {"text": ["False"]}, "result": (False, "", False)}
+                return {"ui": {"text": ["False"]}, "result": (False, "", False, dict_input)}
