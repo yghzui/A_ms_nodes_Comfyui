@@ -123,6 +123,15 @@ class LabelWidget extends RgthreeBaseWidget {
         }
         return false;
     }
+
+    setCollapsed(collapsed) {
+        if (this.collapsed !== collapsed) {
+            this.collapsed = collapsed;
+            if (this.toggleCallback) {
+                this.toggleCallback(this.collapsed);
+            }
+        }
+    }
 }
 
 // Triple Toggle Widget for settings (Copied from LoadLoraMerge)
@@ -539,6 +548,13 @@ app.registerExtension({
             updateInfo("loras_info_low", this.lowLoraWidgets, "settings_low");
 
             if (onSerialize) onSerialize.apply(this, arguments);
+            
+            // Save collapsed states
+            o.collapsed_states = {
+                high: this.labelHigh ? this.labelHigh.collapsed : false,
+                low: this.labelLow ? this.labelLow.collapsed : false,
+                auto: this.labelAuto ? this.labelAuto.collapsed : false
+            };
         };
 
         // Configuration (Loading)
@@ -593,6 +609,13 @@ app.registerExtension({
             loadFromInfo("loras_info_high", "High", "settings_high");
             loadFromInfo("loras_info_low", "Low", "settings_low");
             
+            // Restore collapsed states
+            if (info.collapsed_states) {
+                if (this.labelHigh && info.collapsed_states.high) this.labelHigh.setCollapsed(true);
+                if (this.labelLow && info.collapsed_states.low) this.labelLow.setCollapsed(true);
+                if (this.labelAuto && info.collapsed_states.auto) this.labelAuto.setCollapsed(true);
+            }
+
             this.reorderWidgets();
             this.ensureHiddenWidgets();
         };

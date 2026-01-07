@@ -27,8 +27,8 @@ class WanVideoDoubleStream:
         }
     })
 
-    RETURN_TYPES = ("MODEL", "WANVIDLORA", "MODEL", "WANVIDLORA")
-    RETURN_NAMES = ("model_high", "prev_lora_high", "model_low", "prev_lora_low")
+    RETURN_TYPES = ("MODEL", "WANVIDLORA", "MODEL", "WANVIDLORA", "STRING")
+    RETURN_NAMES = ("model_high", "prev_lora_high", "model_low", "prev_lora_low", "dict_input")
     FUNCTION = "process"
     CATEGORY = "A_my_nodes/video"
 
@@ -245,7 +245,7 @@ class WanVideoDoubleStream:
             # Pass through without modification
             return {
                 "ui": {"text": [ui_text_status]},
-                "result": (model_high, prev_lora_high, model_low, prev_lora_low)
+                "result": (model_high, prev_lora_high, model_low, prev_lora_low, dict_input)
             }
 
         # 3. Process High Stream
@@ -266,5 +266,5 @@ class WanVideoDoubleStream:
         
         return {
             "ui": {"text": [ui_text_status]}, 
-            "result": (out_model_high, out_lora_high, out_model_low, out_lora_low)
+            "result": (out_model_high, out_lora_high, out_model_low, out_lora_low, dict_input)
         }
