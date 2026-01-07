@@ -82,10 +82,15 @@ async function showLoraChooser(event, callback, parentMenu, loras, buttonNode, b
 // --- Custom Widgets ---
 
 class LabelWidget extends RgthreeBaseWidget {
-    constructor(name, label) {
+    constructor(name, label, toggleCallback) {
         super(name);
         this.label = label;
         this.type = "custom";
+        this.toggleCallback = toggleCallback;
+        this.collapsed = false;
+        this.hitAreas = {
+            toggle: { bounds: [0, 0], onDown: this.onToggleDown.bind(this) }
+        };
     }
     draw(ctx, node, w, posY, height) {
         ctx.save();
@@ -95,9 +100,28 @@ class LabelWidget extends RgthreeBaseWidget {
         ctx.textBaseline = "middle";
         ctx.fillText(this.label, node.size[0] / 2, posY + height / 2);
         
-        // Line removed for consistency with LoadLoraMerge style
+        if (this.toggleCallback) {
+            const icon = this.collapsed ? "🙈" : "👁️";
+            const toggleW = 30;
+            const toggleX = node.size[0] - toggleW;
+            
+            ctx.textAlign = "center";
+            ctx.fillStyle = this.collapsed ? "#666" : "#aaa";
+            ctx.fillText(icon, toggleX + toggleW/2 - 5, posY + height / 2);
+            
+            this.hitAreas.toggle.bounds = [toggleX, toggleW];
+        }
         
         ctx.restore();
+    }
+    
+    onToggleDown() {
+        if (this.toggleCallback) {
+            this.collapsed = !this.collapsed;
+            this.toggleCallback(this.collapsed);
+            return true;
+        }
+        return false;
     }
 }
 
@@ -293,8 +317,22 @@ app.registerExtension({
                 this.statusWidget.inputEl.style.textAlign = "center";
             }
 
+            // Helper for toggling
+            const toggleWidgets = (names, isHidden) => {
+                names.forEach(name => {
+                    const w = this.widgets.find(w => w.name === name);
+                    if (w) w.hidden = isHidden;
+                });
+            };
+
             // 2. Setup High Stream Section
-            this.labelHigh = this.addCustomWidget(new LabelWidget("label_high", "🔼 High Stream"));
+            this.labelHigh = this.addCustomWidget(new LabelWidget("label_high", "🔼 High Stream", (collapsed) => {
+                toggleWidgets(["settings_high", "➕ Add High LoRA"], collapsed);
+                this.highLoraWidgets.forEach(w => w.hidden = collapsed);
+                const newSize = this.computeSize();
+                this.setSize([this.size[0], newSize[1]]);
+                this.setDirtyCanvas(true, true);
+            }));
             
             // Add settings for High Stream
             const settingsHigh = this.addCustomWidget(new LoadLoraMergeTripleToggleWidget("settings_high", "Toggle All", "Low Mem", "Merge", false, false, true));
@@ -313,7 +351,13 @@ app.registerExtension({
             }));
 
             // 3. Setup Low Stream Section
-            this.labelLow = this.addCustomWidget(new LabelWidget("label_low", "🔽 Low Stream"));
+            this.labelLow = this.addCustomWidget(new LabelWidget("label_low", "🔽 Low Stream", (collapsed) => {
+                toggleWidgets(["settings_low", "➕ Add Low LoRA"], collapsed);
+                this.lowLoraWidgets.forEach(w => w.hidden = collapsed);
+                const newSize = this.computeSize();
+                this.setSize([this.size[0], newSize[1]]);
+                this.setDirtyCanvas(true, true);
+            }));
 
             // Add settings for Low Stream
             const settingsLow = this.addCustomWidget(new LoadLoraMergeTripleToggleWidget("settings_low", "Toggle All", "Low Mem", "Merge", false, false, true));
@@ -332,7 +376,12 @@ app.registerExtension({
             }));
 
             // 4. Setup Auto Enable Logic Section (Label only, inputs are standard)
-            this.labelAuto = this.addCustomWidget(new LabelWidget("label_auto", "⚙️ Auto Enable Logic"));
+            this.labelAuto = this.addCustomWidget(new LabelWidget("label_auto", "⚙️ Auto Enable Logic", (collapsed) => {
+                toggleWidgets(["dict_input", "key_to_check", "check_mode"], collapsed);
+                const newSize = this.computeSize();
+                this.setSize([this.size[0], newSize[1]]);
+                this.setDirtyCanvas(true, true);
+            }));
 
             // 5. Initial Layout Reordering
             this.reorderWidgets();
