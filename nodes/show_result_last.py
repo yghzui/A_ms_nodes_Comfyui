@@ -4,7 +4,10 @@ import comfy.model_management
 from typing import List, Tuple, Any
 from folder_paths import get_output_directory
 from .batch_utils import requeue_workflow_unchecked
-
+try:
+    from comfy_execution.graph import ExecutionBlocker
+except ImportError:
+    from comfy_execution.graph_utils import ExecutionBlocker
 class ShowResultLast:
     """显示结果节点 - 解析MP4文件并显示在文本框中"""
     
@@ -167,8 +170,12 @@ class ShowResultLast:
                 requeue_workflow_unchecked()
                 status_text = f"正在处理第 {batch_manager.current_index} / {batch_manager.total_count} 个任务...\n"
                 
-                # Stop downstream nodes gracefully
-                raise comfy.model_management.InterruptProcessingException()
+                # Stop downstream nodes gracefully using ExecutionBlocker
+                print("ShowResultLast: Requeue triggered, returning ExecutionBlocker.")
+                return {
+                    "ui": {"text": []},
+                    "result": (ExecutionBlocker(None),)
+                }
             else:
                 # Loop finished
                 print("ShowResultLast: Batch processing complete. Showing all results.")

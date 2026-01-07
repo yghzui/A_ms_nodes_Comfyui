@@ -1,6 +1,10 @@
 import torch
 import comfy.model_management
 from .batch_utils import requeue_workflow_unchecked
+try:
+    from comfy_execution.graph import ExecutionBlocker
+except ImportError:
+    from comfy_execution.graph_utils import ExecutionBlocker
 
 class ImageBatchAccumulator:
     def __init__(self):
@@ -42,10 +46,9 @@ class ImageBatchAccumulator:
              print("ImageBatchAccumulator: Triggering requeue and stopping current execution...")
              requeue_workflow_unchecked()
              
-             # Stop downstream nodes from executing gracefully
-             # Using InterruptProcessingException prevents the error popup in UI
-             # and just stops the current run. The queued run will pick up next.
-             raise comfy.model_management.InterruptProcessingException()
+             # Return ExecutionBlocker to silently stop downstream nodes
+             # This prevents errors in nodes like SaveImage that don't handle empty lists
+             return (ExecutionBlocker(None),)
         
         # Loop finished
         print("ImageBatchAccumulator: Batch complete.")
