@@ -27,8 +27,8 @@ class WanVideoDoubleStream:
         }
     })
 
-    RETURN_TYPES = ("MODEL", "WANVIDLORA", "MODEL", "WANVIDLORA", "STRING")
-    RETURN_NAMES = ("model_high", "prev_lora_high", "model_low", "prev_lora_low", "dict_input")
+    RETURN_TYPES = ("MODEL", "MODEL", "WANVIDLORA", "WANVIDLORA", "STRING")
+    RETURN_NAMES = ("model_high", "model_low", "prev_lora_high", "prev_lora_low", "dict_input")
     FUNCTION = "process"
     CATEGORY = "A_my_nodes/video"
 
@@ -130,6 +130,7 @@ class WanVideoDoubleStream:
         """
         Processes a single stream of LoRA loading.
         """
+        print(f"[{stream_name}] model is {'✅' if model is not None else '❌'}.")
         if prev_lora is None:
             prev_lora = []
             
@@ -245,7 +246,7 @@ class WanVideoDoubleStream:
             # Pass through without modification
             return {
                 "ui": {"text": [ui_text_status]},
-                "result": (model_high, prev_lora_high, model_low, prev_lora_low, dict_input)
+                "result": (model_high, model_low, prev_lora_high, prev_lora_low, dict_input)
             }
 
         # 3. Process High Stream
@@ -266,5 +267,5 @@ class WanVideoDoubleStream:
         
         return {
             "ui": {"text": [ui_text_status]}, 
-            "result": (out_model_high, out_lora_high, out_model_low, out_lora_low, dict_input)
+            "result": (out_model_high, out_model_low, out_lora_high, out_lora_low, dict_input)
         }
