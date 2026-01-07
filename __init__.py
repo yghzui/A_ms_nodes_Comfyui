@@ -39,6 +39,7 @@ from .nodes.ImageBlendAdvance_my import ImageBlendAdvanceMy
 from .nodes.imageconcatmultims import ImageConcatMultiMs
 from .nodes.resolutionpreset import ResolutionPresetNode
 from .nodes.load_ui_node_value import GetNodeInputValue
+from .nodes.wan_video_double_stream import WanVideoDoubleStream
 
 
 
@@ -140,6 +141,7 @@ NODE_CLASS_MAPPINGS = {
     "ImageConcatMultiMs": ImageConcatMultiMs,
     "ImageBatchAccumulator": ImageBatchAccumulator,
     "GetNodeInputValue": GetNodeInputValue,
+    "WanVideoDoubleStream": WanVideoDoubleStream,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by ms",
@@ -204,6 +206,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ImageConcatMultiMs": "ImageConcatMultiMs 图像拼接(多输入动态) by ms",
     "ImageBatchAccumulator": "ImageBatchAccumulator 图像批量累加器 by ms",
     "GetNodeInputValue": "获取节点输入值 by ms",
+    "WanVideoDoubleStream": "WanVideoDoubleStream 双流视频LoRA加载 by ms",
 }
 
 WEB_DIRECTORY = "./web/js"
