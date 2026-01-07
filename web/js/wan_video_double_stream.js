@@ -461,10 +461,16 @@ app.registerExtension({
             };
 
             // Rebuild order
-            // Top: Control & Status
-            moveToBottom(this.labelAuto); // Actually "Control" header might be better, but we use existing logic
+            // Top: Control & Status & Logic
+            // Moving logic widgets to top ensures their indices are stable (0, 1, 2...)
+            // regardless of how many dynamic LoRA widgets are added later.
+            // This fixes the issue where dict_input receives a LoRA object value on reload.
+            moveToBottom(this.labelAuto);
             moveToBottom(wEnable);
             moveToBottom(this.statusWidget);
+            moveToBottom(wDict);
+            moveToBottom(wKey);
+            moveToBottom(wCheck);
 
             // High Stream
             moveToBottom(this.labelHigh);
@@ -484,11 +490,11 @@ app.registerExtension({
             this.lowLoraWidgets.forEach(w => moveToBottom(w));
             moveToBottom(this.btnAddLow);
 
-            // Logic Config (Bottom)
-            moveToBottom(this.labelAuto);
-            moveToBottom(wDict);
-            moveToBottom(wKey);
-            moveToBottom(wCheck);
+            // Logic Config (Previously at Bottom - Removed from here)
+            // moveToBottom(this.labelAuto);
+            // moveToBottom(wDict);
+            // moveToBottom(wKey);
+            // moveToBottom(wCheck);
 
             // Hidden stuff stays at very bottom (handled by ensureHiddenWidgets usually, but good to push here too)
             // const wInfoH = getW("loras_info_high");
