@@ -9,6 +9,7 @@ class MyBatchManager:
     def INPUT_TYPES(cls):
         return {
             "required": {
+                "enable": ("BOOLEAN", {"default": True}),
                 "start_index": ("INT", {"default": 0, "min": 0, "step": 1}),
             },
             "hidden": {
@@ -22,7 +23,11 @@ class MyBatchManager:
     FUNCTION = "create_batch"
     CATEGORY = "A_my_nodes/logic"
 
-    def create_batch(self, start_index=0, prompt=None, unique_id=None):
+    def create_batch(self, enable=True, start_index=0, prompt=None, unique_id=None):
+        if not enable:
+            print("BatchManager: Disabled, returning None")
+            return (None,)
+
         # 检查是否是重入队（循环中的）运行
         requeue = 0
         if prompt and unique_id:

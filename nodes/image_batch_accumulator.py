@@ -14,8 +14,10 @@ class ImageBatchAccumulator:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "batch_manager": ("MY_BATCH_MANAGER",),
                 "image": ("IMAGE",),
+            },
+            "optional": {
+                "batch_manager": ("MY_BATCH_MANAGER",),
             }
         }
 
@@ -24,9 +26,13 @@ class ImageBatchAccumulator:
     FUNCTION = "accumulate"
     CATEGORY = "A_my_nodes/image"
 
-    def accumulate(self, batch_manager, image):
+    def accumulate(self, image, batch_manager=None):
         # image shape is [B, H, W, C]
         
+        if batch_manager is None:
+            # If no batch manager is provided, just pass through the image
+            return (image,)
+
         # Ensure results is a list
         if not hasattr(batch_manager, "results") or not isinstance(batch_manager.results, list):
             batch_manager.results = []
