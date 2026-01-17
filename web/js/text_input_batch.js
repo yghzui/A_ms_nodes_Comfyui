@@ -513,7 +513,8 @@ function ensureTextareas(node, layout, items) {
     // 初始化元素数组
     if (!node.__taEls) node.__taEls = [];
     if (!node.__titleEls) node.__titleEls = [];
-    if (!node.__toggleEls) node.__toggleEls = []; // 新增开关数组
+    if (!node.__toggleEls) node.__toggleEls = [];
+    if (!node.__inputEls) node.__inputEls = []; // 新增输入开关数组
 
     const currentIndex = getCurrentIndex(node);
 
@@ -561,6 +562,87 @@ function ensureTextareas(node, layout, items) {
         toggleEl.checked = item.enabled !== false;
         // 如果是当前选中项，禁用交互（强制开启）
         toggleEl.disabled = isSelected;
+
+        // {{ AURA-X: Add - 输入连接点开关按钮 }}
+        let inputEl = node.__inputEls[i];
+        const safeTitle = (item.title || `prompt_${i}`).trim();
+        const inputName = `insert_${safeTitle}`;
+        
+        // --- 迁移旧版本接口名逻辑 ---
+        // 之前的版本可能使用 insert_{index} 作为接口名
+        // 如果发现节点上有旧格式的接口，且该位置不应该使用旧格式（即 title 产生的名字不同），则将其重命名
+        const oldInputName = `insert_${i}`;
+        if (inputName !== oldInputName && node.inputs) {
+            const oldInput = node.inputs.find(inp => inp.name === oldInputName);
+            const newInput = node.inputs.find(inp => inp.name === inputName);
+            
+            // 只有当旧接口存在，且新接口不存在时，才进行重命名
+            // 如果两者都存在，说明可能是用户有意为之，或者是某种冲突，暂时保留新接口（按钮控制新接口）
+            if (oldInput && !newInput) {
+                oldInput.name = inputName;
+            }
+        }
+        // ---------------------------
+
+        const hasInput = node.inputs && node.inputs.some(inp => inp.name === inputName);
+        
+        if (!inputEl) {
+            inputEl = document.createElement('div');
+            inputEl.textContent = "🔗"; // 使用textContent避免innerText的一些问题
+            inputEl.style.cssText = `
+                position: absolute; 
+                z-index: 102; 
+                cursor: pointer; 
+                margin: 0;
+                font-size: 12px;
+                line-height: 1;
+                text-align: center;
+                user-select: none;
+                transition: opacity 0.2s;
+                color: #eee;
+                background: transparent;
+                pointer-events: auto;
+            `;
+            inputEl.title = "点击切换外部输入连接点";
+            
+            inputEl.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                
+                // 再次检查当前是否有输入
+                const currentIdx = node.inputs ? node.inputs.findIndex(inp => inp.name === inputName) : -1;
+                
+                if (currentIdx !== -1) {
+                    // 移除输入
+                    node.removeInput(currentIdx);
+                } else {
+                    // 添加输入
+                    node.addInput(inputName, "STRING");
+                }
+                
+                // 触发重绘
+                app.graph.setDirtyCanvas(true, true);
+                // 重新运行ensureTextareas以更新按钮状态
+                const currentItems = getItems(node);
+                const currentCells = layoutCells(node, currentItems);
+                ensureTextareas(node, currentCells, currentItems);
+            });
+             
+             // 防止滚轮事件穿透
+            inputEl.addEventListener('wheel', (e) => { e.stopPropagation(); });
+
+            container.appendChild(inputEl);
+            node.__inputEls[i] = inputEl;
+        }
+        
+        // 更新Input按钮状态样式
+        if (hasInput) {
+            inputEl.style.opacity = '1.0';
+            inputEl.style.filter = 'none';
+        } else {
+            inputEl.style.opacity = '0.3';
+            inputEl.style.filter = 'grayscale(100%)';
+        }
         
         // 创建或更新标题输入框
         let titleEl = node.__titleEls[i];
@@ -575,7 +657,22 @@ function ensureTextareas(node, layout, items) {
             titleEl.addEventListener('input', () => {
                 const arr = getItems(node);
                 if (i < arr.length) {
-                    arr[i].title = titleEl.value || `prompt_${i}`;
+                    const oldTitle = (arr[i].title || `prompt_${i}`).trim();
+                    const newTitle = (titleEl.value || `prompt_${i}`).trim();
+                    
+                    if (oldTitle !== newTitle) {
+                        // 如果标题改变，同时尝试更新对应的输入连接点名称
+                        const oldInputName = `insert_${oldTitle}`;
+                        const newInputName = `insert_${newTitle}`;
+                        if (node.inputs) {
+                            const input = node.inputs.find(inp => inp.name === oldInputName);
+                            if (input) {
+                                input.name = newInputName;
+                            }
+                        }
+                    }
+
+                    arr[i].title = newTitle;
                     setItems(node, arr);
                 }
             });
@@ -743,21 +840,31 @@ function ensureTextareas(node, layout, items) {
         // 标题输入框位置（在内容框上方）
         const titleHeight = 24;
         const toggleWidth = 20; // 开关宽度
-        
+        const inputBtnWidth = 16; // 输入连接点开关宽度
+
         // 设置开关位置和大小
         toggleEl.style.left = `${sx + sw - toggleWidth * ds.scale - 2}px`; // 靠右
         toggleEl.style.top = `${sy + 4 * ds.scale}px`; // 垂直居中微调
         toggleEl.style.width = `${16 * ds.scale}px`;
         toggleEl.style.height = `${16 * ds.scale}px`;
-        toggleEl.style.transform = `scale(${1})`; // 保持原生大小，或者根据ds.scale缩放
-        // 简单处理：使用zoom或scale
-        // toggleEl.style.zoom = ds.scale; 
+        toggleEl.style.transform = `scale(${1})`; 
+
+        // 设置输入连接点开关位置
+        if (inputEl) {
+            inputEl.style.left = `${sx + sw - (toggleWidth + inputBtnWidth) * ds.scale - 4}px`; // 开关左侧
+            inputEl.style.top = `${sy + 4 * ds.scale}px`;
+            inputEl.style.width = `${16 * ds.scale}px`;
+            inputEl.style.height = `${16 * ds.scale}px`;
+            inputEl.style.fontSize = `${12 * ds.scale}px`;
+            inputEl.style.lineHeight = `${16 * ds.scale}px`;
+            inputEl.style.display = 'block'; // 强制显示
+        }
         
         // 设置标题输入框位置和大小（使用CSS缩放保持与节点比例一致）
         // 标题宽度减少，为开关留出空间
         titleEl.style.left = `${sx}px`;
         titleEl.style.top = `${sy}px`;
-        titleEl.style.width = `${Math.max(20, Math.round(cell.w - toggleWidth - 4))}px`; // 减去开关宽度和间距
+        titleEl.style.width = `${Math.max(20, Math.round(cell.w - toggleWidth - inputBtnWidth - 8))}px`; // 减去开关宽度和间距
         titleEl.style.height = `${Math.round(titleHeight)}px`;
         titleEl.style.transform = `scale(${ds.scale})`;
         
@@ -795,10 +902,12 @@ function ensureTextareas(node, layout, items) {
         titleEl.style.visibility = shouldShow ? 'visible' : 'hidden';
         ta.style.visibility = shouldShow ? 'visible' : 'hidden';
         toggleEl.style.visibility = shouldShow ? 'visible' : 'hidden';
+        if (inputEl) inputEl.style.visibility = shouldShow ? 'visible' : 'hidden';
         
         titleEl.style.pointerEvents = shouldShow && !hand ? 'auto' : 'none';
         ta.style.pointerEvents = shouldShow && !hand ? 'auto' : 'none';
         toggleEl.style.pointerEvents = shouldShow && !hand ? 'auto' : 'none';
+        if (inputEl) inputEl.style.pointerEvents = shouldShow && !hand ? 'auto' : 'none';
     }
 
     // 清理多余的元素
@@ -985,6 +1094,11 @@ function installDrawingHandlers(node) {
         if (this.__toggleEls) {
             for (const el of this.__toggleEls) { try { el.remove(); } catch(e) {} }
             this.__toggleEls = [];
+        }
+        // 清理输入连接点开关
+        if (this.__inputEls) {
+            for (const el of this.__inputEls) { try { el.remove(); } catch(e) {} }
+            this.__inputEls = [];
         }
     };
     
