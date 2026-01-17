@@ -182,8 +182,9 @@ class WanVideoDoubleStream:
         Processes a single stream of LoRA loading.
         """
         print(f"[{stream_name}] model is {'✅' if model is not None else '❌'}.")
-        if prev_lora is None:
-            prev_lora = []
+        # Create a copy of the list to prevent modifying the original list in place
+        # This is crucial when High and Low streams share the same input list
+        prev_lora = list(prev_lora) if prev_lora else []
             
         current_loras = []
         low_mem_load = False

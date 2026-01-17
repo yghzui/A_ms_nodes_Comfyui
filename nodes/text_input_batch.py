@@ -36,7 +36,7 @@ class TextInputBatch:
     FUNCTION = "aggregate_strings"
     CATEGORY = "A_my_nodes/text"
 
-    def aggregate_strings(self, index=0, strings_json="[]", columns=2, batch_manager=None):
+    def aggregate_strings(self, index=0, strings_json="[]", columns=2, batch_manager=None, **kwargs):
         # 健壮解析 JSON
         try:
             data = json.loads(strings_json) if isinstance(strings_json, str) else []
@@ -111,12 +111,30 @@ class TextInputBatch:
                     
                 entries.append({"index": i, "title": title, "content": content, "enabled": enabled})
         
+        # {{ AURA-X: Add - 处理动态输入 insert_{title} }}
+        for entry in entries:
+            # 优先使用标题，如果标题为空则回退到 prompt_{index}
+            title = entry.get("title", "").strip()
+            if not title:
+                title = f"prompt_{entry['index']}"
+            
+            key = f"insert_{title}"
+            if key in kwargs:
+                # 获取输入值，可能是字符串或其他类型，强制转为字符串
+                extra_text = str(kwargs[key])
+                # 如果输入不为空，则拼接到内容前（换行分隔）
+                if extra_text:
+                    if entry["content"]:
+                        entry["content"] = extra_text + "\n" + entry["content"]
+                    else:
+                        entry["content"] = extra_text
+
         # 确保 current_index 在有效范围内
         if len(entries) > 0:
             current_index = max(0, min(current_index, len(entries) - 1))
             
-        # 筛选启用的条目用于列表输出
-        filtered_entries = [e for e in entries if e["enabled"]]
+        # 筛选启用的条目用于列表输出 (同时过滤掉内容为空的条目)
+        filtered_entries = [e for e in entries if e["enabled"] and e["content"].strip()]
         
         # 获取选中项（基于原始索引）
         selected = ""
