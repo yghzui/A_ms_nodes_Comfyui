@@ -25,7 +25,7 @@ function installNodeSelector(node) {
             // 2. 更新第二个选择框
             updateInputOptions(realId);
         }, { values: [] });
-        nodeSelector.label = "🔍 选择节点 (Select Node)";
+        nodeSelector.label = "🔍 Select Node";
     }
 
     let inputSelector = node.widgets.find(w => w.name === "select_input_helper");
@@ -39,11 +39,31 @@ function installNodeSelector(node) {
             // 2. 触发值获取
             updateCapturedValue();
         }, { values: [] });
-        inputSelector.label = "🔍 选择参数 (Select Input)";
+        inputSelector.label = "🔍 Select Input";
+    }
+
+    // 2.1 创建刷新按钮
+    let refreshBtn = node.widgets.find(w => w.name === "refresh_helper");
+    if (!refreshBtn) {
+        refreshBtn = node.addWidget("button", "🔄 刷新数值 (Refresh)", null, () => {
+             // 刷新节点列表
+             if (typeof initNodeOptions === 'function') initNodeOptions();
+             // 刷新参数列表
+             if (targetNodeIdWidget.value && typeof updateInputOptions === 'function') {
+                 updateInputOptions(targetNodeIdWidget.value);
+             }
+             // 刷新数值
+             if (typeof updateCapturedValue === 'function') updateCapturedValue();
+             
+             // 强制重绘
+             if (app.graph) app.graph.setDirtyCanvas(true, true);
+        });
+        refreshBtn.name = "refresh_helper";
     }
 
     // 3. 调整 Widget 顺序
     // 期望顺序: 
+    // 0. refresh_helper
     // 1. select_node_helper
     // 2. target_node_id
     // 3. select_input_helper
@@ -51,6 +71,7 @@ function installNodeSelector(node) {
     // 5. captured_value
     
     const desiredOrder = [
+        "refresh_helper",
         "select_node_helper",
         "target_node_id",
         "select_input_helper",
@@ -231,6 +252,25 @@ function installNodeSelector(node) {
     if (targetNodeIdWidget.value) {
         updateInputOptions(targetNodeIdWidget.value);
     }
+
+    // 5.1 在序列化（运行/保存）时自动更新数值
+    const origOnSerialize = node.onSerialize;
+    node.onSerialize = function(o) {
+        // 1. 尝试更新值
+        if (typeof updateCapturedValue === 'function') updateCapturedValue();
+        
+        // 2. 修正序列化数据中的 widgets_values
+        // 因为 LiteGraph 默认的 serialize 可能在调用 onSerialize 之前就已经收集了 values
+        // 我们需要确保 captured_value 的最新值被写入到序列化对象中
+        if (o.widgets_values && this.widgets) {
+            const index = this.widgets.findIndex(w => w.name === "captured_value");
+            if (index !== -1) {
+                o.widgets_values[index] = this.widgets[index].value;
+            }
+        }
+        
+        if (origOnSerialize) origOnSerialize.apply(this, arguments);
+    };
 
     // 6. 隐藏原始输入框
     // 它们仍然存在于 node.widgets 中以保证数据被保存，但不可见

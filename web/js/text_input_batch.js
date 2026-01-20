@@ -923,10 +923,15 @@ function ensureTextareas(node, layout, items) {
         const el = node.__toggleEls[j];
         if (el && el.remove) el.remove();
     }
+    for (let j = items.length; j < (node.__inputEls?.length || 0); j++) {
+        const el = node.__inputEls[j];
+        if (el && el.remove) el.remove();
+    }
     
     node.__taEls.length = items.length;
     node.__titleEls.length = items.length;
     node.__toggleEls.length = items.length;
+    node.__inputEls.length = items.length;
     
     // 更新样式以反映当前选中的索引
     updateTextareaStyles(node);
