@@ -7,6 +7,20 @@ from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 import hashlib
 
+# Import AnyType for accepting any input type
+try:
+    from comfy.comfy_types.node_typing import IO
+    ANY_TYPE = IO.ANY
+except ImportError:
+    try:
+        from comfy_extras.nodes_custom_sampler import AnyType
+        ANY_TYPE = AnyType("*")
+    except ImportError:
+        class AnyType(str):
+            def __ne__(self, __value: object) -> bool:
+                return False
+        ANY_TYPE = AnyType("*")
+
 class NoticeSound:
     @classmethod
     def INPUT_TYPES(cls):
@@ -15,19 +29,15 @@ class NoticeSound:
                 "repeat_times": ("INT", {"default": 1, "min": 1, "max": 10, "step": 1}),
                 "check_mute": ("BOOLEAN", {"default": False,'tooltip':'是否检查静音状态,容易因为com释放问题导致崩溃'}),
                 "max_volume": ("BOOLEAN", {"default": False,'tooltip':'是否将音量调到最大,容易因为com释放问题导致崩溃'}),
+                "async_play": ("BOOLEAN", {"default": True, "tooltip": "是否异步播放(True=不阻塞, False=阻塞等待播放结束)"}),
             },
             "optional": {
-                "image": ("IMAGE",),
-                'mask': ('MASK',),
-                "Filenames": ("VHS_FILENAMES",),
-                "text": ("STRING",),
-                # 新增：支持LATENT类型输入，用于透传
-                "latent": ("LATENT",),
+                "any_input": (ANY_TYPE, {"tooltip": "输入任意类型的数据用于透传"}),
             }
         }
     OUTPUT_NODE = True
-    RETURN_TYPES = tuple(["IMAGE", "MASK", "VHS_FILENAMES", "STRING", "LATENT"])  # 末尾追加LATENT，保持兼容
-    RETURN_NAMES = tuple(["image", "mask", "Filenames", "text", "latent"])  # 对应名称为latent
+    RETURN_TYPES = (ANY_TYPE,)
+    RETURN_NAMES = ("output",)
     FUNCTION = "play_notice_sound"
     CATEGORY = "My_node/通知"
 
@@ -115,18 +125,15 @@ class NoticeSound:
                     except:
                         pass
 
-    def play_notice_sound(self, repeat_times=1, check_mute=False, max_volume=False, **kwargs):
-        # 创建一个线程来播放声音，这样不会阻塞主线程
-        sound_thread = threading.Thread(target=self.play_sound, args=(repeat_times, check_mute, max_volume))
-        sound_thread.start()
+    def play_notice_sound(self, repeat_times=1, check_mute=False, max_volume=False, async_play=True, any_input=None, **kwargs):
+        if async_play:
+            # 创建一个线程来播放声音，这样不会阻塞主线程
+            sound_thread = threading.Thread(target=self.play_sound, args=(repeat_times, check_mute, max_volume))
+            sound_thread.start()
+        else:
+            # 同步播放，会阻塞主线程直到播放完成
+            self.play_sound(repeat_times, check_mute, max_volume)
         
-        # 初始化返回值
-        return_values = [None] * len(self.RETURN_TYPES)
-        
-        # 填充返回值
-        for i, key in enumerate(self.RETURN_NAMES):
-            if key in kwargs and kwargs[key] is not None:
-                return_values[i] = kwargs[key]
-        
-        return tuple(return_values)
+        # 直接返回输入的数据
+        return (any_input,)
 
