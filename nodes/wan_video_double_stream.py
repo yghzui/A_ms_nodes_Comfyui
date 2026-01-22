@@ -2,6 +2,7 @@ import json
 import re
 import comfy.sd
 import comfy.utils
+import nodes
 from nodes import *
 
 class WanVideoDoubleStream:
