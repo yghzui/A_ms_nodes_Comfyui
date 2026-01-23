@@ -7,7 +7,7 @@ from .nodes.image_nodes import *
 from .nodes.mask_nodes import *
 from .nodes.text_nodes import *
 from .nodes.notice import NoticeSound
-from .nodes.resize_image_by_person import ResizeImageByPerson,CropInfoToNumbers
+from .nodes.crop_person import CropPerson,CropInfoToNumbers
 from .nodes.math import AspectRatioAdjuster,I2VConfigureNode, FramesSplitCalculator, FramesSegmentSlicer, ImagesConcatWithOverlap, ImageTakeLast
 from .nodes.face_flip import FaceFlip
 from .nodes.create_color_image_mask import CreateColorImageAndMask
@@ -78,7 +78,7 @@ except:
 NODE_CLASS_MAPPINGS = {
     "LoadAndResizeImageMy": LoadAndResizeImageMy,
     "ResizeImagesAndMasks": ResizeImagesAndMasks,
-    "ResizeImageByPerson": ResizeImageByPerson,
+    "CropPerson": CropPerson,
     "CropInfoToNumbers": CropInfoToNumbers,
     "CropFaceMy": CropFaceMy,
     "CropFaceMyDetailed": CropFaceMyDetailed,
@@ -146,7 +146,7 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by ms",
     "ResizeImagesAndMasks": "Resize Images and Masks by ms",
-    "ResizeImageByPerson": "Resize Image by Person by ms",
+    "CropPerson": "Crop Person by ms",
     "CropInfoToNumbers": "Crop Info to Numbers by ms",
     "CropFaceMy": "Crop Face by ms",
     "CropFaceMyDetailed": "Crop Face Detailed by ms",
