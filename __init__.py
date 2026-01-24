@@ -40,7 +40,7 @@ from .nodes.imageconcatmultims import ImageConcatMultiMs
 from .nodes.resolutionpreset import ResolutionPresetNode
 from .nodes.load_ui_node_value import GetNodeInputValue
 from .nodes.wan_video_double_stream import WanVideoDoubleStream
-
+from .nodes.crop_face_fast import CropFaceFast
 
 
 # 延迟注册路由 - 确保在ComfyUI完全初始化后注册
@@ -82,6 +82,7 @@ NODE_CLASS_MAPPINGS = {
     "CropInfoToNumbers": CropInfoToNumbers,
     "CropFaceMy": CropFaceMy,
     "CropFaceMyDetailed": CropFaceMyDetailed,
+    "CropFaceFast": CropFaceFast,
     "CreateFaceBboxMask": CreateBboxMask,
     "CreateTextMask": CreateTextMask,
     "CoordinateTessPosNeg": CoordinateTessPosNeg,
@@ -150,6 +151,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "CropInfoToNumbers": "Crop Info to Numbers by ms",
     "CropFaceMy": "Crop Face by ms",
     "CropFaceMyDetailed": "Crop Face Detailed by ms",
+    "CropFaceFast": "Crop Face Fast (SCRFD) by ms",
     "CreateFaceBboxMask": "Create Face Bbox Mask by ms",
     "CreateTextMask": "Text Mask path by ms",
     "example_class": "example_class by ms",
