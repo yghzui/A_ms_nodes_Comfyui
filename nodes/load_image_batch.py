@@ -30,6 +30,7 @@ class LoadImageBatchAdvanced:
             "optional": {
                 # 增加一个刷新开关，当用户重新选择相同文件时也能强制刷新
                 "trigger": ("INT", {"default": 0, "min": 0, "max": 0xffffffffff, "widget": "hidden"}),
+                "batch_manager": ("MY_BATCH_MANAGER",),
             }
         }
 
@@ -39,12 +40,18 @@ class LoadImageBatchAdvanced:
     FUNCTION = "load_images"
     CATEGORY = "A_my_nodes/Image"
 
-    def load_images(self, image_paths, image_path_use="", normalize_mask=True, apply_alpha_to_image=False, reuse_mask=False, trigger=0):
+    def load_images(self, image_paths, image_path_use="", normalize_mask=True, apply_alpha_to_image=False, reuse_mask=False, trigger=0, batch_manager=None):
         use_str = (image_path_use or '').strip() or (image_paths or '').strip()
         if not use_str:
             return ([], [], [], 0, "")
 
         raw_paths = [p.strip() for p in use_str.split(',') if p.strip()]
+        if batch_manager is not None and len(raw_paths) > 0:
+            batch_manager.total_count = len(raw_paths)
+            batch_idx = batch_manager.current_index
+            if batch_idx >= len(raw_paths):
+                batch_idx = batch_idx % len(raw_paths)
+            raw_paths = [raw_paths[batch_idx]]
         input_dir = folder_paths.get_input_directory()
         
         image_list = []
