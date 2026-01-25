@@ -8,11 +8,14 @@ class MyBatchManagerObj:
         self.total_count = 1
         self.results = []
         self.is_running = False
+        # 跟踪当前的requeue计数，用于区分新的批处理请求和列表展开导致的多次执行
+        self.current_requeue_count = -1
 
     def reset(self):
         self.current_index = 0
         self.results = []
         self.is_running = False
+        self.current_requeue_count = -1
 
 prompt_queue = server.PromptServer.instance.prompt_queue
 
@@ -33,10 +36,11 @@ def requeue_workflow_unchecked():
     # 深度复制 prompt 以便修改
     prompt = prompt.copy()
     
-    # 找到 BatchManager 节点并增加 requeue 计数
-    # 这让 BatchManager 知道这是一次新的循环，而不是用户点击的新运行
+    # 找到 BatchManager 和 AnyBatchAccumulator 节点并增加 requeue 计数
+    # 这让这些节点知道这是一次新的循环，而不是用户点击的新运行
     for uid in prompt:
-        if prompt[uid]['class_type'] == 'MyBatchManager':
+        class_type = prompt[uid].get('class_type', '')
+        if class_type == 'MyBatchManager' or class_type == 'AnyBatchAccumulator':
             inputs = prompt[uid].get('inputs', {})
             inputs['requeue'] = inputs.get('requeue', 0) + 1
             prompt[uid]['inputs'] = inputs

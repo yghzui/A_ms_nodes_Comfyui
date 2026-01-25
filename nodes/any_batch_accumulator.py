@@ -6,6 +6,10 @@ try:
 except ImportError:
     from comfy_execution.graph_utils import ExecutionBlocker
 try:
+    from comfy_execution.utils import get_executing_context
+except ImportError:
+    get_executing_context = None
+try:
     from comfy.comfy_types.node_typing import IO
     ANY_TYPE = IO.ANY
 except ImportError:
@@ -28,6 +32,10 @@ class AnyBatchAccumulator:
             },
             "optional": {
                 "batch_manager": ("MY_BATCH_MANAGER",),
+            },
+            "hidden": {
+                "prompt": "PROMPT",
+                "unique_id": "UNIQUE_ID",
             }
         }
 
@@ -168,7 +176,7 @@ class AnyBatchAccumulator:
             return [res]
         return [item]
 
-    def accumulate(self, data, trybatch=True, batch_manager=None, **kwargs):
+    def accumulate(self, data, trybatch=True, batch_manager=None, prompt=None, unique_id=None, **kwargs):
         inputs = self._collect_inputs(data, kwargs)
         
         # Non-batch mode (pass through)
@@ -177,29 +185,108 @@ class AnyBatchAccumulator:
             # The companion node will unpack them.
             return tuple(self._process_single(inputs[i], trybatch) for i in range(8))
 
-        # Ensure reset on first step
-        if batch_manager.current_index == 0:
-            batch_manager.any_batch_results = [[] for _ in range(8)]
+        # 检查是否是列表展开导致的执行
+        # 使用执行上下文中的list_index来判断：如果list_index不是None，说明这是列表展开导致的执行
+        is_list_expansion = False
+        list_index = None
+        if get_executing_context is not None:
+            context = get_executing_context()
+            if context is not None and context.list_index is not None:
+                is_list_expansion = True
+                list_index = context.list_index
+                print(f"AnyBatchAccumulator: 检测到列表展开执行 (list_index={list_index})")
+        
+        # 从MyBatchManager节点获取requeue计数，因为requeue_workflow_unchecked()会更新它的requeue计数
+        current_requeue = 0
+        found_manager = False
+        if prompt:
+            # 遍历prompt找到MyBatchManager节点
+            for uid in prompt:
+                if prompt[uid].get('class_type') == 'MyBatchManager':
+                    node_inputs = prompt[uid].get('inputs', {})
+                    current_requeue = node_inputs.get('requeue', 0)
+                    found_manager = True
+                    break
+        
+        # 如果不是列表展开，则检查是否是新的批处理请求（通过requeue计数）
+        is_new_batch_request = False
+        if not is_list_expansion:
+            # 检查是否是新的批处理请求（requeue计数改变了）
+            if batch_manager.current_requeue_count != current_requeue:
+                # 这是新的批处理请求，需要增加计数器
+                is_new_batch_request = True
+                batch_manager.current_requeue_count = current_requeue
+                # 如果是新的批处理请求且是第一次（current_index == 0），重置结果
+                if batch_manager.current_index == 0:
+                    batch_manager.any_batch_results = [[] for _ in range(8)]
+                print(f"AnyBatchAccumulator: 新批处理请求 (requeue={current_requeue}, current_requeue_count={batch_manager.current_requeue_count})")
+            else:
+                print(f"AnyBatchAccumulator: 同一批处理请求内的执行 (requeue={current_requeue}, current_requeue_count={batch_manager.current_requeue_count})")
 
         if not hasattr(batch_manager, "any_batch_results") or not isinstance(batch_manager.any_batch_results, list) or len(batch_manager.any_batch_results) < 8:
+            print(f"AnyBatchAccumulator: 重置any_batch_results")
             batch_manager.any_batch_results = [[] for _ in range(8)]
 
+        # 累积数据（无论是新的批处理请求还是列表展开，都需要累积）
         for i, item in enumerate(inputs):
             if item is not None:
                 batch_manager.any_batch_results[i].append(self._clone_value(item))
-        batch_manager.current_index += 1
-        print(f"AnyBatchAccumulator: Step {batch_manager.current_index}/{batch_manager.total_count}")
-
-        if batch_manager.current_index < batch_manager.total_count:
-            print("AnyBatchAccumulator: Triggering requeue and stopping current execution...")
-            requeue_workflow_unchecked()
-            # Return ExecutionBlocker directly (not wrapped in list) to stop downstream execution
+        
+        # 只有新的批处理请求才增加计数器和检查完成条件
+        if is_new_batch_request:
+            batch_manager.current_index += 1
+            print(f"AnyBatchAccumulator: 新批处理请求，Step {batch_manager.current_index}/{batch_manager.total_count}")
+            
+            # 只有新的批处理请求才检查是否达到total_count
+            if batch_manager.current_index < batch_manager.total_count:
+                print("AnyBatchAccumulator: Triggering requeue and stopping current execution...")
+                requeue_workflow_unchecked()
+                # Return ExecutionBlocker directly (not wrapped in list) to stop downstream execution
+                return tuple(ExecutionBlocker(None) for _ in range(8))
+            
+            # 如果达到total_count，处理结果
+            print("AnyBatchAccumulator: Batch complete.")
+            batch_manager.is_running = False
+            raw_results = batch_manager.any_batch_results
+            batch_manager.any_batch_results = [[] for _ in range(8)]
+        elif is_list_expansion:
+            # 列表展开导致的多次执行，只累积数据，不增加计数器
+            # 列表展开的执行应该正常完成，让ComfyUI能够继续处理列表中的其他元素
+            # 但是，我们需要阻止下游执行，因为这是列表展开的执行，不应该触发下游处理
+            # 列表展开完成后，ComfyUI会继续执行，此时会触发新的批处理请求（通过requeue计数）
+            print(f"AnyBatchAccumulator: 列表展开执行，累积数据但不增加计数器 (当前索引={batch_manager.current_index}, list_index={list_index})")
+                
+                # 检查是否是列表展开的最后一次执行
+                # 通过检查累积的数据项数量来判断：如果 list_index + 1 等于累积的数据项数量，那么这就是最后一次执行
+                # 我们可以通过检查 batch_manager.any_batch_results[0] 的长度来判断
+                # 如果这是列表展开的最后一次执行，我们需要在列表展开完成后触发新的批处理请求
+            if list_index + 1 == batch_manager.list_count:
+                batch_manager.current_index += 1
+                if batch_manager.current_index < batch_manager.total_count:
+                    print(f"AnyBatchAccumulator: 列表展开的最后一次执行，触发新的批处理请求 (list_index={list_index})")
+                   
+                    requeue_workflow_unchecked()
+                    return tuple(ExecutionBlocker(None) for _ in range(8))
+                print("AnyBatchAccumulator: 列表展开完成,且达到total_count,Batch complete.")
+                batch_manager.is_running = False
+                raw_results = batch_manager.any_batch_results
+                batch_manager.any_batch_results = [[] for _ in range(8)]
+            else:
+                # 返回ExecutionBlocker阻止下游执行，但允许列表展开继续
+                list_index += 1
+                return tuple(ExecutionBlocker(None) for _ in range(8))
+            
+            
+            
+        else:
+            # 同一批处理请求内的其他执行（非列表展开），也不应该增加计数器
+            # 这种情况可能是由于其他原因导致的多次执行，我们也需要阻止下游执行
+            print(f"AnyBatchAccumulator: 同一批处理请求内的执行，累积数据但不增加计数器 (当前索引={batch_manager.current_index})")
+            # 返回ExecutionBlocker阻止下游执行
             return tuple(ExecutionBlocker(None) for _ in range(8))
         
-        print("AnyBatchAccumulator: Batch complete.")
-        batch_manager.is_running = False
-        raw_results = batch_manager.any_batch_results
-        batch_manager.any_batch_results = [[] for _ in range(8)]
+        # 只有在新的批处理请求且达到total_count时，才处理结果
+        # raw_results已经在上面赋值了
         
         # Process results with Baseline Synchronization
         processed_results = []
@@ -289,8 +376,10 @@ class AnyBatchListConverter:
 
         def flatten(item):
             if item is None:
+                print(f"AnyBatchListConverter: 输入为空,返回空列表")
                 return []
             if isinstance(item, list):
+                print(f"AnyBatchListConverter: 输入为列表,开始扁平化")
                 flat = []
                 for x in item:
                     # Recursively flatten or just one level?

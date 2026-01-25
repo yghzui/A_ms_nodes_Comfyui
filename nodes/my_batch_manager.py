@@ -11,6 +11,7 @@ class MyBatchManager:
             "required": {
                 "enable": ("BOOLEAN", {"default": True}),
                 "start_index": ("INT", {"default": 0, "min": 0, "step": 1}),
+                "list_count": ("INT", {"default": 0, "min": 0, "step": 1}),
             },
             "hidden": {
                 "prompt": "PROMPT",
@@ -23,7 +24,7 @@ class MyBatchManager:
     FUNCTION = "create_batch"
     CATEGORY = "A_my_nodes/logic"
 
-    def create_batch(self, enable=True, start_index=0, prompt=None, unique_id=None):
+    def create_batch(self, enable=True, start_index=0, list_count=0, prompt=None, unique_id=None):
         if not enable:
             print("BatchManager: Disabled, returning None")
             return (None,)
@@ -39,6 +40,8 @@ class MyBatchManager:
             self.batch_obj.reset()
             self.batch_obj.current_index = start_index
             self.batch_obj.is_running = True
+            self.batch_obj.current_requeue_count = -1  # 初始化为-1，确保第一次执行时会被识别为新的批处理请求
+            self.batch_obj.list_count = list_count
             print(f"BatchManager: 初始化，起始索引 {start_index}")
         else:
             print(f"BatchManager: 循环运行中，当前索引 {self.batch_obj.current_index}")
