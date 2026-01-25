@@ -20,6 +20,7 @@ from .nodes.load_lora_merge import LoadLoraMerge
 from .nodes.index_selector import IndexSelector
 from .nodes.my_batch_manager import MyBatchManager
 from .nodes.image_batch_accumulator import ImageBatchAccumulator
+from .nodes.any_batch_accumulator import AnyBatchAccumulator,AnyBatchListConverter#,AnyDataAnalyzer
 from .nodes.show_result_last import ShowResultLast
 from .nodes.manual_video_input import ManualVideoInput
 from .nodes.load_video import LoadVideoFromFolder
@@ -141,6 +142,9 @@ NODE_CLASS_MAPPINGS = {
     # 新增注册：图像拼接多输入节点
     "ImageConcatMultiMs": ImageConcatMultiMs,
     "ImageBatchAccumulator": ImageBatchAccumulator,
+    "AnyBatchAccumulator": AnyBatchAccumulator,
+    "AnyBatchListConverter": AnyBatchListConverter,
+    # "AnyDataAnalyzer": AnyDataAnalyzer,
     "GetNodeInputValue": GetNodeInputValue,
     "WanVideoDoubleStream": WanVideoDoubleStream,
 }
@@ -207,6 +211,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     # 新增显示名称：图像拼接多输入节点
     "ImageConcatMultiMs": "ImageConcatMultiMs 图像拼接(多输入动态) by ms",
     "ImageBatchAccumulator": "ImageBatchAccumulator 图像批量累加器 by ms",
+    "AnyBatchAccumulator": "AnyBatchAccumulator 任意数据批量累加器 by ms",
+    "AnyBatchListConverter": "AnyBatchListConverter 任意数据批量列表转换器 by ms",
+    # "AnyDataAnalyzer": "AnyDataAnalyzer 任意数据分析器 by ms",
     "GetNodeInputValue": "获取节点输入值 by ms",
     "WanVideoDoubleStream": "WanVideoDoubleStream 双流视频LoRA加载 by ms",
 }

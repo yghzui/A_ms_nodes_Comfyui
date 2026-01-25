@@ -277,7 +277,7 @@ class AnyBatchListConverter:
                 "data_7": (ANY_TYPE,),
             }
         }
-    
+
     RETURN_TYPES = (ANY_TYPE, ANY_TYPE, ANY_TYPE, ANY_TYPE, ANY_TYPE, ANY_TYPE, ANY_TYPE, ANY_TYPE)
     RETURN_NAMES = ("data_out", "data_out_1", "data_out_2", "data_out_3", "data_out_4", "data_out_5", "data_out_6", "data_out_7")
     OUTPUT_IS_LIST = (True, True, True, True, True, True, True, True)
@@ -286,7 +286,7 @@ class AnyBatchListConverter:
 
     def convert(self, data=None, data_1=None, data_2=None, data_3=None, data_4=None, data_5=None, data_6=None, data_7=None):
         inputs = [data, data_1, data_2, data_3, data_4, data_5, data_6, data_7]
-        
+
         def flatten(item):
             if item is None:
                 return []
@@ -310,53 +310,89 @@ class AnyBatchListConverter:
 
         return tuple(flatten(item) for item in inputs)
 
-
-class AnyDataAnalyzer:
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "data": (ANY_TYPE,),
-            }
-        }
-    
-    RETURN_TYPES = (ANY_TYPE,)
-    RETURN_NAMES = ("data",)
-    FUNCTION = "analyze"
-    CATEGORY = "A_my_nodes/debug"
-    OUTPUT_NODE = True
-
-    def analyze(self, data):
-        info = []
-        is_list = isinstance(data, list)
-        info.append(f"Is List: {is_list}")
-        
-        type_name = type(data).__name__
-        info.append(f"Type: {type_name}")
-
-        if is_list:
-            info.append(f"Length: {len(data)}")
-            if len(data) > 0:
-                first_item_type = type(data[0]).__name__
-                info.append(f"First Item Type: {first_item_type}")
-                # Maybe string representation of first few items
-                try:
-                    preview = str(data[:3])
-                    if len(preview) > 100:
-                        preview = preview[:100] + "..."
-                    info.append(f"Content Preview (first 3): {preview}")
-                except:
-                    pass
-        else:
-            try:
-                preview = str(data)
-                if len(preview) > 100:
-                    preview = preview[:100] + "..."
-                info.append(f"Content: {preview}")
-            except:
-                pass
-        
-        message = "\n".join(info)
-        print(f"AnyDataAnalyzer: {message}")
-        
-        return {"ui": {"text": (message,)}, "result": (data,)}
+#
+# import json
+#
+#
+# class AnyDataAnalyzer:
+#     @classmethod
+#     def INPUT_TYPES(cls):
+#         return {
+#             "required": {
+#                 "data": ("*",),
+#             },
+#             "hidden": {
+#                 "unique_id": "UNIQUE_ID",
+#                 "extra_pnginfo": "EXTRA_PNGINFO",
+#             }
+#         }
+#
+#     RETURN_TYPES = ("*",)
+#     RETURN_NAMES = ("data",)
+#     FUNCTION = "analyze"
+#     CATEGORY = "A_my_nodes/debug"
+#     OUTPUT_NODE = True
+#
+#     def analyze(self, data, unique_id=None, extra_pnginfo=None):
+#         # ---------- 构建分析信息 ----------
+#         info = []
+#         info.append("=== AnyDataAnalyzer ===")
+#         info.append(f"Python Type: {type(data).__name__}")
+#         info.append(f"Is List: {isinstance(data, list)}")
+#
+#         # List 类型
+#         if isinstance(data, list):
+#             info.append(f"Length: {len(data)}")
+#             if len(data) > 0:
+#                 info.append(f"First Item Type: {type(data[0]).__name__}")
+#                 try:
+#                     preview = str(data[:3])
+#                     if len(preview) > 120:
+#                         preview = preview[:120] + "..."
+#                     info.append(f"Preview: {preview}")
+#                 except Exception as e:
+#                     info.append(f"Preview Error: {e}")
+#
+#         # Tensor 类型
+#         elif hasattr(data, "shape") and hasattr(data, "dtype"):
+#             info.append(f"Shape: {tuple(data.shape)}")
+#             info.append(f"Dtype: {data.dtype}")
+#             if hasattr(data, "device"):
+#                 info.append(f"Device: {data.device}")
+#
+#         # Dict 类型
+#         elif isinstance(data, dict):
+#             keys = list(data.keys())
+#             info.append(f"Dict Keys: {keys[:10]}")
+#
+#         # 其他类型
+#         else:
+#             try:
+#                 preview = str(data)
+#                 if len(preview) > 120:
+#                     preview = preview[:120] + "..."
+#                 info.append(f"Content: {preview}")
+#             except Exception as e:
+#                 info.append(f"Preview Error: {e}")
+#
+#         message = "\n".join(info)
+#         print(message)
+#
+#         # ---------- UI显示 ----------
+#         values = [message]
+#
+#         # 强制写入前端节点控件，确保显示
+#         try:
+#             if extra_pnginfo and isinstance(extra_pnginfo, dict) and "workflow" in extra_pnginfo:
+#                 workflow = extra_pnginfo["workflow"]
+#                 node = next((x for x in workflow["nodes"] if str(x["id"]) == unique_id), None)
+#                 if node:
+#                     node["widgets_values"] = [values]
+#         except Exception as e:
+#             print(f"[AnyDataAnalyzer UI update failed] {e}")
+#
+#         # ---------- 返回 ----------
+#         # 数据口透传原始 data，UI显示 message
+#         return {"ui": {"text": values}, "result": (data,)}
+#
+#
