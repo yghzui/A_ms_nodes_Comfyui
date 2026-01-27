@@ -10,12 +10,14 @@ class MyBatchManagerObj:
         self.is_running = False
         # 跟踪当前的requeue计数，用于区分新的批处理请求和列表展开导致的多次执行
         self.current_requeue_count = -1
+        self.current_list_index = 0
 
     def reset(self):
         self.current_index = 0
         self.results = []
         self.is_running = False
         self.current_requeue_count = -1
+        self.current_list_index = 0
 
 prompt_queue = server.PromptServer.instance.prompt_queue
 
