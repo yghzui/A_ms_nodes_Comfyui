@@ -1112,6 +1112,48 @@ function drawNodeImages(node, ctx) {
         node._customFullscreenButtonRect = null;
     }
     
+    // 绘制按键状态提示 (Ctrl/Shift)
+    if (node._customHoverKeyStatus && node._customMouseX !== undefined && node._customMouseY !== undefined) {
+        const text = node._customHoverKeyStatus;
+        ctx.font = "12px Arial";
+        const textWidth = ctx.measureText(text).width;
+        const padding = 6;
+        const boxHeight = 24;
+        const boxWidth = textWidth + padding * 2;
+        
+        // 在鼠标右侧显示
+        const x = node._customMouseX + 16;
+        const y = node._customMouseY;
+        
+        // 绘制背景框
+        ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
+        ctx.lineWidth = 1;
+        
+        ctx.beginPath();
+        // 简单的圆角矩形
+        const r = 4;
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + boxWidth - r, y);
+        ctx.quadraticCurveTo(x + boxWidth, y, x + boxWidth, y + r);
+        ctx.lineTo(x + boxWidth, y + boxHeight - r);
+        ctx.quadraticCurveTo(x + boxWidth, y + boxHeight, x + boxWidth - r, y + boxHeight);
+        ctx.lineTo(x + r, y + boxHeight);
+        ctx.quadraticCurveTo(x, y + boxHeight, x, y + boxHeight - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+        
+        ctx.fill();
+        ctx.stroke();
+        
+        // 绘制文字
+        ctx.fillStyle = "#ffffff";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillText(text, x + padding, y + boxHeight / 2);
+    }
+
     ctx.restore();
 }
 
@@ -1234,6 +1276,34 @@ function populate(imagePaths) {
         // 保存鼠标位置用于悬浮检测
         this._customMouseX = newMouseX;
         this._customMouseY = newMouseY;
+
+        // 检查按键状态并设置提示
+        this._customHoverKeyStatus = null;
+        if (this._customImageRects) {
+            for (let i = 0; i < this._customImageRects.length; i++) {
+                const rect = this._customImageRects[i];
+                if (!rect || rect.visible === false) continue;
+                // 简单的矩形碰撞检测
+                if (newMouseX >= rect.x && newMouseX <= rect.x + rect.width &&
+                    newMouseY >= rect.y && newMouseY <= rect.y + rect.height) {
+                    
+                    const isSelected = this._customSelectedImages ? this._customSelectedImages[i] : true;
+                    const statusText = isSelected ? "已选择" : "未选择";
+                    
+                    if (e.shiftKey) {
+                        this._customHoverKeyStatus = `Shift+Click: 连续选择 (当前: ${statusText})`;
+                    } else if (e.ctrlKey) {
+                        this._customHoverKeyStatus = `Ctrl+Click: 反转选择 (当前: ${statusText})`;
+                    } else {
+                        // 即使没有按键，也可以显示提示，告诉用户可以使用 Ctrl/Shift
+                        // 但为了避免干扰，我们只在用户询问时添加，或者稍微延迟显示？
+                        // 用户要求"增加对应的鼠标悬浮提示"，可能是指普通悬浮时也要提示怎么操作
+                        // this._customHoverKeyStatus = `Ctrl+Click: 反转 | Shift+Click: 连选 (当前: ${statusText})`;
+                    }
+                    break;
+                }
+            }
+        }
         
         let tooltipShown = false;
         if (this._customFileNameRects && this._customFileNameRects.length > 0) {
@@ -1319,18 +1389,21 @@ function populate(imagePaths) {
         app.graph.setDirtyCanvas(true, false);
     };
     
-    this.onMouseDown = function(e) {
+    this.onMouseDown = function(e, localPos) {
         // 只有LoadImageBatchAdvanced节点才处理自定义鼠标事件
         if (this.type !== "LoadImageBatchAdvanced") {
             if (originalOnMouseDown) {
-                return originalOnMouseDown.call(this, e);
+                return originalOnMouseDown.call(this, e, localPos);
             }
             return false;
         }
         
-        console.log("onMouseDown 被调用", e);
-        console.log("节点信息:", this.id, this.type, this.size);
-        console.log("图片区域:", this._customImageRects);
+        // 统一使用与 onMouseMove 相同的坐标计算方式，确保行为一致
+        // 注意：LiteGraph 的 localPos 有时可能不符合预期，这里优先使用 canvasX/Y 计算
+        const relX = e.canvasX - this.pos[0];
+        const relY = e.canvasY - this.pos[1];
+        
+        console.log("onMouseDown 被调用", e, relX, relY);
         
         // 获取节点的Canvas坐标
         const nodePos = this.pos;
@@ -1339,45 +1412,106 @@ function populate(imagePaths) {
         if (this._customCheckboxRects && this._customCheckboxRects.length > 0) {
             for (let i = 0; i < this._customCheckboxRects.length; i++) {
                 const checkboxRect = this._customCheckboxRects[i];
+                if (!checkboxRect) continue;
+                if (this._customImageRects && this._customImageRects[i] && this._customImageRects[i].visible === false) continue;
                 
-                // 检查复选框是否存在
-                if (!checkboxRect) {
-                    continue;
-                }
-                
-                // 检查图片是否可见
-                if (this._customImageRects && this._customImageRects[i] && this._customImageRects[i].visible === false) {
-                    continue;
-                }
-                
-                // 计算复选框在Canvas中的绝对坐标
-                const absCheckboxX = nodePos[0] + checkboxRect.x;
-                const absCheckboxY = nodePos[1] + checkboxRect.y;
-                const absCheckboxWidth = checkboxRect.width;
-                const absCheckboxHeight = checkboxRect.height;
-                
-                if (e.canvasX >= absCheckboxX && e.canvasX <= absCheckboxX + absCheckboxWidth &&
-                    e.canvasY >= absCheckboxY && e.canvasY <= absCheckboxY + absCheckboxHeight) {
+                // 使用相对坐标检测复选框
+                if (relX >= checkboxRect.x && relX <= checkboxRect.x + checkboxRect.width &&
+                    relY >= checkboxRect.y && relY <= checkboxRect.y + checkboxRect.height) {
                     
                     console.log(`点击复选框，图片索引: ${i}`);
-                    
-                    // 阻止事件冒泡
                     e.preventDefault();
                     e.stopPropagation();
                     
-                    // 切换选择状态
                     if (this._customSelectedImages && this._customSelectedImages[i] !== undefined) {
                         this._customSelectedImages[i] = !this._customSelectedImages[i];
-                        console.log(`图片 ${i} 选择状态切换为: ${this._customSelectedImages[i]}`);
-                        
-                        // 更新widget的值
+                        this._customLastSelectedImageIndex = i;
                         updateWidgetValue(this);
-                        
-                        // 触发重绘
                         app.graph.setDirtyCanvas(true, false);
                     }
-                    
                     return true;
+                }
+            }
+        }
+
+        // 检查点击图片区域 (包括普通点击、Ctrl、Shift)
+        if (this._customImageRects && this._customImageRects.length > 0) {
+            for (let i = 0; i < this._customImageRects.length; i++) {
+                const imageRect = this._customImageRects[i];
+                if (!imageRect || imageRect.visible === false) continue;
+
+                // 使用相对坐标检测图片
+                if (relX >= imageRect.x && relX <= imageRect.x + imageRect.width &&
+                    relY >= imageRect.y && relY <= imageRect.y + imageRect.height) {
+                    
+                    console.log(`点击图片，索引: ${i}, Ctrl: ${e.ctrlKey}, Shift: ${e.shiftKey}`);
+                    
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    if (!this._customSelectedImages) {
+                         this._customSelectedImages = new Array(this._customImageRects.length).fill(true);
+                    }
+
+                    if (e.shiftKey) {
+                        // 连续选择 (Range Selection)
+                        
+                        // 如果没有锚点（第一次按住Shift点击），则当前点击作为锚点
+                        if (this._customLastSelectedImageIndex === undefined) {
+                            this._customLastSelectedImageIndex = i;
+                            
+                            // 第一次建立锚点时，同时也选中该图片
+                            if (this._customSelectedImages) {
+                                this._customSelectedImages[i] = true;
+                            }
+                            updateWidgetValue(this);
+                            app.graph.setDirtyCanvas(true, false);
+                            
+                            console.log(`Shift点击设定新锚点: ${i} (并选中)`);
+                            return true;
+                        }
+                        
+                        // 保持锚点不变，以便可以连续调整选择范围
+                        const lastIndex = this._customLastSelectedImageIndex;
+                        const start = Math.min(lastIndex, i);
+                        const end = Math.max(lastIndex, i);
+                        
+                        console.log(`执行连续选择: ${start} 到 ${end} (锚点: ${lastIndex})`);
+                        
+                        // Shift+Click: 选中范围内图片，取消选中范围外图片
+                        if (this._customSelectedImages) {
+                            for (let j = 0; j < this._customSelectedImages.length; j++) {
+                                if (j >= start && j <= end) {
+                                    this._customSelectedImages[j] = true;
+                                } else {
+                                    this._customSelectedImages[j] = false;
+                                }
+                            }
+                        }
+                        // 注意：不更新 _customLastSelectedImageIndex，这样可以支持连续 Shift+Click 调整范围
+                        updateWidgetValue(this);
+                        app.graph.setDirtyCanvas(true, false);
+                        return true;
+                    /*
+                    } else if (e.ctrlKey) {
+                        // 反转选择 (Toggle Selection)
+                         if (this._customSelectedImages[i] !== undefined) {
+                            this._customSelectedImages[i] = !this._customSelectedImages[i];
+                            console.log(`反转选择: ${i} -> ${this._customSelectedImages[i]}`);
+                        }
+                        this._customLastSelectedImageIndex = i;
+                        updateWidgetValue(this);
+                        app.graph.setDirtyCanvas(true, false);
+                        return true;
+                    */
+                    } else {
+                        // 普通点击 (No Modifier)
+                        // 用户要求：取消锚点，不改变勾选状态，且恢复原来的"进入单图模式"逻辑
+                        this._customLastSelectedImageIndex = undefined;
+                        console.log(`普通点击: ${i}，清除锚点，继续执行以进入单图模式`);
+                        
+                        // 不阻止事件，不返回 true，让后续逻辑（行 1853+）处理进入单图模式
+                    }
                 }
             }
         }
@@ -1791,7 +1925,13 @@ function populate(imagePaths) {
             }
         }
         
-        // 如果没有处理图片区域点击，调用原始事件处理
+        // 如果没有处理图片区域点击
+        // 如果不是Shift键，点击空白区域（或未处理区域）也应清除锚点
+        if (!e.shiftKey) {
+            this._customLastSelectedImageIndex = undefined;
+        }
+
+        // 调用原始事件处理
         if (originalOnMouseDown) {
             return originalOnMouseDown.call(this, e);
         }
