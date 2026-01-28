@@ -2501,19 +2501,32 @@ app.registerExtension({
                             const candidates = graph._nodes.filter(n => n && n.type === 'LoadImageBatchAdvanced');
                             if (!candidates.length) return;
 
-                            // 取"被选中优先，否则悬浮"的目标节点
-                            const target = candidates.find(n => n.selected) || candidates.find(n => n._customIsHovered);
-                            if (!target) return;
+                            // 优先处理选中的节点（支持多选），否则处理悬浮节点
+                            const selectedNodes = candidates.filter(n => n.selected);
+                            let targets = [];
+                            if (selectedNodes.length > 0) {
+                                targets = selectedNodes;
+                            } else {
+                                const hovered = candidates.find(n => n._customIsHovered);
+                                if (hovered) targets = [hovered];
+                            }
+                            
+                            if (!targets.length) return;
 
                             const files = getImageFilesFromClipboard(evt.clipboardData);
                             if (!files || files.length === 0) return;
 
-                            // 拦截默认粘贴（否则会走官方创建 LoadImage 节点的逻辑）
+                            // 拦截默认粘贴
                             evt.preventDefault();
                             evt.stopPropagation();
 
-                            // 在目标节点环境执行
-                            await handleIncomingFiles.call(target, files);
+                            // 对所有目标节点执行粘贴
+                            await Promise.all(targets.map(t => {
+                                if (t._customHandleIncomingFiles) {
+                                    return t._customHandleIncomingFiles(files);
+                                }
+                                return Promise.resolve();
+                            }));
                         } catch (err) {
                             console.warn('paste 处理异常:', err);
                         }
