@@ -53,9 +53,9 @@ function calculateImageLayout(node, imageCount) {
     const PADDING = 8;
     
     // 为顶部输入控件和图片标题预留更多空间
-    const TOP_MARGIN = 240; // 再向下腾挪空间，容纳新增控件（如"应用透明到图像"开关）
+    const TOP_MARGIN = 185; // 再向下腾挪空间，容纳新增控件（如"应用透明到图像"开关）
     const TITLE_HEIGHT = 25; // 图片标题的高度
-    const BOTTOM_CONTROLS_HEIGHT = 30; // 底部控制按钮的高度
+    const BOTTOM_CONTROLS_HEIGHT = 25; // 底部控制按钮的高度
     
     const availableWidth = containerWidth - (PADDING * 2);
     const availableHeight = containerHeight - (PADDING * 2) - TOP_MARGIN - TITLE_HEIGHT - BOTTOM_CONTROLS_HEIGHT;
