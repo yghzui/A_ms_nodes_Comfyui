@@ -2508,6 +2508,32 @@ app.registerExtension({
                 // ---------------- 新增结束 ----------------
             });
 
+            // 限制节点最小尺寸
+            chainCallback(nodeType.prototype, "onResize", function(size) {
+                const TOP_MARGIN = 185;
+                const minHeight = TOP_MARGIN + 200;
+                const buttonSpacing = 10;
+                const selectW = 60;
+                const deselectW = 70;
+                const invertW = 60;
+                const clearW = 90;
+                const showSelectedW = 90;
+                const reuseMaskW = 100;
+                const leftMargin = 10;
+                const totalButtonWidth = leftMargin + 
+                                       selectW + buttonSpacing + 
+                                       deselectW + buttonSpacing + 
+                                       invertW + buttonSpacing + 
+                                       clearW + buttonSpacing + 
+                                       clearW + buttonSpacing + 
+                                       showSelectedW + buttonSpacing + 
+                                       reuseMaskW;
+                const minWidth = totalButtonWidth + 10;
+
+                if (size[0] < minWidth) size[0] = minWidth;
+                if (size[1] < minHeight) size[1] = minHeight;
+            });
+
             // 新增：为节点追加右键菜单"粘贴"项（与官方 Load Image 一致的入口）
             chainCallback(nodeType.prototype, "getExtraMenuOptions", function(_, options) {
                 const self = this;
