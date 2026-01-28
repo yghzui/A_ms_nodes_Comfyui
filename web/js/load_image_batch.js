@@ -439,6 +439,49 @@ function drawNodeImages(node, ctx) {
             height: clickH
         };
         
+        // 绘制复选框（仅在多图片模式且非悬浮时显示，或者悬浮时已经绘制了）
+        // 但这里我们统一逻辑：复选框在图片内部左上角
+        const checkboxSize = 16;
+        const checkboxMargin = 5;
+        // ... 复选框绘制逻辑已经在前面了，这里不需要重复
+
+        // 始终显示图片尺寸（宽x高），无论是否单图模式
+        if (img.complete && img.naturalWidth > 0) {
+            const dimText = `${img.naturalWidth}x${img.naturalHeight}`;
+            ctx.font = '12px Arial';
+            const dimTextWidth = ctx.measureText(dimText).width;
+            const dimPadding = 4;
+            const dimBgWidth = dimTextWidth + dimPadding * 2;
+            const dimBgHeight = 20;
+            
+            // 居中显示在图片底部
+            const dimX = rect.x + (rect.width - dimBgWidth) / 2;
+            const dimY = rect.y + rect.height - dimBgHeight - 5; // 距离底部 5px
+            
+            // 绘制背景（半透明灰色）
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.beginPath();
+            // 圆角矩形
+            const r = 4;
+            ctx.moveTo(dimX + r, dimY);
+            ctx.lineTo(dimX + dimBgWidth - r, dimY);
+            ctx.quadraticCurveTo(dimX + dimBgWidth, dimY, dimX + dimBgWidth, dimY + r);
+            ctx.lineTo(dimX + dimBgWidth, dimY + dimBgHeight - r);
+            ctx.quadraticCurveTo(dimX + dimBgWidth, dimY + dimBgHeight, dimX + dimBgWidth - r, dimY + dimBgHeight);
+            ctx.lineTo(dimX + r, dimY + dimBgHeight);
+            ctx.quadraticCurveTo(dimX, dimY + dimBgHeight, dimX, dimY + dimBgHeight - r);
+            ctx.lineTo(dimX, dimY + r);
+            ctx.quadraticCurveTo(dimX, dimY, dimX + r, dimY);
+            ctx.closePath();
+            ctx.fill();
+            
+            // 绘制文字（白色）
+            ctx.fillStyle = '#fff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(dimText, dimX + dimBgWidth / 2, dimY + dimBgHeight / 2);
+        }
+
         // 在多图片模式下，只在悬浮时显示文件名和清除按钮
         if (!node._customSingleImageMode) {
             const mouseInImage = node._customMouseX !== undefined && node._customMouseY !== undefined &&
