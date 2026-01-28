@@ -758,7 +758,6 @@ function drawNodeImages(node, ctx) {
         const clearW = 90;
         const showSelectedW = 90;
         const reuseMaskW = 100;
-        const rangeW = 110;
         const selectAllButtonX = 10;
         const deselectAllButtonX = selectAllButtonX + selectW + buttonSpacing;
         const invertSelectionButtonX = deselectAllButtonX + deselectW + buttonSpacing;
@@ -766,7 +765,6 @@ function drawNodeImages(node, ctx) {
         const clearUnselectedButtonX = clearSelectedButtonX + clearW + buttonSpacing;
         const showSelectedButtonX = clearUnselectedButtonX + clearW + buttonSpacing;
         const reuseMaskButtonX = showSelectedButtonX + showSelectedW + buttonSpacing;
-        const rangeButtonX = reuseMaskButtonX + reuseMaskW + buttonSpacing;
         const mouseInSelectAllButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
             node._customMouseX >= selectAllButtonX && node._customMouseX <= selectAllButtonX + selectW &&
             node._customMouseY >= buttonY && node._customMouseY <= buttonY + buttonHeight;
@@ -787,9 +785,6 @@ function drawNodeImages(node, ctx) {
             node._customMouseY >= buttonY && node._customMouseY <= buttonY + buttonHeight;
         const mouseInReuseMaskButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
             node._customMouseX >= reuseMaskButtonX && node._customMouseX <= reuseMaskButtonX + reuseMaskW &&
-            node._customMouseY >= buttonY && node._customMouseY <= buttonY + buttonHeight;
-        const mouseInRangeButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
-            node._customMouseX >= rangeButtonX && node._customMouseX <= rangeButtonX + rangeW &&
             node._customMouseY >= buttonY && node._customMouseY <= buttonY + buttonHeight;
         const r = 6;
         function drawButton(x, w, text, hover) {
@@ -823,7 +818,6 @@ function drawNodeImages(node, ctx) {
         drawButton(clearUnselectedButtonX, clearW, '清除未选', mouseInClearUnselectedButton);
         drawButton(showSelectedButtonX, showSelectedW, node._customShowOnlySelected ? '显示全部' : '仅显示勾选', mouseInShowSelectedButton);
         drawButton(reuseMaskButtonX, reuseMaskW, node._customMaskReuseEnabled ? '遮罩复用✓' : '遮罩复用', mouseInReuseMaskButton);
-        drawButton(rangeButtonX, rangeW, '显示第 i 到 j 个', mouseInRangeButton);
         node._customSelectAllButtonRect = {
             x: selectAllButtonX,
             y: buttonY,
@@ -864,12 +858,6 @@ function drawNodeImages(node, ctx) {
             x: reuseMaskButtonX,
             y: buttonY,
             width: reuseMaskW,
-            height: buttonHeight
-        };
-        node._customRangeButtonRect = {
-            x: rangeButtonX,
-            y: buttonY,
-            width: rangeW,
             height: buttonHeight
         };
     }
@@ -1248,8 +1236,7 @@ function populate(imagePaths) {
                     { r: this._customClearSelectedButtonRect, t: '清除选中的图片' },
                     { r: this._customClearUnselectedButtonRect, t: '清除未选的图片' },
                     { r: this._customShowSelectedButtonRect, t: this._customShowOnlySelected ? '恢复显示全部图片' : '仅显示勾选的图片' },
-                    { r: this._customReuseMaskButtonRect, t: '相同尺寸的图片复用第一个已编辑遮罩' },
-                    { r: this._customRangeButtonRect, t: '按索引范围显示图片（索引从 1 开始）' }
+                    { r: this._customReuseMaskButtonRect, t: '相同尺寸的图片复用第一个已编辑遮罩' }
                 ];
                 for (const c of controls) {
                     if (!c.r) continue;
@@ -1508,55 +1495,6 @@ function populate(imagePaths) {
                             const cur = Number(triggerWidget.value);
                             triggerWidget.value = (Number.isFinite(cur) ? cur : 0) + 1;
                         }
-                    }
-                    return true;
-                }
-            }
-            if (this._customRangeButtonRect) {
-                const ax = nodePos[0] + this._customRangeButtonRect.x;
-                const ay = nodePos[1] + this._customRangeButtonRect.y;
-                const aw = this._customRangeButtonRect.width;
-                const ah = this._customRangeButtonRect.height;
-                if (e.canvasX >= ax && e.canvasX <= ax + aw && e.canvasY >= ay && e.canvasY <= ay + ah) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const total = this._customImagePaths ? this._customImagePaths.length : 0;
-                    if (!total) return true;
-                    const currentStart = Number.isInteger(this._customViewStartIndex) ? this._customViewStartIndex : 1;
-                    const currentEnd = Number.isInteger(this._customViewEndIndex) ? this._customViewEndIndex : total;
-                    const defaultText = `${currentStart}-${currentEnd}`;
-                    const hint = `输入要显示的范围 i-j，索引从 1 到 ${total}。\n例如 1-${total} 或 3-10，留空恢复全部显示。`;
-                    const input = window.prompt(hint, defaultText);
-                    if (input === null) return true;
-                    const text = String(input).trim();
-                    if (!text) {
-                        this._customViewStartIndex = undefined;
-                        this._customViewEndIndex = undefined;
-                    } else {
-                        const m = text.match(/^(\d+)\s*[-,]\s*(\d+)$/);
-                        if (!m) {
-                            alert('范围格式应为 i-j，例如 1-10。');
-                            return true;
-                        }
-                        let startIndex = parseInt(m[1], 10);
-                        let endIndex = parseInt(m[2], 10);
-                        if (!Number.isFinite(startIndex) || !Number.isFinite(endIndex)) {
-                            alert('范围必须是整数。');
-                            return true;
-                        }
-                        if (startIndex < 1) startIndex = 1;
-                        if (endIndex > total) endIndex = total;
-                        if (startIndex > endIndex) {
-                            const t = startIndex;
-                            startIndex = endIndex;
-                            endIndex = t;
-                        }
-                        this._customViewStartIndex = startIndex;
-                        this._customViewEndIndex = endIndex;
-                    }
-                    if (this._customImagePaths && this._customImagePaths.length > 0) {
-                        calculateImageLayout(this, this._customImagePaths.length);
-                        app.graph.setDirtyCanvas(true, false);
                     }
                     return true;
                 }
