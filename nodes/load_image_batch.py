@@ -28,8 +28,6 @@ class LoadImageBatchAdvanced:
                 "reuse_mask": ("BOOLEAN", {"default": False, "label": "遮罩复用(同尺寸复用首个[input])"}),
             },
             "optional": {
-                # 增加一个刷新开关，当用户重新选择相同文件时也能强制刷新
-                "trigger": ("INT", {"default": 0, "min": 0, "max": 0xffffffffff, "widget": "hidden"}),
                 "batch_manager": ("MY_BATCH_MANAGER",),
             }
         }
@@ -40,7 +38,7 @@ class LoadImageBatchAdvanced:
     FUNCTION = "load_images"
     CATEGORY = "A_my_nodes/Image"
 
-    def load_images(self, image_paths, image_path_use="", normalize_mask=True, apply_alpha_to_image=False, reuse_mask=False, trigger=0, batch_manager=None):
+    def load_images(self, image_paths, image_path_use="", normalize_mask=True, apply_alpha_to_image=False, reuse_mask=False, batch_manager=None):
         use_str = (image_path_use or '').strip() or (image_paths or '').strip()
         if not use_str:
             return ([], [], [], 0, "")

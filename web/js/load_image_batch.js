@@ -1489,13 +1489,6 @@ function populate(imagePaths) {
                     if (widget) {
                         widget.value = !!this._customMaskReuseEnabled;
                     }
-                    if (this._customImagePaths && this._customImagePaths.length > 0) {
-                        const triggerWidget = this.widgets.find(w => w.name === "trigger");
-                        if (triggerWidget) {
-                            const cur = Number(triggerWidget.value);
-                            triggerWidget.value = (Number.isFinite(cur) ? cur : 0) + 1;
-                        }
-                    }
                     return true;
                 }
             }
@@ -2204,13 +2197,8 @@ app.registerExtension({
 
                 const pathWidget = node.widgets.find((w) => w.name === "image_paths");
                 const pathUseWidget = node.widgets.find((w) => w.name === "image_path_use");
-                const triggerWidget = node.widgets.find((w) => w.name === "trigger");
                 if (pathWidget) pathWidget.hidden = true;
                 if (pathUseWidget) pathUseWidget.hidden = false;
-                if (triggerWidget) {
-                    const v = Number(triggerWidget.value);
-                    if (!Number.isFinite(v)) triggerWidget.value = 1;
-                }
 
                 const fileInput = document.createElement("input");
                 Object.assign(fileInput, {
@@ -2255,8 +2243,6 @@ app.registerExtension({
                                 const joined = allPaths.join(',');
                                 pathWidget.value = joined;
                                 if (pathUseWidget) pathUseWidget.value = joined;
-                                const cur = Number(triggerWidget?.value);
-                                triggerWidget.value = (Number.isFinite(cur) ? cur : 0) + 1;
                                 populate.call(node, allPaths);
                             }
 
@@ -2403,8 +2389,6 @@ app.registerExtension({
                             useWidget.value = finalList.join(',');
                         }
                     }
-                    const cur = Number(triggerWidget?.value);
-                    triggerWidget.value = (Number.isFinite(cur) ? cur : 0) + 1;
                     populate.call(node, finalList);
                 }
 
@@ -2657,11 +2641,6 @@ app.registerExtension({
             // 当工作流加载时，恢复预览
             chainCallback(nodeType.prototype, "onConfigure", function() {
                 const imagePathsWidget = this.widgets.find(w => w.name === "image_paths");
-                const triggerWidget = this.widgets.find(w => w.name === "trigger");
-                if (triggerWidget) {
-                    const v = Number(triggerWidget.value);
-                    triggerWidget.value = Number.isFinite(v) ? v : 1;
-                }
                 if (imagePathsWidget && imagePathsWidget.value) {
                     const useWidget = this.widgets.find(w => w.name === "image_path_use");
                     if (useWidget && (!useWidget.value || !String(useWidget.value).trim())) {
