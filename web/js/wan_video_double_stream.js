@@ -4,78 +4,63 @@ import { RgthreeBaseWidget, RgthreeBetterButtonWidget } from "./utils_widgets.js
 import { moveArrayItem, showTopNotification } from "./shared_utils.js";
 import { rgthree } from "./rgthree.js";
 import { api } from "../../../scripts/api.js";
+import { rgthreeApi } from "./rgthree_api.js";
 
 // --- Helper Functions ---
 
 // Helper function to show the LoRA chooser menu (From LoadLoraMerge)
-async function showLoraChooser(event, callback, parentMenu, loras, buttonNode, buttonWidget) {
+async function showLoraChooser(event, callback, parentMenu, loras, buttonNode) {
     const canvas = app.canvas;
     if (!loras) {
         try {
-            const loraFiles = await api.getModels('loras');
-            loras = ["None", ...loraFiles.map((l) => l.name)];
+            const useOfficial = buttonNode?.properties?.useOfficialLoraList ?? false;
+            if (useOfficial) {
+                const loraFiles = await api.getModels('loras');
+                loras = ["None", ...loraFiles.map((l) => l.name)];
+            } else {
+                loras = ["None", ...(await rgthreeApi.getLoras().then((loras) => loras.map((l) => l.file)))];
+            }
         } catch (e) {
             console.error("Failed to fetch LoRAs:", e);
             loras = ["None"];
         }
     }
+
+    const menuItems = loras.map(lora => ({
+        content: lora,
+        callback: () => callback(lora)
+    }));
     
     let menuEvent = event;
     let targetX, targetY;
 
-    if (buttonNode && buttonWidget) {
-        const canvasRect = canvas.canvas.getBoundingClientRect();
-        const ds = canvas.ds || { scale: 1, offset: [0, 0] };
-        const nodeX = buttonNode.pos[0];
-        const nodeY = buttonNode.pos[1];
-        const widgetY = buttonWidget.last_y || 0;
-        const widgetLeftMargin = 15;
-        
-        const anchorCanvasX = nodeX + widgetLeftMargin;
-        const anchorCanvasY = nodeY + widgetY;
-        
-        targetX = (anchorCanvasX + ds.offset[0]) * ds.scale + canvasRect.left;
-        targetY = (anchorCanvasY + ds.offset[1]) * ds.scale + canvasRect.top;
-        
-        if (event && (buttonNode.graph !== app.graph || targetX < 0 || targetY < 0)) {
-             if (event.clientX !== undefined) {
-                targetX = event.clientX;
-                targetY = event.clientY;
-             }
-        }
-
-        menuEvent = new MouseEvent('contextmenu', { clientX: targetX, clientY: targetY, bubbles: true, cancelable: true, view: window });
-    } else if (event && event.clientX !== undefined) {
+    if (event && event.clientX !== undefined) {
         targetX = event.clientX;
         targetY = event.clientY;
-        menuEvent = new MouseEvent('contextmenu', { clientX: targetX, clientY: targetY, bubbles: true, cancelable: true, view: window });
+        menuEvent = new MouseEvent('contextmenu', {
+            clientX: targetX,
+            clientY: targetY,
+            bubbles: true,
+            cancelable: true,
+            view: window
+        });
     }
 
-    const contextMenu = new LiteGraph.ContextMenu(loras, {
+    const contextMenu = new LiteGraph.ContextMenu(menuItems, {
         event: menuEvent,
         parentMenu: parentMenu || undefined,
         title: "Select LoRA",
         scale: Math.max(1, canvas.ds?.scale || 1),
         className: "dark",
-        callback: (value) => {
-            if (callback) callback(value);
-        }
+        callback,
     });
 
+    // Simple positioning fix if needed, but LiteGraph usually handles it well with event
     if (contextMenu && contextMenu.root && targetX !== undefined && targetY !== undefined) {
-        requestAnimationFrame(() => {
-            const rect = contextMenu.root.getBoundingClientRect();
-            const bodyRect = document.body.getBoundingClientRect();
-            contextMenu.root.style.left = targetX + 'px';
-            let finalY = targetY;
-            if (bodyRect.height && targetY + rect.height > bodyRect.height - 10) {
-                finalY = Math.max(10, bodyRect.height - rect.height - 10);
-            }
-            contextMenu.root.style.top = finalY + 'px';
-            if (bodyRect.width && targetX + rect.width > bodyRect.width - 10) {
-                contextMenu.root.style.left = Math.max(10, bodyRect.width - rect.width - 10) + 'px';
-            }
-        });
+         // Let LiteGraph handle initial positioning, just ensure it stays on screen if we want
+         // But the previous complex manual positioning might have been fighting with LiteGraph's own logic
+         // or the custom widget's coordinate system.
+         // Let's simplify and rely on the mouse event which is robust.
     }
 }
 
@@ -93,6 +78,7 @@ class LabelWidget extends RgthreeBaseWidget {
         };
     }
     draw(ctx, node, w, posY, height) {
+        this.node = node; // Save node reference for interaction
         ctx.save();
         ctx.fillStyle = "#888"; 
         ctx.font = "bold 12px Arial";
@@ -273,10 +259,11 @@ class WanVideoLoraWidget extends RgthreeBaseWidget {
     serializeValue(node, index) { return { ...this.value }; }
     onToggleDown() { this.value.on = !this.value.on; this.cancelMouseDown(); return true; }
     onLoraDown(event, pos, node) {
+        const targetNode = node || this.node;
         showLoraChooser(event, (value) => {
             if (typeof value === "string") this.value.lora = value;
-            node.setDirtyCanvas(true, true);
-        }, null, null, node, this);
+            targetNode?.setDirtyCanvas(true, true);
+        }, null, null, targetNode);
         return true;
     }
     onStrengthDecDown() { this.stepStrength(-1); return true;}
@@ -741,6 +728,13 @@ app.registerExtension({
                         this.setDirtyCanvas(true, true);
                     } 
                 },
+                {
+                    content: this.properties?.useOfficialLoraList ? "Use Custom Lora List" : "Use Official Lora List",
+                    callback: () => {
+                        if (!this.properties) this.properties = {};
+                        this.properties['useOfficialLoraList'] = !this.properties.useOfficialLoraList;
+                    }
+                },
             ];
 
             new LiteGraph.ContextMenu(menuItems, { 
@@ -750,6 +744,25 @@ app.registerExtension({
                 scale: Math.max(1, app?.canvas?.ds?.scale || 1) 
             });
             return undefined;
+        };
+
+        const getExtraMenuOptions = nodeType.prototype.getExtraMenuOptions;
+        nodeType.prototype.getExtraMenuOptions = function(canvas, options) {
+            let menu = [];
+            if (getExtraMenuOptions) {
+                menu = getExtraMenuOptions.apply(this, arguments) || [];
+            }
+            
+            const useOfficial = this.properties?.useOfficialLoraList ?? false;
+            menu.push({
+                content: useOfficial ? "Use Custom Lora List (Default)" : "Use Official Lora List",
+                callback: () => {
+                    if (!this.properties) this.properties = {};
+                    this.properties['useOfficialLoraList'] = !useOfficial;
+                }
+            });
+            
+            return menu;
         };
         
         // Add getSlotInPosition for right-click menu support

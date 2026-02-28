@@ -3,83 +3,58 @@ import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, 
 import { RgthreeBaseWidget, RgthreeBetterButtonWidget, RgthreeDividerWidget, } from "./utils_widgets.js";
 import { moveArrayItem, removeArrayItem, showTopNotification } from "./shared_utils.js";
 import { rgthree } from "./rgthree.js";
+import { rgthreeApi } from "./rgthree_api.js";
 
 console.log("Loaded load_lora_merge.js");
 
 import { api } from "../../../scripts/api.js";
 
 // Helper function to show the LoRA chooser menu
-async function showLoraChooser(event, callback, parentMenu, loras, buttonNode, buttonWidget) {
+async function showLoraChooser(event, callback, parentMenu, loras, buttonNode) {
     const canvas = app.canvas;
     if (!loras) {
         try {
-            const loraFiles = await api.getModels('loras');
-            loras = ["None", ...loraFiles.map((l) => l.name)];
+            const useOfficial = buttonNode?.properties?.useOfficialLoraList ?? false;
+            if (useOfficial) {
+                const loraFiles = await api.getModels('loras');
+                loras = ["None", ...loraFiles.map((l) => l.name)];
+            } else {
+                loras = ["None", ...(await rgthreeApi.getLoras().then((loras) => loras.map((l) => l.file)))];
+            }
         } catch (e) {
             console.error("[LoadLoraMerge] Failed to fetch LoRAs:", e);
             loras = ["None"];
         }
     }
-    
+
+    const menuItems = loras.map(lora => ({
+        content: lora,
+        callback: () => callback(lora)
+    }));
+
     let menuEvent = event;
     let targetX, targetY;
 
-    if (buttonNode && buttonWidget) {
-        const canvasRect = canvas.canvas.getBoundingClientRect();
-        const ds = canvas.ds || { scale: 1, offset: [0, 0] };
-        const nodeX = buttonNode.pos[0];
-        const nodeY = buttonNode.pos[1];
-        const widgetY = buttonWidget.last_y || 0;
-        const widgetLeftMargin = 15;
-        
-        const anchorCanvasX = nodeX + widgetLeftMargin;
-        const anchorCanvasY = nodeY + widgetY;
-        
-        targetX = (anchorCanvasX + ds.offset[0]) * ds.scale + canvasRect.left;
-        targetY = (anchorCanvasY + ds.offset[1]) * ds.scale + canvasRect.top;
-        
-        // Fallback to event coordinates if node calculation seems off (e.g. negative or way out of bounds)
-        // or if we are in a subgraph (node.graph !== app.graph) which makes node.pos relative
-        if (event && (buttonNode.graph !== app.graph || targetX < 0 || targetY < 0)) {
-             if (event.clientX !== undefined) {
-                targetX = event.clientX;
-                targetY = event.clientY;
-             }
-        }
-
-        menuEvent = new MouseEvent('contextmenu', { clientX: targetX, clientY: targetY, bubbles: true, cancelable: true, view: window });
-    } else if (event && event.clientX !== undefined) {
+    if (event && event.clientX !== undefined) {
         targetX = event.clientX;
         targetY = event.clientY;
-        menuEvent = new MouseEvent('contextmenu', { clientX: targetX, clientY: targetY, bubbles: true, cancelable: true, view: window });
+        menuEvent = new MouseEvent('contextmenu', {
+            clientX: targetX,
+            clientY: targetY,
+            bubbles: true,
+            cancelable: true,
+            view: window
+        });
     }
 
-    const contextMenu = new LiteGraph.ContextMenu(loras, {
+    const contextMenu = new LiteGraph.ContextMenu(menuItems, {
         event: menuEvent,
         parentMenu: parentMenu || undefined,
         title: "Select LoRA",
         scale: Math.max(1, canvas.ds?.scale || 1),
         className: "dark",
-        callback: (value) => {
-            if (callback) callback(value);
-        }
+        callback,
     });
-
-    if (contextMenu && contextMenu.root && targetX !== undefined && targetY !== undefined) {
-        requestAnimationFrame(() => {
-            const rect = contextMenu.root.getBoundingClientRect();
-            const bodyRect = document.body.getBoundingClientRect();
-            contextMenu.root.style.left = targetX + 'px';
-            let finalY = targetY;
-            if (bodyRect.height && targetY + rect.height > bodyRect.height - 10) {
-                finalY = Math.max(10, bodyRect.height - rect.height - 10);
-            }
-            contextMenu.root.style.top = finalY + 'px';
-            if (bodyRect.width && targetX + rect.width > bodyRect.width - 10) {
-                contextMenu.root.style.left = Math.max(10, bodyRect.width - rect.width - 10) + 'px';
-            }
-        });
-    }
 }
 
 // Dual Toggle Widget for settings
@@ -112,6 +87,7 @@ class LoadLoraMergeDualToggleWidget extends RgthreeBaseWidget {
     }
 
     draw(ctx, node, w, posY, height) {
+        this.node = node; // Save node reference for interaction
         ctx.save();
         const margin = 10, innerMargin = margin * 0.33, lowQuality = isLowQuality(), midY = posY + height * 0.5;
         let posX = margin;
@@ -270,10 +246,11 @@ class LoadLoraMergeWidget extends RgthreeBaseWidget {
     }
     onToggleDown() { this.value.on = !this.value.on; this.cancelMouseDown(); return true; }
     onLoraDown(event, pos, node) {
+        const targetNode = node || this.node;
         showLoraChooser(event, (value) => {
             if (typeof value === "string") this.value.lora = value;
-            node.setDirtyCanvas(true, true);
-        }, null, null, node, this);
+            targetNode?.setDirtyCanvas(true, true);
+        }, null, null, targetNode);
         return true; // Indicate we handled it
     }
     onStrengthDecDown() { this.stepStrength(-1); return true;}
@@ -444,59 +421,80 @@ app.registerExtension({
             const canMoveUp = !!this.widgets[index - 1]?.name?.startsWith("LORA_");
             const canMoveDown = !!this.widgets[index + 1]?.name?.startsWith("LORA_");
 
-            // 获取所有LoRA widgets的索引范围
-            const loraWidgets = this.widgets.filter(w => w.name?.startsWith("LORA_"));
-            const firstLoraIndex = this.widgets.findIndex(w => w.name?.startsWith("LORA_"));
-            const lastLoraIndex = this.widgets.map((w, i) => w.name?.startsWith("LORA_") ? i : -1).filter(i => i !== -1).pop();
-            const isFirst = index === firstLoraIndex;
-            const isLast = index === lastLoraIndex;
-
             const menuItems = [
-                { content: `${widget.value.on ? "⚫" : "🟢"} Toggle ${widget.value.on ? "Off" : "On"}`, callback: () => { widget.value.on = !widget.value.on; } },
-                { content: `📋 Copy Path`, disabled: !widget.value.lora || widget.value.lora === "None", callback: () => {
-                    navigator.clipboard.writeText(widget.value.lora).then(() => {
-                        console.log(`[LoadLoraMerge] Copied model path: ${widget.value.lora}`);
-                        showTopNotification(`Copied: ${widget.value.lora}`, 'success');
-                    }).catch(err => {
-                        console.error('[LoadLoraMerge] Copy failed:', err);
-                        // Fallback method
-                        try {
-                            const textArea = document.createElement('textarea');
-                            textArea.value = widget.value.lora;
-                            document.body.appendChild(textArea);
-                            textArea.select();
-                            document.execCommand('copy');
-                            document.body.removeChild(textArea);
-                            console.log(`[LoadLoraMerge] Copied model path(fallback): ${widget.value.lora}`);
-                            showTopNotification(`Copied: ${widget.value.lora}`, 'success');
-                        } catch (fallbackErr) {
-                            console.error('[LoadLoraMerge] Fallback copy also failed:', fallbackErr);
-                            showTopNotification('Copy failed, please copy manually', 'error');
+                {
+                    content: `${widget.value.on ? "⚫" : "🟢"} Toggle ${widget.value.on ? "Off" : "On"}`,
+                    callback: () => { widget.value.on = !widget.value.on; },
+                },
+                {
+                    content: `📋 Copy Path`,
+                    disabled: !widget.value.lora || widget.value.lora === "None",
+                    callback: () => {
+                        if (widget.value.lora && widget.value.lora !== "None") {
+                            navigator.clipboard.writeText(widget.value.lora).then(() => {
+                                showTopNotification(`Copied: ${widget.value.lora}`, 'success');
+                            }).catch(err => {
+                                console.error('Copy failed:', err);
+                            });
                         }
-                    });
-                }},
-                { content: `⬆️ Move Up`, disabled: !canMoveUp, callback: () => moveArrayItem(this.widgets, widget, index - 1) },
-                { content: `⬇️ Move Down`, disabled: !canMoveDown, callback: () => moveArrayItem(this.widgets, widget, index + 1) },
-                { content: `⏫ Move to Top`, disabled: isFirst || loraWidgets.length <= 1, callback: () => {
-                    // 移动到第一个LoRA widget的位置
-                    if (firstLoraIndex !== -1 && index !== firstLoraIndex) {
-                        moveArrayItem(this.widgets, widget, firstLoraIndex);
-                        showTopNotification('Moved to top', 'success');
+                    },
+                },
+                {
+                    content: `⬆️ Move Up`,
+                    disabled: !canMoveUp,
+                    callback: () => { moveArrayItem(this.widgets, widget, index - 1); },
+                },
+                {
+                    content: `⬇️ Move Down`,
+                    disabled: !canMoveDown,
+                    callback: () => { moveArrayItem(this.widgets, widget, index + 1); },
+                },
+                {
+                    content: `🗑️ Delete`,
+                    callback: () => { removeArrayItem(this.widgets, widget); },
+                },
+                {
+                    content: `🗑️ Clear All LoRAs`,
+                    callback: () => {
+                        this.widgets = this.widgets.filter(widget => !widget.name || !widget.name.startsWith("LORA_"));
+                        this.setDirtyCanvas(true, true);
+                    },
+                },
+                {
+                    content: this.properties?.useOfficialLoraList ? "Use Custom Lora List" : "Use Official Lora List",
+                    callback: () => {
+                        if (!this.properties) this.properties = {};
+                        this.properties['useOfficialLoraList'] = !this.properties.useOfficialLoraList;
                     }
-                }},
-                { content: `⏬ Move to Bottom`, disabled: isLast || loraWidgets.length <= 1, callback: () => {
-                    // 移动到最后一个LoRA widget的位置
-                    if (lastLoraIndex !== -1 && index !== lastLoraIndex) {
-                        moveArrayItem(this.widgets, widget, lastLoraIndex);
-                        showTopNotification('Moved to bottom', 'success');
-                    }
-                }},
-                { content: `🗑️ Delete`, callback: () => removeArrayItem(this.widgets, widget) },
-                { content: `🗑️ Clear All`, callback: () => { this.widgets = this.widgets.filter(w => !w.name?.startsWith("LORA_")); } },
+                },
             ];
-
-            new LiteGraph.ContextMenu(menuItems, { title: "LoRA Item", event: rgthree.lastCanvasMouseEvent, className: "dark", scale: Math.max(1, app?.canvas?.ds?.scale || 1) });
+            
+            new LiteGraph.ContextMenu(menuItems, {  
+                title: "LoRA Item", 
+                event: rgthree.lastCanvasMouseEvent, 
+                className: "dark", 
+                scale: Math.max(1, app?.canvas?.ds?.scale || 1) 
+            });
             return undefined;
+        };
+
+        const getExtraMenuOptions = nodeType.prototype.getExtraMenuOptions;
+        nodeType.prototype.getExtraMenuOptions = function(canvas, options) {
+            let menu = [];
+            if (getExtraMenuOptions) {
+                menu = getExtraMenuOptions.apply(this, arguments) || [];
+            }
+            
+            const useOfficial = this.properties?.useOfficialLoraList ?? false;
+            menu.push({
+                content: useOfficial ? "Use Custom Lora List (Default)" : "Use Official Lora List",
+                callback: () => {
+                    if (!this.properties) this.properties = {};
+                    this.properties['useOfficialLoraList'] = !useOfficial;
+                }
+            });
+            
+            return menu;
         };
         
         // Add getSlotInPosition for right-click menu support

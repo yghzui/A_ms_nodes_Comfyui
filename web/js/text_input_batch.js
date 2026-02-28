@@ -93,16 +93,19 @@ function getItems(node) {
         const arr = JSON.parse(widget.value || "[]");
         const currentIndex = getCurrentIndex(node); // 获取当前选中索引
         
+        // 确保至少有一项
+        if (arr.length === 0) {
+            arr.push({ title: "prompt_0", content: "", enabled: true });
+        }
+        
         return arr.map((item, index) => {
             if (typeof item === 'object' && item !== null && 'title' in item && 'content' in item) {
                 // 新格式数据
-                // 如果是当前选中项，强制enabled为true
-                // 否则使用保存的enabled状态，如果未定义则默认为true
-                const isSelected = index === currentIndex;
+                // 移除强制当前选中项为true的逻辑，保持原始enabled状态
                 return {
                     title: String(item.title || `prompt_${index}`),
                     content: String(item.content || ""),
-                    enabled: isSelected ? true : (item.enabled !== false)
+                    enabled: item.enabled !== false
                 };
             } else {
                 // 旧格式数据，转换为新格式
@@ -119,26 +122,44 @@ function getItems(node) {
     }
 }
 
+// {{ AURA-X: Add - 标题处理工具函数 }}
+function getBaseTitle(title) {
+    const str = String(title || "");
+    const match = str.match(/^(.*)_\d+$/);
+    return match ? match[1] : str;
+}
+
+function normalizeTitle(title, index) {
+    const base = getBaseTitle(title);
+    return `${base}_${index}`;
+}
+
 // {{ AURA-X: Modify - 更新setItems函数，保存enabled状态. }}
 function setItems(node, arr) {
     const currentIndex = getCurrentIndex(node); // 获取当前选中索引
     
-    // 确保数组中的每个项目都是正确的格式
+    // 确保数组中的每个项目都是正确的格式，并强制标题格式
     const formattedArr = arr.map((item, index) => {
-        const isSelected = index === currentIndex;
+        // 强制标题格式：base_index
+        let title = "";
+        let content = "";
+        let enabled = true;
+        
         if (typeof item === 'object' && item !== null) {
-            return {
-                title: String(item.title || `prompt_${index}`),
-                content: String(item.content || ""),
-                enabled: isSelected ? true : (item.enabled !== false)
-            };
+            title = normalizeTitle(item.title || `prompt`, index);
+            content = String(item.content || "");
+            enabled = item.enabled !== false; // 移除强制逻辑
         } else {
-            return {
-                title: `prompt_${index}`,
-                content: String(item || ""),
-                enabled: true
-            };
+            title = `prompt_${index}`;
+            content = String(item || "");
+            enabled = true;
         }
+        
+        return {
+            title,
+            content,
+            enabled
+        };
     });
     
     const json = JSON.stringify(formattedArr);
@@ -292,6 +313,10 @@ function installAddButton(node) {
             content: ""
         });
         setItems(node, items);
+        
+        // 自动选中新添加的项 (如果是 combo 模式，这很有用)
+        setIndexSelectorValue(node, newIndex);
+
         const layout = layoutCells(node, items);
         ensureTextareas(node, layout, items);
         app.graph.setDirtyCanvas(true, true);
@@ -354,8 +379,44 @@ function showItemContextMenu(node, index, event) {
     const Lite = window.LiteGraph || window?.app?.canvas?.graph?.constructor;
 
     const doDelete = () => {
+        // 至少保留一项
+        if (items.length <= 1) {
+            alert('至少需要保留一个提示词输入！');
+            return;
+        }
+
         const next = items.slice(0, index).concat(items.slice(index + 1));
         setItems(node, next);
+        
+        // 自动切换到下一项或上一项
+        if (next.length > 0) {
+            // 如果删除的是当前选中项，或者删除的项在当前选中项之前，需要调整索引
+            const currentIndex = Number(getCurrentIndex(node));
+            const targetIndex = Number(index);
+            
+            if (targetIndex === currentIndex) {
+                // 删除的是当前选中项
+                // 如果删除的是最后一项，选中新的最后一项（即原索引减一）
+                // 如果删除的是中间项或第一项，索引不变（即选中了原来的下一项）
+                
+                if (targetIndex >= next.length) {
+                    // 删除了最后一项，选中前一项
+                    setIndexSelectorValue(node, Math.max(0, next.length - 1));
+                } else {
+                    // 删除了中间项或第一项，索引保持不变，即选中下一项
+                    // 无需操作，因为索引没变，内容变了
+                    setIndexSelectorValue(node, targetIndex);
+                }
+            } else if (targetIndex < currentIndex) {
+                // 删除的项在当前选中项之前，当前选中项的索引需要减一
+                setIndexSelectorValue(node, currentIndex - 1);
+            }
+            // 如果删除的项在当前选中项之后，当前选中项索引不变，无需处理
+        } else {
+             // 列表为空，重置索引为0
+             setIndexSelectorValue(node, 0);
+        }
+
         if (node.ensureTextareas) node.ensureTextareas();
         app.graph.setDirtyCanvas(true, true);
     };
@@ -363,6 +424,18 @@ function showItemContextMenu(node, index, event) {
         if (!hasUp) return;
         const next = moveItem(items, index, index - 1);
         setItems(node, next);
+        
+        // 如果移动的是当前选中项，跟随移动
+        const currentIndex = Number(getCurrentIndex(node));
+        const targetIndex = Number(index);
+        
+        if (targetIndex === currentIndex) {
+            setIndexSelectorValue(node, targetIndex - 1);
+        } else if (targetIndex - 1 === currentIndex) {
+            // 如果移动到了当前选中项的位置（即与选中项交换了位置），选中项索引需要调整
+            setIndexSelectorValue(node, targetIndex);
+        }
+        
         if (node.ensureTextareas) node.ensureTextareas();
         app.graph.setDirtyCanvas(true, true);
     };
@@ -370,6 +443,18 @@ function showItemContextMenu(node, index, event) {
         if (!hasDown) return;
         const next = moveItem(items, index, index + 1);
         setItems(node, next);
+        
+        // 如果移动的是当前选中项，跟随移动
+        const currentIndex = Number(getCurrentIndex(node));
+        const targetIndex = Number(index);
+        
+        if (targetIndex === currentIndex) {
+            setIndexSelectorValue(node, targetIndex + 1);
+        } else if (targetIndex + 1 === currentIndex) {
+            // 如果移动到了当前选中项的位置
+            setIndexSelectorValue(node, targetIndex);
+        }
+
         if (node.ensureTextareas) node.ensureTextareas();
         app.graph.setDirtyCanvas(true, true);
     };
@@ -378,8 +463,33 @@ function showItemContextMenu(node, index, event) {
         if (to == null) return;
         to = Number(to);
         if (!Number.isFinite(to)) return;
+        
+        // 限制范围
+        to = Math.max(0, Math.min(n - 1, to));
+        if (to === index) return;
+
         const next = moveItem(items, index, to);
         setItems(node, next);
+        
+        // 索引跟随逻辑
+        const currentIndex = Number(getCurrentIndex(node));
+        const targetIndex = Number(index);
+        
+        if (targetIndex === currentIndex) {
+            // 如果移动的是当前选中项，直接更新为目标索引
+            setIndexSelectorValue(node, to);
+        } else {
+            // 如果移动的不是当前选中项，但影响了当前选中项的索引
+            // 比如从选中项之前移到之后，或者从之后移到之前
+            if (targetIndex < currentIndex && to >= currentIndex) {
+                // 从前移到后（跨过选中项），选中项索引减一
+                setIndexSelectorValue(node, currentIndex - 1);
+            } else if (targetIndex > currentIndex && to <= currentIndex) {
+                // 从后移到前（跨过选中项），选中项索引加一
+                setIndexSelectorValue(node, currentIndex + 1);
+            }
+        }
+
         if (node.ensureTextareas) node.ensureTextareas();
         app.graph.setDirtyCanvas(true, true);
     };
@@ -499,6 +609,102 @@ function showItemContextMenu(node, index, event) {
     }
 }
 
+// {{ AURA-X: Add - 滚轮事件处理函数，用于在 Textarea 中支持边缘滚动穿透到 Canvas }}
+function handleTextareaWheel(e) {
+    if (e.ctrlKey || e.shiftKey) {
+        e.stopPropagation();
+        return;
+    }
+    const el = e.currentTarget;
+    if (!el) return;
+    
+    const deltaY = e.deltaY || 0;
+    const scrollingDown = deltaY > 0;
+    const scrollingUp = deltaY < 0;
+    const maxScrollTop = el.scrollHeight - el.clientHeight;
+    const scrollTop = el.scrollTop;
+    
+    const canScrollDown = scrollTop < maxScrollTop - 1;
+    const canScrollUp = scrollTop > 1;
+    
+    const atBottom = !canScrollDown;
+    const atTop = !canScrollUp;
+    
+    let edgeState = el.__edgeScrollState;
+    if (!edgeState) {
+        edgeState = { dir: 0, count: 0 };
+        el.__edgeScrollState = edgeState;
+    }
+    
+    const dir = scrollingDown ? 1 : (scrollingUp ? -1 : 0);
+    
+    // 如果没有滚动方向，或者是横向滚动，可能不需要特别处理，但为了保险起见，阻止冒泡以防止缩放
+    if (dir === 0) {
+        // 如果是纯横向滚动，可能也需要阻止冒泡，除非我们想让画布平移
+        // 这里假设主要处理纵向
+        return;
+    }
+
+    if (!atTop && !atBottom) {
+        // 在中间滚动
+        edgeState.dir = 0;
+        edgeState.count = 0;
+        e.stopPropagation(); // 阻止冒泡，让 textarea 自己滚动
+        return;
+    }
+    
+    const atEdgeInDir = (dir > 0 && atBottom) || (dir < 0 && atTop);
+    
+    if (!atEdgeInDir) {
+        // 虽然在边缘，但往回滚
+        edgeState.dir = 0;
+        edgeState.count = 0;
+        e.stopPropagation();
+        return;
+    }
+    
+    // 在边缘继续往外滚
+    if (edgeState.dir !== dir) {
+        edgeState.dir = dir;
+        edgeState.count = 1;
+        e.stopPropagation(); // 第一次到达边缘，停顿一下
+        return;
+    }
+    
+    edgeState.count += 1;
+    if (edgeState.count < 3) {
+        e.stopPropagation(); // 还没达到阈值
+        return;
+    }
+    
+    // 达到阈值，触发 Canvas 滚动
+    const canvasEl = app?.canvas?.canvas;
+    if (!canvasEl || typeof WheelEvent === 'undefined') {
+        return;
+    }
+    
+    // 构造新的事件转发给 canvas
+    const evt = new WheelEvent('wheel', {
+        deltaX: e.deltaX,
+        deltaY: e.deltaY,
+        deltaZ: e.deltaZ,
+        deltaMode: e.deltaMode,
+        clientX: e.clientX,
+        clientY: e.clientY,
+        ctrlKey: e.ctrlKey,
+        shiftKey: e.shiftKey,
+        altKey: e.altKey,
+        metaKey: e.metaKey,
+        buttons: e.buttons,
+        bubbles: true,
+        cancelable: true
+    });
+    
+    canvasEl.dispatchEvent(evt);
+    e.preventDefault();
+    e.stopPropagation();
+}
+
 // {{ AURA-X: Add - 创建标题、内容和开关的UI元素. }}
 function ensureTextareas(node, layout, items) {
     const ds = app?.canvas?.ds;
@@ -510,13 +716,477 @@ function ensureTextareas(node, layout, items) {
     const cs = window.getComputedStyle(container);
     if (cs.position === 'static') container.style.position = 'relative';
 
+    const viewMode = node.properties?._viewMode || "grid";
+    const currentIndex = getCurrentIndex(node);
+
+    // 清理辅助函数
+    const clearGridElements = () => {
+        if (node.__taEls) { node.__taEls.forEach(el => el && el.remove()); node.__taEls = []; }
+        if (node.__titleEls) { node.__titleEls.forEach(el => el && el.remove()); node.__titleEls = []; }
+        if (node.__suffixEls) { node.__suffixEls.forEach(el => el && el.remove()); node.__suffixEls = []; }
+        if (node.__toggleEls) { node.__toggleEls.forEach(el => el && el.remove()); node.__toggleEls = []; }
+        if (node.__inputEls) { node.__inputEls.forEach(el => el && el.remove()); node.__inputEls = []; }
+    };
+    
+    const clearComboElements = () => {
+        if (node.__comboSelect) { node.__comboSelect.remove(); node.__comboSelect = null; }
+        if (node.__comboTextarea) { node.__comboTextarea.remove(); node.__comboTextarea = null; }
+        if (node.__comboInputEl) { node.__comboInputEl.remove(); node.__comboInputEl = null; }
+        
+        // 新增的 combo UI 元素清理
+        if (node.__comboTitleInput) { node.__comboTitleInput.remove(); node.__comboTitleInput = null; }
+        if (node.__comboSuffixEl) { node.__comboSuffixEl.remove(); node.__comboSuffixEl = null; }
+        if (node.__comboMenuBtn) { node.__comboMenuBtn.remove(); node.__comboMenuBtn = null; }
+        if (node.__comboToggleEl) { node.__comboToggleEl.remove(); node.__comboToggleEl = null; } // 清理 Combo 模式下的复选框
+    };
+
+    if (viewMode === 'combo') {
+        clearGridElements();
+        
+        // --- Combo 模式渲染 ---
+        if (items.length === 0) {
+            clearComboElements();
+            return;
+        }
+
+        const cell = layout[0]; // Combo 模式只有一个布局单元格
+        if (!cell) return;
+
+        // 计算位置和大小
+        const sx = (node.pos[0] + cell.x + ds.offset[0]) * ds.scale + rect.left - parentRect.left;
+        const sy = (node.pos[1] + cell.y + ds.offset[1]) * ds.scale + rect.top - parentRect.top;
+        // 确保宽度和高度至少为正数
+        const sw = Math.max(0, cell.w * ds.scale);
+        const sh = Math.max(0, cell.h * ds.scale);
+        
+        const titleHeight = 24;
+        const inputBtnWidth = 16;
+        const toggleWidth = 20; // 复选框宽度
+        const menuBtnWidth = 20; // 下拉菜单按钮宽度
+        
+        // 1. 下拉菜单按钮 (▼)
+        let menuBtn = node.__comboMenuBtn;
+        if (!menuBtn) {
+            menuBtn = document.createElement('div');
+            menuBtn.textContent = "▼";
+            menuBtn.style.cssText = `
+                position: absolute; 
+                z-index: 102; 
+                cursor: pointer; 
+                margin: 0;
+                font-size: 10px;
+                line-height: 24px;
+                text-align: center;
+                user-select: none;
+                color: #eee;
+                background: #444;
+                border: 1px solid #666;
+                border-right: none;
+                border-bottom: none;
+                border-radius: 6px 0 0 0;
+                box-sizing: border-box;
+            `;
+            
+            menuBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                
+                // 显示上下文菜单作为下拉列表
+                const Lite = window.LiteGraph || window?.app?.canvas?.graph?.constructor;
+                if (!Lite || !Lite.ContextMenu) return;
+                
+                // 重新获取 items 以确保标题最新
+                const currentItems = getItems(node);
+                
+                const menuItems = currentItems.map((item, idx) => {
+                    return {
+                        content: `${item.title || `prompt_${idx}`}`, // 显示完整标题
+                        callback: () => {
+                            setIndexSelectorValue(node, idx);
+                        },
+                        // LiteGraph ContextMenu 默认不高亮当前项，这里可以通过 title 或其他方式辅助
+                        // 或者如果支持的话，使用 checked 属性
+                        checked: idx === currentIndex
+                    };
+                });
+                
+                const cm = new Lite.ContextMenu(menuItems, {
+                    event: e,
+                    parentMenu: null,
+                    node: node
+                });
+
+                // {{ AURA-X: Add - 为菜单项添加悬浮提示 }}
+                const root = cm.root || cm.element || cm.menu || cm;
+                if (root) {
+                    const entries = Array.from(root.querySelectorAll('.litemenu-entry'));
+                    entries.forEach((entry, idx) => {
+                        // 确保索引对应（假设没有分隔符）
+                        if (idx < currentItems.length) {
+                            const item = currentItems[idx];
+                            entry.addEventListener('mouseenter', (evt) => {
+                                const rect = entry.getBoundingClientRect();
+                                Tooltip.scheduleShow(rect.right + 5, rect.top, item.title, item.content);
+                            });
+                            entry.addEventListener('mouseleave', () => {
+                                Tooltip.hide();
+                            });
+                        }
+                    });
+                    
+                    // Hook close 方法以确保菜单关闭时隐藏提示
+                    const origClose = cm.close;
+                    cm.close = function() {
+                        Tooltip.hide();
+                        if (origClose) origClose.apply(this, arguments);
+                    };
+                }
+            });
+            
+            menuBtn.addEventListener('wheel', (e) => { e.stopPropagation(); });
+            
+            container.appendChild(menuBtn);
+            node.__comboMenuBtn = menuBtn;
+        }
+
+        // 2. 标题输入框 (可编辑 baseTitle)
+        let titleInput = node.__comboTitleInput;
+        const currentItem = items[currentIndex];
+        const baseTitle = getBaseTitle(currentItem?.title || `prompt_${currentIndex}`);
+        const suffixText = `${currentIndex}`;
+        
+        // 计算后缀宽度
+        const suffixWidth = Math.max(16, Math.ceil(suffixText.length * 7) + 4);
+
+        if (!titleInput) {
+            titleInput = document.createElement('input');
+            titleInput.type = 'text';
+            titleInput.value = baseTitle;
+            titleInput.placeholder = "标题";
+            titleInput.style.cssText = `
+                position: absolute; 
+                z-index: 101; 
+                padding: 4px 6px; 
+                border: 1px solid #666; 
+                border-left: none;
+                border-right: none;
+                border-bottom: none; 
+                background: #3a3a3a; 
+                color: #eee; 
+                font-size: 11px; 
+                line-height: 1.2; 
+                font-family: "Microsoft YaHei", "SimHei", Arial, monospace; 
+                box-sizing: border-box; 
+                transform-origin: 0 0;
+                outline: none;
+            `;
+            
+            titleInput.addEventListener('input', () => {
+                const arr = getItems(node);
+                const idx = getCurrentIndex(node);
+                if (idx < arr.length) {
+                    const currentVal = titleInput.value.trim();
+                    const newTitle = currentVal ? `${currentVal}_${idx}` : `prompt_${idx}`;
+                    const oldTitle = arr[idx].title;
+                    
+                    if (oldTitle !== newTitle) {
+                        const oldInputName = `insert_${oldTitle}`;
+                        const newInputName = `insert_${newTitle}`;
+                        if (node.inputs) {
+                            const input = node.inputs.find(inp => inp.name === oldInputName);
+                            if (input) {
+                                input.name = newInputName;
+                            }
+                        }
+                    }
+                    
+                    arr[idx].title = newTitle;
+                    setItems(node, arr);
+                }
+            });
+            
+            titleInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    titleInput.blur();
+                } else if (e.key === 'Escape') {
+                    const curItems = getItems(node);
+                    const curItem = curItems[getCurrentIndex(node)];
+                    titleInput.value = getBaseTitle(curItem ? curItem.title : `prompt`);
+                    titleInput.blur();
+                }
+                e.stopPropagation();
+            });
+            
+            container.appendChild(titleInput);
+            node.__comboTitleInput = titleInput;
+        } else {
+             if (document.activeElement !== titleInput) {
+                 titleInput.value = baseTitle;
+             }
+        }
+        
+        // 3. 后缀标签
+        let suffixEl = node.__comboSuffixEl;
+        if (!suffixEl) {
+            suffixEl = document.createElement('div');
+            suffixEl.style.cssText = `
+                position: absolute; 
+                z-index: 101; 
+                color: #888; 
+                font-size: 11px; 
+                line-height: 24px; 
+                font-family: "Microsoft YaHei", "SimHei", Arial, monospace; 
+                pointer-events: none; 
+                text-align: left; 
+                padding-left: 2px;
+                background: #3a3a3a;
+                border-top: 1px solid #666;
+            `;
+            container.appendChild(suffixEl);
+            node.__comboSuffixEl = suffixEl;
+        }
+        suffixEl.textContent = suffixText;
+
+        // 4. Input 连接点按钮 (针对当前选中项)
+        let inputEl = node.__comboInputEl;
+        const safeTitle = (currentItem?.title || `prompt_${currentIndex}`).trim();
+        const inputName = `insert_${safeTitle}`;
+        const hasInput = node.inputs && node.inputs.some(inp => inp.name === inputName);
+        
+        if (!inputEl) {
+            inputEl = document.createElement('div');
+            inputEl.textContent = "🔗"; 
+            inputEl.style.cssText = `
+                position: absolute; 
+                z-index: 102; 
+                cursor: pointer; 
+                margin: 0;
+                font-size: 12px;
+                line-height: 16px;
+                text-align: center;
+                user-select: none;
+                transition: opacity 0.2s;
+                color: #eee;
+                background: transparent;
+                pointer-events: auto;
+            `;
+            inputEl.title = "点击切换外部输入连接点";
+            
+            inputEl.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                const curIdx = getCurrentIndex(node); // 获取最新的 index
+                const curItem = getItems(node)[curIdx];
+                const sTitle = (curItem?.title || `prompt_${curIdx}`).trim();
+                const iName = `insert_${sTitle}`;
+                
+                const currentInputIdx = node.inputs ? node.inputs.findIndex(inp => inp.name === iName) : -1;
+                
+                if (currentInputIdx !== -1) {
+                    node.removeInput(currentInputIdx);
+                } else {
+                    node.addInput(iName, "STRING");
+                }
+                app.graph.setDirtyCanvas(true, true);
+                // 重新渲染以更新状态
+                const newItems = getItems(node);
+                const newCells = layoutCells(node, newItems);
+                ensureTextareas(node, newCells, newItems);
+            });
+             
+            inputEl.addEventListener('wheel', (e) => { e.stopPropagation(); });
+
+            container.appendChild(inputEl);
+            node.__comboInputEl = inputEl;
+        }
+        
+        if (hasInput) {
+            inputEl.style.opacity = '1.0';
+            inputEl.style.filter = 'none';
+        } else {
+            inputEl.style.opacity = '0.3';
+            inputEl.style.filter = 'grayscale(100%)';
+        }
+
+        // 5. 复选框 (控制 enabled)
+        let toggleEl = node.__comboToggleEl;
+        if (!toggleEl) {
+            toggleEl = document.createElement('input');
+            toggleEl.type = 'checkbox';
+            toggleEl.style.cssText = `position: absolute; z-index: 102; cursor: pointer; margin: 0;`;
+            
+            toggleEl.addEventListener('change', (e) => {
+                const arr = getItems(node);
+                const idx = getCurrentIndex(node);
+                if (idx < arr.length) {
+                    arr[idx].enabled = toggleEl.checked;
+                    setItems(node, arr);
+                    app.graph.setDirtyCanvas(true, true);
+                }
+            });
+            
+            toggleEl.addEventListener('wheel', (e) => { e.stopPropagation(); });
+            
+            container.appendChild(toggleEl);
+            node.__comboToggleEl = toggleEl;
+        }
+        
+        // 更新复选框状态
+        toggleEl.checked = currentItem.enabled !== false; 
+        toggleEl.disabled = false;
+
+        // 6. 创建或更新 Textarea (显示当前选中项内容)
+        let ta = node.__comboTextarea;
+        if (!ta) {
+            ta = document.createElement('textarea');
+            ta.placeholder = `内容`;
+            ta.spellcheck = false;
+            ta.wrap = 'soft';
+            ta.style.cssText = `
+                position: absolute; 
+                z-index: 100; 
+                resize: none; 
+                padding: 6px; 
+                border-radius: 0 0 6px 6px; 
+                border: 2px solid #4a9eff; 
+                border-top: none; 
+                background: #222; 
+                color: #eee; 
+                font-size: 12px; 
+                line-height: 1.4; 
+                font-family: "Microsoft YaHei", "SimHei", Arial, monospace; 
+                box-sizing: border-box; 
+                overflow: auto; 
+                transform-origin: 0 0;
+                box-shadow: 0 0 8px rgba(74, 158, 255, 0.3);
+            `;
+            
+            ta.addEventListener('input', () => {
+                const arr = getItems(node);
+                const idx = getCurrentIndex(node);
+                if (idx < arr.length) {
+                    arr[idx].content = ta.value;
+                    setItems(node, arr);
+                }
+            });
+            
+            // 右键菜单等事件 (复用之前的逻辑，这里简化)
+            ta.addEventListener('keydown', (e) => { e.stopPropagation(); });
+            
+            // {{ AURA-X: Add - Combo模式下的右键菜单支持 }}
+            ta.addEventListener('contextmenu', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                const idx = getCurrentIndex(node);
+                if (idx !== null && idx >= 0) {
+                    showItemContextMenu(node, idx, e);
+                }
+            });
+
+            // 使用通用的滚轮处理函数，支持边缘穿透
+            ta.addEventListener('wheel', handleTextareaWheel);
+            
+            container.appendChild(ta);
+            node.__comboTextarea = ta;
+        }
+        
+        // 更新 Textarea 值
+        if (ta.value !== currentItem.content) {
+            ta.value = currentItem.content || "";
+        }
+
+        // --- 布局设置 ---
+        
+        // Menu Button (Left)
+        menuBtn.style.left = `${sx}px`;
+        menuBtn.style.top = `${sy}px`;
+        menuBtn.style.width = `${menuBtnWidth * ds.scale}px`;
+        menuBtn.style.height = `${titleHeight * ds.scale}px`;
+        menuBtn.style.fontSize = `${10 * ds.scale}px`;
+        menuBtn.style.lineHeight = `${24 * ds.scale}px`; // Vertically center arrow
+        
+        // Title Input (Middle)
+        // 宽度 = 总宽 - 菜单按钮 - 后缀 - Input按钮 - 复选框 - 间距
+        const titleInputAvailableW = Math.max(20, Math.round(cell.w - menuBtnWidth - suffixWidth - inputBtnWidth - toggleWidth - 6));
+        
+        titleInput.style.left = `${sx + menuBtnWidth * ds.scale}px`;
+        titleInput.style.top = `${sy}px`;
+        titleInput.style.width = `${titleInputAvailableW}px`;
+        titleInput.style.height = `${titleHeight}px`; // 逻辑高度，transform scale 处理
+        titleInput.style.transform = `scale(${ds.scale})`;
+        
+        // Suffix (Right of Title)
+        suffixEl.style.left = `${sx + (menuBtnWidth + titleInputAvailableW) * ds.scale}px`;
+        suffixEl.style.top = `${sy}px`;
+        suffixEl.style.width = `${suffixWidth * ds.scale}px`;
+        suffixEl.style.height = `${titleHeight * ds.scale}px`;
+        suffixEl.style.fontSize = `${11 * ds.scale}px`;
+        suffixEl.style.lineHeight = `${24 * ds.scale}px`;
+        
+        // Input Button (Right of Suffix)
+        inputEl.style.left = `${sx + (menuBtnWidth + titleInputAvailableW + suffixWidth) * ds.scale + 2}px`;
+        inputEl.style.top = `${sy + 4 * ds.scale}px`;
+        inputEl.style.width = `${16 * ds.scale}px`;
+        inputEl.style.height = `${16 * ds.scale}px`;
+        inputEl.style.fontSize = `${12 * ds.scale}px`;
+        inputEl.style.lineHeight = `${16 * ds.scale}px`;
+        inputEl.style.display = 'block';
+
+        // Checkbox (Far Right)
+        toggleEl.style.left = `${sx + sw - toggleWidth * ds.scale - 2}px`;
+        toggleEl.style.top = `${sy + 4 * ds.scale}px`;
+        toggleEl.style.width = `${16 * ds.scale}px`;
+        toggleEl.style.height = `${16 * ds.scale}px`;
+        toggleEl.style.transform = `scale(${1})`;
+
+        // Textarea
+        ta.style.left = `${sx}px`;
+        ta.style.top = `${sy + titleHeight * ds.scale}px`;
+        ta.style.width = `${Math.round(cell.w)}px`;
+        ta.style.height = `${Math.max(32, Math.round(cell.h - titleHeight))}px`;
+        ta.style.transform = `scale(${ds.scale})`;
+        ta.style.fontSize = `${12}px`;
+
+        // 可见性控制
+        const nodeVisibleX = sx + sw > 0 && sx < (parentRect.width || rect.width);
+        const nodeVisibleY = sy + sh > 0 && sy < (parentRect.height || rect.height);
+        const shouldShow = node.flags?.collapsed !== true && nodeVisibleX && nodeVisibleY;
+        const hand = isHandMode();
+        
+        const visibility = shouldShow ? 'visible' : 'hidden';
+        const pointerEvents = shouldShow && !hand ? 'auto' : 'none';
+        
+        menuBtn.style.visibility = visibility;
+        menuBtn.style.pointerEvents = pointerEvents;
+        
+        titleInput.style.visibility = visibility;
+        titleInput.style.pointerEvents = pointerEvents;
+        
+        suffixEl.style.visibility = visibility;
+        
+        inputEl.style.visibility = visibility;
+        inputEl.style.pointerEvents = pointerEvents;
+        
+        toggleEl.style.visibility = visibility;
+        toggleEl.style.pointerEvents = pointerEvents;
+        
+        ta.style.visibility = visibility;
+        ta.style.pointerEvents = pointerEvents;
+        
+        return; // Combo 模式处理完毕
+    }
+
+    // --- Grid 模式 (清理 Combo 元素) ---
+    clearComboElements();
+
     // 初始化元素数组
     if (!node.__taEls) node.__taEls = [];
     if (!node.__titleEls) node.__titleEls = [];
+    if (!node.__suffixEls) node.__suffixEls = []; // 新增后缀标签数组
     if (!node.__toggleEls) node.__toggleEls = [];
     if (!node.__inputEls) node.__inputEls = []; // 新增输入开关数组
 
-    const currentIndex = getCurrentIndex(node);
+    // const currentIndex = getCurrentIndex(node); // 已在上面定义
 
     for (let i = 0; i < items.length; i++) {
         const cell = layout[i];
@@ -524,6 +1194,8 @@ function ensureTextareas(node, layout, items) {
         
         const item = items[i];
         const isSelected = i === currentIndex;
+        const baseTitle = getBaseTitle(item.title); // 获取不带后缀的标题
+        const suffixText = `${i}`; // 只显示数字，不带下划线
         
         // 创建或更新开关 (Checkbox)
         let toggleEl = node.__toggleEls[i];
@@ -536,13 +1208,7 @@ function ensureTextareas(node, layout, items) {
             toggleEl.addEventListener('change', (e) => {
                 const arr = getItems(node);
                 if (i < arr.length) {
-                    // 如果是当前选中项，禁止关闭（虽然UI上会禁用，但这里也做一层保护）
-                    if (i === getCurrentIndex(node)) {
-                        toggleEl.checked = true;
-                        arr[i].enabled = true;
-                    } else {
-                        arr[i].enabled = toggleEl.checked;
-                    }
+                    arr[i].enabled = toggleEl.checked;
                     setItems(node, arr);
                     // 触发重绘以更新样式
                     const newItems = getItems(node);
@@ -560,8 +1226,8 @@ function ensureTextareas(node, layout, items) {
         
         // 更新开关状态
         toggleEl.checked = item.enabled !== false;
-        // 如果是当前选中项，禁用交互（强制开启）
-        toggleEl.disabled = isSelected;
+        // 移除强制禁用逻辑，允许自由切换
+        toggleEl.disabled = false;
 
         // {{ AURA-X: Add - 输入连接点开关按钮 }}
         let inputEl = node.__inputEls[i];
@@ -644,21 +1310,32 @@ function ensureTextareas(node, layout, items) {
             inputEl.style.filter = 'grayscale(100%)';
         }
         
+        // 创建或更新后缀标签
+        let suffixEl = node.__suffixEls[i];
+        if (!suffixEl) {
+            suffixEl = document.createElement('div');
+            suffixEl.style.cssText = `position: absolute; z-index: 100; color: #888; font-size: 11px; line-height: 1.2; font-family: "Microsoft YaHei", "SimHei", Arial, monospace; pointer-events: none; text-align: left; padding: 5px 0 0 2px;`;
+            container.appendChild(suffixEl);
+            node.__suffixEls[i] = suffixEl;
+        }
+        suffixEl.textContent = suffixText;
+
         // 创建或更新标题输入框
         let titleEl = node.__titleEls[i];
         if (!titleEl) {
             titleEl = document.createElement('input');
             titleEl.type = 'text';
-            titleEl.placeholder = `标题 ${i+1}`;
-            titleEl.value = item.title || `prompt_${i}`;
+            titleEl.placeholder = `标题`;
+            titleEl.value = baseTitle; // 显示不带后缀的标题
             titleEl.style.cssText = `position: absolute; z-index: 100; padding: 4px 6px; border-radius: 6px 6px 0 0; border: 1px solid #666; border-bottom: none; background: #3a3a3a; color: #eee; font-size: 11px; line-height: 1.2; font-family: "Microsoft YaHei", "SimHei", Arial, monospace; box-sizing: border-box; transform-origin: 0 0;`;
             
             // 标题输入框事件处理
             titleEl.addEventListener('input', () => {
                 const arr = getItems(node);
                 if (i < arr.length) {
-                    const oldTitle = (arr[i].title || `prompt_${i}`).trim();
-                    const newTitle = (titleEl.value || `prompt_${i}`).trim();
+                    const currentVal = titleEl.value.trim();
+                    const newTitle = currentVal ? `${currentVal}_${i}` : `prompt_${i}`; // 强制添加后缀
+                    const oldTitle = arr[i].title;
                     
                     if (oldTitle !== newTitle) {
                         // 如果标题改变，同时尝试更新对应的输入连接点名称
@@ -698,7 +1375,9 @@ function ensureTextareas(node, layout, items) {
                 if (e.key === 'Enter') {
                     titleEl.blur();
                 } else if (e.key === 'Escape') {
-                    titleEl.value = item.title || `prompt_${i}`;
+                    const currentItems = getItems(node);
+                    const currentItem = currentItems[i];
+                    titleEl.value = getBaseTitle(currentItem ? currentItem.title : `prompt`);
                     titleEl.blur();
                 }
                 e.stopPropagation();
@@ -708,7 +1387,10 @@ function ensureTextareas(node, layout, items) {
             node.__titleEls[i] = titleEl;
         } else {
             // 更新现有标题输入框的值
-            titleEl.value = item.title || `prompt_${i}`;
+            // 仅当非焦点状态下更新，或者值确实不匹配时更新，避免打断输入
+            if (document.activeElement !== titleEl) {
+                 titleEl.value = baseTitle;
+            }
         }
 
         // 创建或更新内容文本框
@@ -754,73 +1436,8 @@ function ensureTextareas(node, layout, items) {
                     showItemContextMenu(node, i, e);
                 });
                 ta.addEventListener('keydown', (e) => { e.stopPropagation(); });
-                ta.addEventListener('wheel', (e) => {
-                    if (e.ctrlKey || e.shiftKey) {
-                        e.stopPropagation();
-                        return;
-                    }
-                    const el = ta;
-                    const deltaY = e.deltaY || 0;
-                    const scrollingDown = deltaY > 0;
-                    const scrollingUp = deltaY < 0;
-                    const maxScrollTop = el.scrollHeight - el.clientHeight;
-                    const scrollTop = el.scrollTop;
-                    const canScrollDown = scrollTop < maxScrollTop - 1;
-                    const canScrollUp = scrollTop > 1;
-                    const atBottom = !canScrollDown;
-                    const atTop = !canScrollUp;
-                    let edgeState = el.__edgeScrollState;
-                    if (!edgeState) {
-                        edgeState = { dir: 0, count: 0 };
-                        el.__edgeScrollState = edgeState;
-                    }
-                    const dir = scrollingDown ? 1 : (scrollingUp ? -1 : 0);
-                    if (!atTop && !atBottom) {
-                        edgeState.dir = 0;
-                        edgeState.count = 0;
-                        return;
-                    }
-                    if (dir === 0) {
-                        return;
-                    }
-                    const atEdgeInDir = (dir > 0 && atBottom) || (dir < 0 && atTop);
-                    if (!atEdgeInDir) {
-                        edgeState.dir = 0;
-                        edgeState.count = 0;
-                        return;
-                    }
-                    if (edgeState.dir !== dir) {
-                        edgeState.dir = dir;
-                        edgeState.count = 1;
-                        return;
-                    }
-                    edgeState.count += 1;
-                    if (edgeState.count < 3) {
-                        return;
-                    }
-                    const canvasEl = app?.canvas?.canvas;
-                    if (!canvasEl || typeof WheelEvent === 'undefined') {
-                        return;
-                    }
-                    const evt = new WheelEvent('wheel', {
-                        deltaX: e.deltaX,
-                        deltaY: e.deltaY,
-                        deltaZ: e.deltaZ,
-                        deltaMode: e.deltaMode,
-                        clientX: e.clientX,
-                        clientY: e.clientY,
-                        ctrlKey: e.ctrlKey,
-                        shiftKey: e.shiftKey,
-                        altKey: e.altKey,
-                        metaKey: e.metaKey,
-                        buttons: e.buttons,
-                        bubbles: true,
-                        cancelable: true
-                    });
-                    canvasEl.dispatchEvent(evt);
-                    e.preventDefault();
-                    e.stopPropagation();
-                });
+                // 使用通用的滚轮处理函数
+                ta.addEventListener('wheel', handleTextareaWheel);
                 ta.__ctxInstalled = true;
             }
             
@@ -841,6 +1458,10 @@ function ensureTextareas(node, layout, items) {
         const titleHeight = 24;
         const toggleWidth = 20; // 开关宽度
         const inputBtnWidth = 16; // 输入连接点开关宽度
+        
+        // 计算后缀标签宽度
+        // 简单估算：每个字符约 7px + padding
+        const suffixWidth = Math.max(16, Math.ceil(suffixText.length * 7) + 4);
 
         // 设置开关位置和大小
         toggleEl.style.left = `${sx + sw - toggleWidth * ds.scale - 2}px`; // 靠右
@@ -861,12 +1482,24 @@ function ensureTextareas(node, layout, items) {
         }
         
         // 设置标题输入框位置和大小（使用CSS缩放保持与节点比例一致）
-        // 标题宽度减少，为开关留出空间
+        // 标题宽度减少，为开关和后缀留出空间
         titleEl.style.left = `${sx}px`;
         titleEl.style.top = `${sy}px`;
-        titleEl.style.width = `${Math.max(20, Math.round(cell.w - toggleWidth - inputBtnWidth - 8))}px`; // 减去开关宽度和间距
+        const titleAvailableW = Math.max(20, Math.round(cell.w - toggleWidth - inputBtnWidth - suffixWidth - 8));
+        titleEl.style.width = `${titleAvailableW}px`; // 减去开关宽度、后缀宽度和间距
         titleEl.style.height = `${Math.round(titleHeight)}px`;
         titleEl.style.transform = `scale(${ds.scale})`;
+        
+        // 设置后缀标签位置
+        // 紧跟在标题输入框右侧
+        // 注意：titleEl 已经缩放，left 是物理坐标，但 transform-origin 是 0 0
+        // titleEl 占据的物理宽度是 titleAvailableW * ds.scale
+        suffixEl.style.left = `${sx + titleAvailableW * ds.scale}px`;
+        suffixEl.style.top = `${sy}px`;
+        suffixEl.style.width = `${suffixWidth * ds.scale}px`;
+        suffixEl.style.height = `${titleHeight * ds.scale}px`;
+        suffixEl.style.transform = `scale(${ds.scale})`;
+        suffixEl.style.transformOrigin = "0 0"; // 确保缩放原点正确
         
         // 设置内容文本框位置和大小（使用CSS缩放保持与节点比例一致）
         ta.style.left = `${sx}px`;
@@ -903,11 +1536,13 @@ function ensureTextareas(node, layout, items) {
         ta.style.visibility = shouldShow ? 'visible' : 'hidden';
         toggleEl.style.visibility = shouldShow ? 'visible' : 'hidden';
         if (inputEl) inputEl.style.visibility = shouldShow ? 'visible' : 'hidden';
+        if (suffixEl) suffixEl.style.visibility = shouldShow ? 'visible' : 'hidden';
         
         titleEl.style.pointerEvents = shouldShow && !hand ? 'auto' : 'none';
         ta.style.pointerEvents = shouldShow && !hand ? 'auto' : 'none';
         toggleEl.style.pointerEvents = shouldShow && !hand ? 'auto' : 'none';
         if (inputEl) inputEl.style.pointerEvents = shouldShow && !hand ? 'auto' : 'none';
+        // suffixEl 不需要 pointerEvents，它是 none
     }
 
     // 清理多余的元素
@@ -917,6 +1552,10 @@ function ensureTextareas(node, layout, items) {
     }
     for (let j = items.length; j < (node.__titleEls?.length || 0); j++) {
         const el = node.__titleEls[j];
+        if (el && el.remove) el.remove();
+    }
+    for (let j = items.length; j < (node.__suffixEls?.length || 0); j++) {
+        const el = node.__suffixEls[j];
         if (el && el.remove) el.remove();
     }
     for (let j = items.length; j < (node.__toggleEls?.length || 0); j++) {
@@ -930,6 +1569,7 @@ function ensureTextareas(node, layout, items) {
     
     node.__taEls.length = items.length;
     node.__titleEls.length = items.length;
+    node.__suffixEls.length = items.length;
     node.__toggleEls.length = items.length;
     node.__inputEls.length = items.length;
     
@@ -944,6 +1584,33 @@ function layoutCells(node, items) {
     const MIN_H = 72;
     const n = items.length;
     if (n === 0) return [];
+
+    // 获取视图模式
+    const viewMode = node.properties?._viewMode || "grid";
+
+    // 预留底部按钮区域高度
+    const BUTTON_AREA_H = 40;
+    const startY = PADDING + getWidgetsBottom(node);
+
+    if (viewMode === "combo") {
+        // Combo 模式布局：一个全宽单元格用于显示当前内容
+        // 高度自动适应剩余空间，但至少要有 MIN_H
+        const minTotalH = startY + MIN_H + PADDING + BUTTON_AREA_H;
+        if (node.size[1] < minTotalH) {
+             if (typeof node.setSize === 'function') {
+                node.setSize([node.size[0], minTotalH]);
+            } else {
+                node.size[1] = minTotalH;
+            }
+            app.graph.setDirtyCanvas(true, true);
+        }
+        
+        const availH = Math.max(MIN_H, node.size[1] - startY - PADDING - BUTTON_AREA_H);
+        const availW = node.size[0] - PADDING * 2;
+        
+        // 返回一个单元格，代表当前显示区域
+        return [{ x: PADDING, y: startY, w: availW, h: availH }];
+    }
 
     let cols = 2;
     const wCols = node.widgets?.find(w => w.name === "columns");
@@ -961,11 +1628,7 @@ function layoutCells(node, items) {
     const rows = Math.ceil(n / cols);
     const availW = node.size[0] - PADDING * 2;
     const cellW = Math.floor((availW - GAP * (cols - 1)) / cols);
-    const startY = PADDING + getWidgetsBottom(node);
     
-    // 预留底部按钮区域高度
-    const BUTTON_AREA_H = 40;
-
     const requiredH = rows * MIN_H + GAP * Math.max(0, rows - 1);
     const minTotalH = startY + requiredH + PADDING + BUTTON_AREA_H;
     if (node.size[1] < minTotalH) {
@@ -1018,12 +1681,14 @@ function installDrawingHandlers(node) {
         const selectW = 60;
         const deselectW = 70;
         const invertW = 60;
+        const viewModeW = 80; // 视图切换按钮宽度
         
         // 按钮水平排列，居中或靠左？参考 load_image_batch 是靠左
         const startX = 10;
         const selectAllButtonX = startX;
         const deselectAllButtonX = selectAllButtonX + selectW + buttonSpacing;
         const invertSelectionButtonX = deselectAllButtonX + deselectW + buttonSpacing;
+        const viewModeButtonX = invertSelectionButtonX + invertW + buttonSpacing;
         
         // 检查鼠标悬浮状态
         const mouseInSelectAllButton = this._customMouseX !== undefined && this._customMouseY !== undefined &&
@@ -1036,6 +1701,10 @@ function installDrawingHandlers(node) {
             
         const mouseInInvertSelectionButton = this._customMouseX !== undefined && this._customMouseY !== undefined &&
             this._customMouseX >= invertSelectionButtonX && this._customMouseX <= invertSelectionButtonX + invertW &&
+            this._customMouseY >= buttonY && this._customMouseY <= buttonY + buttonHeight;
+
+        const mouseInViewModeButton = this._customMouseX !== undefined && this._customMouseY !== undefined &&
+            this._customMouseX >= viewModeButtonX && this._customMouseX <= viewModeButtonX + viewModeW &&
             this._customMouseY >= buttonY && this._customMouseY <= buttonY + buttonHeight;
             
         const r = 6;
@@ -1068,10 +1737,14 @@ function installDrawingHandlers(node) {
         drawButton(deselectAllButtonX, deselectW, '全不选', mouseInDeselectAllButton);
         drawButton(invertSelectionButtonX, invertW, '反选', mouseInInvertSelectionButton);
         
+        const currentViewMode = this.properties?._viewMode || "grid";
+        drawButton(viewModeButtonX, viewModeW, currentViewMode === 'combo' ? '切换: 列表' : '切换: 下拉', mouseInViewModeButton);
+        
         // 保存按钮区域供点击检测
         this._customSelectAllButtonRect = { x: selectAllButtonX, y: buttonY, width: selectW, height: buttonHeight };
         this._customDeselectAllButtonRect = { x: deselectAllButtonX, y: buttonY, width: deselectW, height: buttonHeight };
         this._customInvertSelectionButtonRect = { x: invertSelectionButtonX, y: buttonY, width: invertW, height: buttonHeight };
+        this._customViewModeButtonRect = { x: viewModeButtonX, y: buttonY, width: viewModeW, height: buttonHeight };
         
         relayoutAndUpdate(ctx);
     };
@@ -1095,6 +1768,11 @@ function installDrawingHandlers(node) {
             for (const el of this.__titleEls) { try { el.remove(); } catch(e) {} }
             this.__titleEls = [];
         }
+        // 清理后缀标签
+        if (this.__suffixEls) {
+            for (const el of this.__suffixEls) { try { el.remove(); } catch(e) {} }
+            this.__suffixEls = [];
+        }
         // 清理开关
         if (this.__toggleEls) {
             for (const el of this.__toggleEls) { try { el.remove(); } catch(e) {} }
@@ -1105,6 +1783,11 @@ function installDrawingHandlers(node) {
             for (const el of this.__inputEls) { try { el.remove(); } catch(e) {} }
             this.__inputEls = [];
         }
+        
+        // 清理 Combo 元素
+        if (this.__comboSelect) { this.__comboSelect.remove(); this.__comboSelect = null; }
+        if (this.__comboTextarea) { this.__comboTextarea.remove(); this.__comboTextarea = null; }
+        if (this.__comboInputEl) { this.__comboInputEl.remove(); this.__comboInputEl = null; }
     };
     
     // 添加交互事件处理
@@ -1175,6 +1858,23 @@ function installDrawingHandlers(node) {
                 const items = getItems(this);
                 items.forEach(item => item.enabled = !item.enabled);
                 updateAll(items);
+                return true;
+            }
+        }
+        
+        if (this._customViewModeButtonRect) {
+            const ax = nodePos[0] + this._customViewModeButtonRect.x;
+            const ay = nodePos[1] + this._customViewModeButtonRect.y;
+            if (e.canvasX >= ax && e.canvasX <= ax + this._customViewModeButtonRect.width &&
+                e.canvasY >= ay && e.canvasY <= ay + this._customViewModeButtonRect.height) {
+                
+                this.properties._viewMode = (this.properties._viewMode === 'combo') ? 'grid' : 'combo';
+                
+                // 触发重绘和重新布局
+                const items = getItems(this);
+                const layout = layoutCells(this, items);
+                ensureTextareas(this, layout, items);
+                app.graph.setDirtyCanvas(true, true);
                 return true;
             }
         }
@@ -1271,7 +1971,14 @@ function installViewportSync(node) {
     const hide = () => {
         if (node.__taEls) for (const el of node.__taEls) if (el?.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; }
         if (node.__titleEls) for (const el of node.__titleEls) if (el?.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; }
+        if (node.__suffixEls) for (const el of node.__suffixEls) if (el?.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; }
         if (node.__toggleEls) for (const el of node.__toggleEls) if (el?.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; }
+        if (node.__inputEls) for (const el of node.__inputEls) if (el?.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; }
+        
+        // Hide Combo elements
+        if (node.__comboSelect && node.__comboSelect.style) { node.__comboSelect.style.visibility = 'hidden'; node.__comboSelect.style.pointerEvents = 'none'; }
+        if (node.__comboTextarea && node.__comboTextarea.style) { node.__comboTextarea.style.visibility = 'hidden'; node.__comboTextarea.style.pointerEvents = 'none'; }
+        if (node.__comboInputEl && node.__comboInputEl.style) { node.__comboInputEl.style.visibility = 'hidden'; node.__comboInputEl.style.pointerEvents = 'none'; }
     };
     const show = () => {
         const items = getItems(node);
