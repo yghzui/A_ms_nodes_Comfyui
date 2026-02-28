@@ -97,11 +97,43 @@ class TextInputBatch:
             for i, item in enumerate(data):
                 if isinstance(item, dict) and "title" in item and "content" in item:
                     title = item.get("title", f"prompt_{i}")
-                    content = str(item.get("content", ""))
+                    raw_content = str(item.get("content", ""))
+                    # {{ AURA-X: Add - 去除注释逻辑 }}
+                    # 逐行处理，移除 # 及之后的内容
+                    lines = raw_content.split('\n')
+                    cleaned_lines = []
+                    for line in lines:
+                        original_line = line
+                        # 查找 # 的位置
+                        if '#' in line:
+                            line = line.split('#')[0]
+                        
+                        # 逻辑：
+                        # 1. 如果去注释后行内容不为空 (line.strip() != "")，保留
+                        # 2. 如果去注释后为空，但原行不包含 # (即原行就是空行)，保留
+                        # 3. 如果去注释后为空，且原行包含 # (即该行是注释行)，丢弃
+                        if line.strip() != "" or '#' not in original_line:
+                            cleaned_lines.append(line)
+                            
+                    content = '\n'.join(cleaned_lines)
+                    
                     # 默认启用，除非明确设置为False
                     enabled = item.get("enabled", True)
                 else:
-                    content = str(item) if item is not None else ""
+                    raw_content = str(item) if item is not None else ""
+                    # 同上处理
+                    lines = raw_content.split('\n')
+                    cleaned_lines = []
+                    for line in lines:
+                        original_line = line
+                        if '#' in line:
+                            line = line.split('#')[0]
+                        
+                        if line.strip() != "" or '#' not in original_line:
+                            cleaned_lines.append(line)
+                            
+                    content = '\n'.join(cleaned_lines)
+                    
                     title = f"prompt_{i}"
                     enabled = True
                 

@@ -609,6 +609,87 @@ function showItemContextMenu(node, index, event) {
     }
 }
 
+function handleTextareaCommentShortcut(e, node, index) {
+    // 监听 Ctrl+/ (Mac下可能是 Meta+/)
+    // 同时支持 Ctrl+D 作为备用（如果用户习惯了，但可能会触发浏览器收藏）
+    // 为了避免冲突，我们优先推荐 Ctrl+/，并拦截 Ctrl+D
+    
+    const isCtrl = e.ctrlKey || e.metaKey;
+    const isSlash = e.key === '/';
+    const isD = e.key === 'd' || e.key === 'D' || e.code === 'KeyD';
+
+    if (isCtrl && (isSlash || isD)) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const ta = e.target;
+        if (!ta) return;
+
+        const start = ta.selectionStart;
+        const end = ta.selectionEnd;
+        const value = ta.value;
+
+        // 找到选中区域涉及的所有行
+        // 1. 找到起始行的开始位置
+        let lineStart = value.lastIndexOf('\n', start - 1);
+        if (lineStart === -1) lineStart = 0;
+        else lineStart += 1; // 跳过换行符
+
+        // 2. 找到结束行的结束位置
+        let lineEnd = value.indexOf('\n', end);
+        if (lineEnd === -1) lineEnd = value.length;
+        
+        // 如果选区正好在行尾（选中多行时最后一行可能只选中了开头），需要注意
+        // 但这里我们简单处理：只要选区触及到了行，就处理整行
+        // 特殊情况：光标在行首，且 selectionStart === selectionEnd，也应该处理该行
+        // 上面的逻辑已经覆盖了这种情况：lastIndexOf('\n', start - 1) 会找到上一行的末尾，lineStart 指向当前行首
+
+        // 提取涉及的文本块
+        const linesChunk = value.substring(lineStart, lineEnd);
+        const lines = linesChunk.split('\n');
+        
+        // 检查是否所有行都已经被注释（以 # 开头）
+        // 注意：这里我们检查的是每一行是否以 # 开头（忽略前导空格）
+        // 如果所有选中的行都已经是注释，则执行取消注释；否则执行全部注释
+        const allCommented = lines.every(line => line.trim().startsWith('#'));
+        
+        const newLines = lines.map(line => {
+             if (allCommented) {
+                 // 取消注释：移除开头的 # 和可选的一个空格
+                 // 使用正则替换：仅替换开头的 # 以及其后紧跟的一个空格（如果有）
+                 // ^\s*# ? 匹配开头空白、#、可选空格
+                 // 但我们要保留原始缩进吗？
+                 // 如果原始是 "  # abc"，取消后应该是 "  abc"
+                 // 正则：replace(/^(\s*)# ?/, '$1')
+                 return line.replace(/^(\s*)# ?/, '$1');
+             } else {
+                 // 添加注释：在开头添加 # 
+                 // 或者在缩进后添加？通常是在最前面或者缩进后。
+                 // PyCharm 默认 behavior: Ctrl+/ (Line Comment) usually toggles at the start of line content or start of line.
+                 // 这里简单在行首添加 "# "
+                 return '# ' + line;
+             }
+        });
+
+        const newChunk = newLines.join('\n');
+        
+        // 使用 setRangeText 替换文本并保持选区
+        // select mode: 'select' 选中替换后的文本
+        try {
+            ta.setRangeText(newChunk, lineStart, lineEnd, 'select');
+        } catch (err) {
+            // Fallback for older browsers
+            ta.value = value.substring(0, lineStart) + newChunk + value.substring(lineEnd);
+            ta.selectionStart = lineStart;
+            ta.selectionEnd = lineStart + newChunk.length;
+        }
+
+        // 触发 input 事件以更新节点数据
+        const event = new Event('input', { bubbles: true });
+        ta.dispatchEvent(event);
+    }
+}
+
 // {{ AURA-X: Add - 滚轮事件处理函数，用于在 Textarea 中支持边缘滚动穿透到 Canvas }}
 function handleTextareaWheel(e) {
     if (e.ctrlKey || e.shiftKey) {
@@ -1086,6 +1167,12 @@ function ensureTextareas(node, layout, items) {
             // 使用通用的滚轮处理函数，支持边缘穿透
             ta.addEventListener('wheel', handleTextareaWheel);
             
+            // {{ AURA-X: Add - 监听 Ctrl+D 快捷键 }}
+            ta.addEventListener('keydown', (e) => {
+                const idx = getCurrentIndex(node);
+                handleTextareaCommentShortcut(e, node, idx);
+            });
+            
             container.appendChild(ta);
             node.__comboTextarea = ta;
         }
@@ -1438,6 +1525,13 @@ function ensureTextareas(node, layout, items) {
                 ta.addEventListener('keydown', (e) => { e.stopPropagation(); });
                 // 使用通用的滚轮处理函数
                 ta.addEventListener('wheel', handleTextareaWheel);
+                
+                // {{ AURA-X: Add - 监听 Ctrl+D 快捷键 }}
+                ta.addEventListener('keydown', (e) => {
+                    const idx = getCurrentIndex(node);
+                    handleTextareaCommentShortcut(e, node, idx);
+                });
+                
                 ta.__ctxInstalled = true;
             }
             
