@@ -30,9 +30,9 @@ class TextInputBatch:
             },
         }
 
-    RETURN_TYPES = ("STRING", "STRING", "STRING", "INT", "STRING", "STRING")
-    RETURN_NAMES = ("strings", "selected", "selected_title", "count", "dict_output", "dict_output_list")
-    OUTPUT_IS_LIST = (True, False, False, False, False, True)
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "INT")
+    RETURN_NAMES = ("strings", "selected", "selected_title", "count")
+    OUTPUT_IS_LIST = (True, False, False, False)
     FUNCTION = "aggregate_strings"
     CATEGORY = "A_my_nodes/text"
 
@@ -213,8 +213,8 @@ class TextInputBatch:
         except Exception:
             dict_output = "{}"
         
-        # 返回：完整列表(列表)、选中项、选中标题.数量、字典输出、字典输出列表
-        return (list_out, selected, selected_title, len(list_out), dict_output, dict_output_list)
+        # 返回：完整列表(列表)、选中项、选中标题.数量
+        return (list_out, selected, selected_title, len(list_out))
 
 
 class TextDictSplitter:

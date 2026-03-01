@@ -1686,6 +1686,20 @@ function layoutCells(node, items) {
     const BUTTON_AREA_H = 40;
     const startY = PADDING + getWidgetsBottom(node);
 
+    // 如果节点折叠，跳过高度调整
+    if (node.flags?.collapsed) {
+        // 返回基于当前尺寸的虚拟布局，防止报错
+        if (viewMode === "combo") {
+             return [{ x: PADDING, y: startY, w: Math.max(0, node.size[0] - PADDING * 2), h: MIN_H }];
+        }
+        // Grid 模式简单计算
+        const cells = [];
+        for (let i = 0; i < n; i++) {
+             cells.push({ x: PADDING, y: startY, w: 10, h: 10 });
+        }
+        return cells;
+    }
+
     if (viewMode === "combo") {
         // Combo 模式布局：一个全宽单元格用于显示当前内容
         // 高度自动适应剩余空间，但至少要有 MIN_H
@@ -1763,8 +1777,13 @@ function installDrawingHandlers(node) {
     node.onDrawForeground = function(ctx) {
         if (origDraw) origDraw.call(this, ctx);
         
+        // 即使折叠也要更新DOM元素的可见性
+        if (this.flags?.collapsed) {
+             relayoutAndUpdate(ctx);
+             return;
+        }
+        
         // 绘制自定义按钮
-        if (this.flags?.collapsed) return;
         
         const buttonHeight = 25;
         const buttonSpacing = 10;
@@ -1853,35 +1872,40 @@ function installDrawingHandlers(node) {
     const origRemoved = node.onRemoved;
     node.onRemoved = function() {
         if (origRemoved) origRemoved.call(this);
+        
+        // 清理 Grid 模式元素
         if (this.__taEls) {
-            for (const el of this.__taEls) { try { el.remove(); } catch(e) {} }
-            this.__taEls = [];
+            this.__taEls.forEach(el => el && el.remove());
+            this.__taEls = null;
         }
-        // 清理标题输入框
         if (this.__titleEls) {
-            for (const el of this.__titleEls) { try { el.remove(); } catch(e) {} }
-            this.__titleEls = [];
+            this.__titleEls.forEach(el => el && el.remove());
+            this.__titleEls = null;
         }
-        // 清理后缀标签
         if (this.__suffixEls) {
-            for (const el of this.__suffixEls) { try { el.remove(); } catch(e) {} }
-            this.__suffixEls = [];
+            this.__suffixEls.forEach(el => el && el.remove());
+            this.__suffixEls = null;
         }
-        // 清理开关
         if (this.__toggleEls) {
-            for (const el of this.__toggleEls) { try { el.remove(); } catch(e) {} }
-            this.__toggleEls = [];
+            this.__toggleEls.forEach(el => el && el.remove());
+            this.__toggleEls = null;
         }
-        // 清理输入连接点开关
         if (this.__inputEls) {
-            for (const el of this.__inputEls) { try { el.remove(); } catch(e) {} }
-            this.__inputEls = [];
+            this.__inputEls.forEach(el => el && el.remove());
+            this.__inputEls = null;
         }
         
-        // 清理 Combo 元素
+        // 清理 Combo 模式元素
         if (this.__comboSelect) { this.__comboSelect.remove(); this.__comboSelect = null; }
         if (this.__comboTextarea) { this.__comboTextarea.remove(); this.__comboTextarea = null; }
         if (this.__comboInputEl) { this.__comboInputEl.remove(); this.__comboInputEl = null; }
+        if (this.__comboTitleInput) { this.__comboTitleInput.remove(); this.__comboTitleInput = null; }
+        if (this.__comboSuffixEl) { this.__comboSuffixEl.remove(); this.__comboSuffixEl = null; }
+        if (this.__comboMenuBtn) { this.__comboMenuBtn.remove(); this.__comboMenuBtn = null; }
+        if (this.__comboToggleEl) { this.__comboToggleEl.remove(); this.__comboToggleEl = null; }
+        
+        // 隐藏 Tooltip
+        Tooltip.hide();
     };
     
     // 添加交互事件处理
@@ -2063,16 +2087,22 @@ function installViewportSync(node) {
     };
     node.__rafId = requestAnimationFrame(tick);
     const hide = () => {
-        if (node.__taEls) for (const el of node.__taEls) if (el?.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; }
-        if (node.__titleEls) for (const el of node.__titleEls) if (el?.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; }
-        if (node.__suffixEls) for (const el of node.__suffixEls) if (el?.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; }
-        if (node.__toggleEls) for (const el of node.__toggleEls) if (el?.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; }
-        if (node.__inputEls) for (const el of node.__inputEls) if (el?.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; }
+        if (node.__taEls) node.__taEls.forEach(el => { if (el && el.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; } });
+        if (node.__titleEls) node.__titleEls.forEach(el => { if (el && el.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; } });
+        if (node.__suffixEls) node.__suffixEls.forEach(el => { if (el && el.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; } });
+        if (node.__toggleEls) node.__toggleEls.forEach(el => { if (el && el.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; } });
+        if (node.__inputEls) node.__inputEls.forEach(el => { if (el && el.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; } });
         
         // Hide Combo elements
         if (node.__comboSelect && node.__comboSelect.style) { node.__comboSelect.style.visibility = 'hidden'; node.__comboSelect.style.pointerEvents = 'none'; }
         if (node.__comboTextarea && node.__comboTextarea.style) { node.__comboTextarea.style.visibility = 'hidden'; node.__comboTextarea.style.pointerEvents = 'none'; }
         if (node.__comboInputEl && node.__comboInputEl.style) { node.__comboInputEl.style.visibility = 'hidden'; node.__comboInputEl.style.pointerEvents = 'none'; }
+        
+        // Hide new Combo elements
+        if (node.__comboTitleInput && node.__comboTitleInput.style) { node.__comboTitleInput.style.visibility = 'hidden'; node.__comboTitleInput.style.pointerEvents = 'none'; }
+        if (node.__comboSuffixEl && node.__comboSuffixEl.style) { node.__comboSuffixEl.style.visibility = 'hidden'; node.__comboSuffixEl.style.pointerEvents = 'none'; }
+        if (node.__comboMenuBtn && node.__comboMenuBtn.style) { node.__comboMenuBtn.style.visibility = 'hidden'; node.__comboMenuBtn.style.pointerEvents = 'none'; }
+        if (node.__comboToggleEl && node.__comboToggleEl.style) { node.__comboToggleEl.style.visibility = 'hidden'; node.__comboToggleEl.style.pointerEvents = 'none'; }
     };
     const show = () => {
         const items = getItems(node);
@@ -2097,6 +2127,30 @@ function installViewportSync(node) {
     };
 }
 
+function initDomRefs(node) {
+    const props = [
+        "__taEls", "__titleEls", "__suffixEls", "__toggleEls", "__inputEls",
+        "__comboSelect", "__comboTextarea", "__comboInputEl",
+        "__comboTitleInput", "__comboSuffixEl", "__comboMenuBtn", "__comboToggleEl",
+        "__viewportSyncInstalled", "__indexListenerInstalled", "__addButtonInstalled",
+        "__drawingInstalled", "__rafId", "__onWheel", "__onMouseDown", "__indexCheckInterval",
+        "_customSelectAllButtonRect", "_customDeselectAllButtonRect", 
+        "_customInvertSelectionButtonRect", "_customViewModeButtonRect",
+        "_customMouseX", "_customMouseY"
+    ];
+    
+    props.forEach(p => {
+        if (!Object.getOwnPropertyDescriptor(node, p)) {
+            Object.defineProperty(node, p, {
+                value: undefined,
+                writable: true,
+                enumerable: false,
+                configurable: true
+            });
+        }
+    });
+}
+
 app.registerExtension({
     name: "A_my_nodes.TextInputBatch.UI",
     async beforeRegisterNodeDef(nodeType, nodeData) {
@@ -2106,6 +2160,7 @@ app.registerExtension({
         const origOnNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function() {
             if (origOnNodeCreated) origOnNodeCreated.apply(this, arguments);
+            initDomRefs(this);
             ensureStringsJsonWidget(this);
             // installSelectionTools(this); // Removed in favor of canvas buttons
             installAddButton(this);
@@ -2119,6 +2174,7 @@ app.registerExtension({
         const origConfigure = nodeType.prototype.configure;
         nodeType.prototype.configure = function(info) {
             if (origConfigure) origConfigure.apply(this, arguments);
+            initDomRefs(this);
             ensureStringsJsonWidget(this);
             // installSelectionTools(this); // Removed in favor of canvas buttons
             installAddButton(this);
