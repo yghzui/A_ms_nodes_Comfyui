@@ -2157,6 +2157,44 @@ app.registerExtension({
         if (nodeData.name !== "TextInputBatch") return;
         console.log("[TextInputBatch] UI扩展注册");
 
+        // {{ AURA-X: Add - 强制重置 DOM 引用的清理函数 }}
+        function clearDomRefs(node) {
+            const propsToClear = [
+                "__taEls", "__titleEls", "__suffixEls", "__toggleEls", "__inputEls",
+                "__comboSelect", "__comboTextarea", "__comboInputEl",
+                "__comboTitleInput", "__comboSuffixEl", "__comboMenuBtn", "__comboToggleEl",
+                "__viewportSyncInstalled", "__indexListenerInstalled", "__addButtonInstalled",
+                "__drawingInstalled", "__rafId", "__onWheel", "__onMouseDown", "__indexCheckInterval",
+                "_customSelectAllButtonRect", "_customDeselectAllButtonRect", 
+                "_customInvertSelectionButtonRect", "_customViewModeButtonRect",
+                "_customMouseX", "_customMouseY"
+            ];
+            propsToClear.forEach(p => {
+                if (node.hasOwnProperty(p)) {
+                    // 重要：直接切断引用，不要调用 remove()，因为那可能是旧节点的 DOM
+                    node[p] = undefined;
+                }
+            });
+        }
+
+        // {{ AURA-X: Add - 重写 clone 方法，确保 DOM 引用不会被复制 }}
+        nodeType.prototype.clone = function() {
+            const newNode = LiteGraph.LGraphNode.prototype.clone.call(this);
+            clearDomRefs(newNode);
+            
+            // 重新初始化节点组件
+            initDomRefs(newNode);
+            ensureStringsJsonWidget(newNode);
+            installAddButton(newNode);
+            installDrawingHandlers(newNode);
+            installViewportSync(newNode);
+            installIndexChangeListener(newNode);
+            bindColumnsChange(newNode);
+            setItems(newNode, getItems(newNode));
+            
+            return newNode;
+        };
+
         const origOnNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function() {
             if (origOnNodeCreated) origOnNodeCreated.apply(this, arguments);
@@ -2168,27 +2206,194 @@ app.registerExtension({
             installViewportSync(this);
             installIndexChangeListener(this);
             bindColumnsChange(this);
-            setItems(this, getItems(this));
+            
+            // 重要：推迟 DOM 创建！
+            // 不要在这里调用 setItems(this, getItems(this));
+            // 因为 setItems 会调用 layoutCells -> ensureTextareas -> 创建 DOM。
+            // 如果我们在 clone 过程中，这会导致创建一套无用的 DOM，然后被 clone 的属性覆盖，导致泄漏。
+            
+            // 我们只初始化数据，不创建 DOM。
+            // DOM 创建延迟到 onAdded 或第一次 onDrawForeground。
         };
-
+        
+        // {{ AURA-X: Add - 处理 onAdded 事件，延迟创建 DOM }}
+        const origOnAdded = nodeType.prototype.onAdded;
+        nodeType.prototype.onAdded = function(graph) {
+            if (origOnAdded) origOnAdded.apply(this, arguments);
+            
+            // 节点被添加到画布时，安全地创建 DOM
+            // 此时如果是 clone 操作，属性覆盖已经完成，this.__taEls 可能指向旧节点 DOM（如果有脏引用）
+            // 我们需要先清理脏引用，再创建自己的 DOM
+            
+            clearDomRefs(this); // 确保干净
+            setItems(this, getItems(this)); // 创建 DOM
+        };
+        
+        // {{ AURA-X: Add - 处理 onConfigure 事件，确保 DOM 更新 }}
         const origConfigure = nodeType.prototype.configure;
         nodeType.prototype.configure = function(info) {
             if (origConfigure) origConfigure.apply(this, arguments);
-            initDomRefs(this);
-            ensureStringsJsonWidget(this);
-            // installSelectionTools(this); // Removed in favor of canvas buttons
-            installAddButton(this);
-            installDrawingHandlers(this);
-            installViewportSync(this);
-            installIndexChangeListener(this);
-            bindColumnsChange(this);
+            
+            // 反序列化后，同样可能带有脏引用（虽然 JSON 不含 DOM，但如果 LiteGraph 内部做了什么奇怪的事）
+            // 或者如果是粘贴操作，configure 会在 onNodeCreated 之后调用。
+            
+            // 清理并重建
+            clearDomRefs(this);
+            
             if (info && info.properties && typeof info.properties._strings === 'string') {
                 this.properties = this.properties || {};
                 this.properties._strings = info.properties._strings;
                 const hidden = ensureStringsJsonWidget(this);
                 hidden.value = this.properties._strings;
             }
-            setItems(this, getItems(this));
+            
+            // 这里是否应该创建 DOM？
+            // 如果节点还没被 add 到 graph，创建 DOM 可能会有问题（parent 不存在？）
+            // ensureTextareas 会尝试 append 到 document.body 或 canvas.parentNode。
+            // 如果 app.canvas 存在，应该没问题。
+            
+            // 为了安全，如果节点不在 graph 中，我们可以推迟到 onAdded。
+            if (this.graph) {
+                setItems(this, getItems(this));
+            }
         };
     },
+});
+// =============================
+// DOM 生命周期管理系统
+// =============================
+
+// 统一清理函数
+function cleanupNodeDom(node) {
+    const keys = [
+        "__comboTextarea",
+        "__comboSelect",
+        "__comboTitleInput",
+        "__comboSuffixEl",
+        "__comboMenuBtn",
+        "__comboToggleEl",
+        "__comboInputEl",
+        "__taEls",
+        "__titleEls",
+        "__suffixEls",
+        "__toggleEls",
+        "__inputEls"
+    ];
+
+    keys.forEach(k => {
+        const el = node[k];
+        if (!el) return;
+
+        if (Array.isArray(el)) {
+            el.forEach(e => {
+                if (e && e.remove) e.remove();
+            });
+        } else {
+            if (el.remove) el.remove();
+        }
+
+        node[k] = null;
+    });
+}
+
+
+// 强制重置 DOM 引用（解决 clone 复制污染）
+function resetNodeDomRefs(node) {
+    node.__comboTextarea = null;
+    node.__comboSelect = null;
+    node.__comboTitleInput = null;
+    node.__comboSuffixEl = null;
+    node.__comboMenuBtn = null;
+    node.__comboToggleEl = null;
+    node.__comboInputEl = null;
+
+    node.__taEls = [];
+    node.__titleEls = [];
+    node.__suffixEls = [];
+    node.__toggleEls = [];
+    node.__inputEls = [];
+}
+
+
+// 安装节点生命周期
+function installNodeLifecycle(node) {
+
+    if (node.__lifecycleInstalled) return;
+    node.__lifecycleInstalled = true;
+
+    // --- 节点删除 ---
+    const origRemoved = node.onRemoved;
+    node.onRemoved = function () {
+        cleanupNodeDom(this);
+        if (origRemoved) origRemoved.apply(this, arguments);
+    };
+
+    // --- 节点添加（包括 clone） ---
+    const origAdded = node.onAdded;
+    node.onAdded = function () {
+
+        // 关键：先清理 clone 遗留 DOM
+        cleanupNodeDom(this);
+
+        // 重置引用，避免复制污染
+        resetNodeDomRefs(this);
+
+        if (origAdded) origAdded.apply(this, arguments);
+    };
+
+    // --- 节点配置（加载json时） ---
+    const origConfigure = node.onConfigure;
+    node.onConfigure = function () {
+
+        cleanupNodeDom(this);
+        resetNodeDomRefs(this);
+
+        if (origConfigure) origConfigure.apply(this, arguments);
+    };
+}
+
+
+// =============================
+// 防幽灵检测（必须放在 ensureTextareas 开头）
+// =============================
+
+const __origEnsureTextareas = ensureTextareas;
+ensureTextareas = function(node, layout, items) {
+
+    // 如果节点已经不在 graph 中
+    if (!node.graph || !node.graph._nodes || node.graph._nodes.indexOf(node) === -1) {
+        cleanupNodeDom(node);
+        return;
+    }
+
+    return __origEnsureTextareas(node, layout, items);
+};
+
+
+// =============================
+// 自动为目标节点安装生命周期
+// =============================
+
+app.registerExtension({
+    name: "text_input_batch_dom_fix",
+
+    beforeRegisterNodeDef(nodeType, nodeData) {
+
+        // 修改为你的节点名字
+        if (nodeData.name !== "Text Input Batch") return;
+
+        const origOnNodeCreated = nodeType.prototype.onNodeCreated;
+
+        nodeType.prototype.onNodeCreated = function () {
+
+            if (origOnNodeCreated)
+                origOnNodeCreated.apply(this, arguments);
+
+            // 安装生命周期
+            installNodeLifecycle(this);
+
+            // 初始化引用
+            resetNodeDomRefs(this);
+        };
+    }
 });
