@@ -1,5 +1,7 @@
 import { app } from "../../../scripts/app.js";
 import { rgthree } from "./rgthree.js"; // 统一右键菜单定位使用的事件来源
+import { modal } from "./utils/modal.js";
+import { showTopNotification } from "./shared_utils.js";
 
 console.log("Patching node: text_input_batch.js");
 
@@ -326,6 +328,178 @@ function installAddButton(node) {
     node.__addButtonInstalled = true;
 }
 
+// 移除 installExtraButtons
+
+
+function handleExport(node) {
+    const items = getItems(node);
+    modal.show({
+        title: "导出提示词",
+        content: "请选择导出方式：",
+        buttons: [
+            {
+                text: "导出为 JSON 文件",
+                type: "primary",
+                onClick: () => {
+                    const blob = new Blob([JSON.stringify(items, null, 2)], { type: "application/json" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = "prompts_export.json";
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    modal.close();
+                }
+            },
+            {
+                text: "复制到剪贴板",
+                type: "secondary",
+                onClick: () => {
+                    navigator.clipboard.writeText(JSON.stringify(items, null, 2))
+                        .then(() => showTopNotification("已复制到剪贴板", "success"))
+                        .catch(err => showTopNotification("复制失败: " + err, "error"));
+                    modal.close();
+                }
+            },
+            { text: "取消", onClick: () => modal.close() }
+        ]
+    });
+}
+
+function handleImport(node) {
+    const content = `
+        <div style="display:flex; flex-direction:column; gap:10px;">
+            <label>粘贴内容 (JSON 或 文本):</label>
+            <textarea id="import-text" class="custom-modal-textarea" placeholder="在此粘贴..."></textarea>
+            <label>或 选择文件:</label>
+            <input type="file" id="import-file" accept=".json,.txt" class="custom-modal-file-input">
+        </div>
+    `;
+
+    modal.show({
+        title: "导入提示词 (追加模式)",
+        content: content,
+        width: "500px",
+        buttons: [
+            {
+                text: "确认导入",
+                type: "primary",
+                onClick: async () => {
+                    const textEl = document.getElementById("import-text");
+                    const fileEl = document.getElementById("import-file");
+                    let rawData = textEl.value.trim();
+
+                    if (fileEl.files.length > 0) {
+                        const file = fileEl.files[0];
+                        rawData = await file.text();
+                    }
+
+                    if (!rawData) {
+                        showTopNotification("请输入内容或选择文件", "warning");
+                        return;
+                    }
+
+                    processImport(node, rawData);
+                    modal.close();
+                }
+            },
+            { text: "取消", onClick: () => modal.close() }
+        ]
+    });
+}
+
+function processImport(node, rawData) {
+    let newItems = [];
+    try {
+        // 尝试 JSON 解析
+        const parsed = JSON.parse(rawData);
+        if (Array.isArray(parsed)) {
+            newItems = parsed.map((item, idx) => {
+                const content = (typeof item === 'object' && item !== null && 'content' in item) ? item.content : 
+                                (typeof item === 'string' ? item : JSON.stringify(item));
+                const title = (typeof item === 'object' && item !== null && 'title' in item) ? item.title : `imported_${idx}`;
+                const enabled = (typeof item === 'object' && item !== null && 'enabled' in item) ? item.enabled !== false : true;
+                
+                return {
+                    title: String(title),
+                    content: String(content),
+                    enabled: enabled
+                };
+            });
+        } else if (typeof parsed === 'object' && parsed !== null) {
+             // 单个对象
+             newItems.push({
+                title: String(parsed.title || "imported"),
+                content: String(parsed.content || JSON.stringify(parsed)),
+                enabled: parsed.enabled !== false
+             });
+        }
+    } catch (e) {
+        // 非 JSON，按行分割
+        const lines = rawData.split(/\n/);
+        newItems = lines.filter(line => line.trim()).map((line, idx) => ({
+            title: `line_${idx}`,
+            content: line.trim(),
+            enabled: true
+        }));
+    }
+
+    if (newItems.length > 0) {
+        const currentItems = getItems(node);
+        // 追加模式
+        const merged = currentItems.concat(newItems);
+        setItems(node, merged);
+        
+        // 刷新 UI
+        const layout = layoutCells(node, merged);
+        ensureTextareas(node, layout, merged);
+        app.graph.setDirtyCanvas(true, true);
+        showTopNotification(`成功导入 ${newItems.length} 条提示词`, "success");
+    } else {
+        showTopNotification("未识别到有效的提示词数据，请检查格式。支持 JSON 数组或每行一条文本。", "error");
+    }
+}
+
+function handleBatchDelete(node) {
+    const items = getItems(node);
+    const toDeleteCount = items.filter(i => i.enabled).length;
+    
+    if (toDeleteCount === 0) {
+        showTopNotification("没有选中的提示词 (Enabled = true)", "warning");
+        return;
+    }
+
+    modal.show({
+        title: "批量删除确认",
+        content: `确定要删除 ${toDeleteCount} 个选中的提示词吗？此操作不可撤销。`,
+        buttons: [
+            {
+                text: "确认删除",
+                type: "danger",
+                onClick: () => {
+                    // 保留未选中的 (即 enabled == false 的)
+                    let remaining = items.filter(i => !i.enabled);
+                    
+                    // 至少保留一项
+                    if (remaining.length === 0) {
+                        remaining.push({ title: "prompt_0", content: "", enabled: true });
+                    }
+                    
+                    setItems(node, remaining);
+                    setIndexSelectorValue(node, 0);
+                    
+                    const layout = layoutCells(node, remaining);
+                    ensureTextareas(node, layout, remaining);
+                    app.graph.setDirtyCanvas(true, true);
+                    
+                    modal.close();
+                }
+            },
+            { text: "取消", onClick: () => modal.close() }
+        ]
+    });
+}
+
 function isHandMode() {
     const canvasWrapper = app?.canvas;
     const canvasEl = canvasWrapper?.canvas;
@@ -381,7 +555,7 @@ function showItemContextMenu(node, index, event) {
     const doDelete = () => {
         // 至少保留一项
         if (items.length <= 1) {
-            alert('至少需要保留一个提示词输入！');
+            showTopNotification('至少需要保留一个提示词输入！', "warning");
             return;
         }
 
@@ -511,6 +685,7 @@ function showItemContextMenu(node, index, event) {
             const value = item ? item.content : "";
             if (navigator.clipboard?.writeText) {
                 await navigator.clipboard.writeText(value);
+                showTopNotification(`已复制内容 ${index + 1}`, "success");
             } else {
                 const tmp = document.createElement('textarea');
                 tmp.value = value;
@@ -518,10 +693,12 @@ function showItemContextMenu(node, index, event) {
                 tmp.select();
                 document.execCommand('copy');
                 tmp.remove();
+                showTopNotification(`已复制内容 ${index + 1}`, "success");
             }
         } catch (e) {
             const item = getItems(node)[index];
-            prompt('复制失败，请手动复制:', item ? item.content : "");
+            showTopNotification("复制失败: " + e, "error");
+            // prompt('复制失败，请手动复制:', item ? item.content : "");
         }
     };
     const doPaste = async () => {
@@ -530,10 +707,14 @@ function showItemContextMenu(node, index, event) {
             if (navigator.clipboard?.readText) {
                 text = await navigator.clipboard.readText();
             } else {
-                text = prompt('粘贴文本:', "") || "";
+                // text = prompt('粘贴文本:', "") || "";
+                showTopNotification("无法访问剪贴板，请使用 Ctrl+V", "warning");
+                return;
             }
         } catch (e) {
-            text = prompt('粘贴文本:', "") || "";
+            // text = prompt('粘贴文本:', "") || "";
+            showTopNotification("无法访问剪贴板，请使用 Ctrl+V", "warning");
+            return;
         }
         const arr = getItems(node);
         if (index < arr.length) {
@@ -551,7 +732,7 @@ function showItemContextMenu(node, index, event) {
         if (success) {
             setTimeout(() => updateTextareaStyles(node), 50);
         } else {
-            alert('未找到节点的 index 控件');
+            showTopNotification('未找到节点的 index 控件', "error");
         }
     };
 
@@ -1683,7 +1864,9 @@ function layoutCells(node, items) {
     const viewMode = node.properties?._viewMode || "grid";
 
     // 预留底部按钮区域高度
-    const BUTTON_AREA_H = 40;
+    // 如果分两行，每行 25px + 5px 间距，约 60px。如果三行更多。
+    // 我们动态预留足够空间，这里给 70px 应该够两行。
+    const BUTTON_AREA_H = 70;
     const startY = PADDING + getWidgetsBottom(node);
 
     // 如果节点折叠，跳过高度调整
@@ -1787,77 +1970,157 @@ function installDrawingHandlers(node) {
         
         const buttonHeight = 25;
         const buttonSpacing = 10;
-        // 按钮位置在节点底部，layoutCells 会预留空间
-        // 使用实际的高度减去按钮高度和间距
-        const buttonY = this.size[1] - buttonHeight - 5;
-        
-        const selectW = 60;
-        const deselectW = 70;
-        const invertW = 60;
-        const viewModeW = 80; // 视图切换按钮宽度
-        
-        // 按钮水平排列，居中或靠左？参考 load_image_batch 是靠左
+        const rowSpacing = 5;
         const startX = 10;
-        const selectAllButtonX = startX;
-        const deselectAllButtonX = selectAllButtonX + selectW + buttonSpacing;
-        const invertSelectionButtonX = deselectAllButtonX + deselectW + buttonSpacing;
-        const viewModeButtonX = invertSelectionButtonX + invertW + buttonSpacing;
-        
-        // 检查鼠标悬浮状态
-        const mouseInSelectAllButton = this._customMouseX !== undefined && this._customMouseY !== undefined &&
-            this._customMouseX >= selectAllButtonX && this._customMouseX <= selectAllButtonX + selectW &&
-            this._customMouseY >= buttonY && this._customMouseY <= buttonY + buttonHeight;
-            
-        const mouseInDeselectAllButton = this._customMouseX !== undefined && this._customMouseY !== undefined &&
-            this._customMouseX >= deselectAllButtonX && this._customMouseX <= deselectAllButtonX + deselectW &&
-            this._customMouseY >= buttonY && this._customMouseY <= buttonY + buttonHeight;
-            
-        const mouseInInvertSelectionButton = this._customMouseX !== undefined && this._customMouseY !== undefined &&
-            this._customMouseX >= invertSelectionButtonX && this._customMouseX <= invertSelectionButtonX + invertW &&
-            this._customMouseY >= buttonY && this._customMouseY <= buttonY + buttonHeight;
+        const nodeWidth = this.size[0];
 
-        const mouseInViewModeButton = this._customMouseX !== undefined && this._customMouseY !== undefined &&
-            this._customMouseX >= viewModeButtonX && this._customMouseX <= viewModeButtonX + viewModeW &&
-            this._customMouseY >= buttonY && this._customMouseY <= buttonY + buttonHeight;
-            
+        const currentViewMode = this.properties?._viewMode || "grid";
+
+        // 按钮定义
+        // 顺序：视图切换(左一) -> 全选 -> 全不选 -> 反选 -> 导入 -> 导出 -> 批量删除
+        const buttons = [
+            { 
+                text: currentViewMode === 'combo' ? '切换: 列表' : '切换: 下拉', 
+                width: 80,
+                callback: () => {
+                    this.properties._viewMode = (this.properties._viewMode === 'combo') ? 'grid' : 'combo';
+                    const items = getItems(this);
+                    const layout = layoutCells(this, items);
+                    ensureTextareas(this, layout, items);
+                    app.graph.setDirtyCanvas(true, true);
+                }
+            },
+            { 
+                text: '全选', 
+                width: 50,
+                callback: () => {
+                    const items = getItems(this);
+                    items.forEach(item => item.enabled = true);
+                    setItems(this, items);
+                    const layout = layoutCells(this, items);
+                    ensureTextareas(this, layout, items);
+                    app.graph.setDirtyCanvas(true, true);
+                }
+            },
+            { 
+                text: '全不选', 
+                width: 60,
+                callback: () => {
+                    const items = getItems(this);
+                    items.forEach(item => item.enabled = false);
+                    setItems(this, items);
+                    const layout = layoutCells(this, items);
+                    ensureTextareas(this, layout, items);
+                    app.graph.setDirtyCanvas(true, true);
+                }
+            },
+            { 
+                text: '反选', 
+                width: 50,
+                callback: () => {
+                    const items = getItems(this);
+                    items.forEach(item => item.enabled = !item.enabled);
+                    setItems(this, items);
+                    const layout = layoutCells(this, items);
+                    ensureTextareas(this, layout, items);
+                    app.graph.setDirtyCanvas(true, true);
+                }
+            },
+            { 
+                text: '📥 导入', 
+                width: 70,
+                callback: () => handleImport(this)
+            },
+            { 
+                text: '📤 导出', 
+                width: 70,
+                callback: () => handleExport(this)
+            },
+            { 
+                text: '🗑️ 删除选中', 
+                width: 90,
+                callback: () => handleBatchDelete(this)
+            }
+        ];
+
+        // 计算布局行
+        const rows = [];
+        let currentRow = [];
+        let currentRowWidth = startX;
+        
+        buttons.forEach(btn => {
+            if (currentRowWidth + btn.width + buttonSpacing > nodeWidth - 10) { // -10 padding right
+                if (currentRow.length > 0) {
+                    rows.push(currentRow);
+                    currentRow = [];
+                    currentRowWidth = startX;
+                }
+            }
+            currentRow.push(btn);
+            currentRowWidth += btn.width + buttonSpacing;
+        });
+        if (currentRow.length > 0) rows.push(currentRow);
+
+        // 计算起始Y坐标，使按钮组靠底部对齐
+        // 假设底部预留区域足够大，我们将按钮组放在底部
+        const totalHeight = rows.length * buttonHeight + (rows.length - 1) * rowSpacing;
+        // 底部留 5px
+        let startY = this.size[1] - totalHeight - 5;
+        
+        // 清空点击区域缓存
+        this._customButtons = [];
+        
         const r = 6;
-        function drawButton(x, w, text, hover) {
-            const y = buttonY, h = buttonHeight;
+        function drawButton(ctx, x, y, w, h, text, hover) {
             ctx.fillStyle = hover ? 'rgba(235,235,240,0.95)' : 'rgba(235,235,240,0.85)';
             ctx.strokeStyle = hover ? 'rgba(80,80,90,0.9)' : 'rgba(120,120,130,0.8)';
             ctx.lineWidth = hover ? 2 : 1;
             ctx.beginPath();
-            ctx.moveTo(x + r, y);
-            ctx.lineTo(x + w - r, y);
-            ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-            ctx.lineTo(x + w, y + h - r);
-            ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-            ctx.lineTo(x + r, y + h);
-            ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-            ctx.lineTo(x, y + r);
-            ctx.quadraticCurveTo(x, y, x + r, y);
+            
+            if (ctx.roundRect) {
+                ctx.roundRect(x, y, w, h, r);
+            } else {
+                ctx.moveTo(x + r, y);
+                ctx.lineTo(x + w - r, y);
+                ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+                ctx.lineTo(x + w, y + h - r);
+                ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+                ctx.lineTo(x + r, y + h);
+                ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+                ctx.lineTo(x, y + r);
+                ctx.quadraticCurveTo(x, y, x + r, y);
+            }
+            
             ctx.closePath();
             ctx.fill();
             ctx.stroke();
             ctx.fillStyle = 'rgba(30,30,35,1)';
-            ctx.font = 'bold 13px "Microsoft YaHei", Arial';
+            ctx.font = 'bold 12px "Microsoft YaHei", Arial';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(text, x + w / 2, y + h / 2);
         }
-        
-        drawButton(selectAllButtonX, selectW, '全选', mouseInSelectAllButton);
-        drawButton(deselectAllButtonX, deselectW, '全不选', mouseInDeselectAllButton);
-        drawButton(invertSelectionButtonX, invertW, '反选', mouseInInvertSelectionButton);
-        
-        const currentViewMode = this.properties?._viewMode || "grid";
-        drawButton(viewModeButtonX, viewModeW, currentViewMode === 'combo' ? '切换: 列表' : '切换: 下拉', mouseInViewModeButton);
-        
-        // 保存按钮区域供点击检测
-        this._customSelectAllButtonRect = { x: selectAllButtonX, y: buttonY, width: selectW, height: buttonHeight };
-        this._customDeselectAllButtonRect = { x: deselectAllButtonX, y: buttonY, width: deselectW, height: buttonHeight };
-        this._customInvertSelectionButtonRect = { x: invertSelectionButtonX, y: buttonY, width: invertW, height: buttonHeight };
-        this._customViewModeButtonRect = { x: viewModeButtonX, y: buttonY, width: viewModeW, height: buttonHeight };
+
+        // 绘制每一行
+        rows.forEach((row, rowIndex) => {
+            let x = startX;
+            let y = startY + rowIndex * (buttonHeight + rowSpacing);
+            
+            row.forEach(btn => {
+                const hover = this._customMouseX >= x && this._customMouseX <= x + btn.width &&
+                              this._customMouseY >= y && this._customMouseY <= y + buttonHeight;
+                
+                drawButton(ctx, x, y, btn.width, buttonHeight, btn.text, hover);
+                
+                // 记录点击区域
+                this._customButtons.push({
+                    rect: { x, y, w: btn.width, h: buttonHeight },
+                    callback: btn.callback
+                });
+                
+                x += btn.width + buttonSpacing;
+            });
+        });
         
         relayoutAndUpdate(ctx);
     };
@@ -1906,94 +2169,27 @@ function installDrawingHandlers(node) {
         
         // 隐藏 Tooltip
         Tooltip.hide();
+        
+        // 清理按钮引用
+        this._customButtons = null;
     };
     
     // 添加交互事件处理
     node.onMouseDown = function(e) {
-        // 保存鼠标位置用于悬浮效果（虽然onMouseDown只在点击时触发，但我们可以借此更新位置）
-        // 更好的方式是实现 onMouseMove，但 LiteGraph 默认可能不频繁触发重绘
-        // 这里主要处理点击
+        if (this.flags?.collapsed) return false;
         
-        const nodePos = this.pos;
-        // e.canvasX/Y 是画布坐标，我们需要相对于节点的坐标？
-        // LiteGraph 的 onMouseDown 传入的 e 包含了 canvasX, canvasY
-        // 但我们在 drawButton 中使用的是相对于节点的坐标 (0,0 是节点左上角)
-        // 实际上 LiteGraph 的 onDrawForeground 的 ctx 是变换过的，原点在节点左上角
-        // 所以我们需要将鼠标坐标转换为节点内坐标
+        const x = e.canvasX - this.pos[0];
+        const y = e.canvasY - this.pos[1];
         
-        // 修正：LiteGraph 的事件处理通常会把局部坐标传给 onMouseDown?
-        // 不，LiteGraph 的 onMouseDown 参数 e 是 MouseEvent 或者是经过处理的对象
-        // 通常 e.canvasX 是世界坐标。
-        // 但如果我们看 load_image_batch.js，它使用的是 e.canvasX 和 nodePos
-        // 让我们参考 load_image_batch.js 的实现
-        
-        // 在 load_image_batch.js 中：
-        // const ax = nodePos[0] + this._customSelectAllButtonRect.x;
-        // if (e.canvasX >= ax ...
-        
-        // 所以我们需要使用 nodePos 加上按钮的相对坐标来检测
-        
-        if (this.flags?.collapsed) return;
-        
-        // 统一更新函数
-        const updateAll = (newItems) => {
-            setItems(this, newItems);
-            // 需要更新布局和文本框样式以反映启用状态
-            const layout = layoutCells(this, newItems);
-            ensureTextareas(this, layout, newItems);
-            app.graph.setDirtyCanvas(true, true);
-        };
-
-        if (this._customSelectAllButtonRect) {
-            const ax = nodePos[0] + this._customSelectAllButtonRect.x;
-            const ay = nodePos[1] + this._customSelectAllButtonRect.y;
-            if (e.canvasX >= ax && e.canvasX <= ax + this._customSelectAllButtonRect.width &&
-                e.canvasY >= ay && e.canvasY <= ay + this._customSelectAllButtonRect.height) {
-                const items = getItems(this);
-                items.forEach(item => item.enabled = true);
-                updateAll(items);
-                return true; // 阻止事件传播
-            }
-        }
-        
-        if (this._customDeselectAllButtonRect) {
-            const ax = nodePos[0] + this._customDeselectAllButtonRect.x;
-            const ay = nodePos[1] + this._customDeselectAllButtonRect.y;
-            if (e.canvasX >= ax && e.canvasX <= ax + this._customDeselectAllButtonRect.width &&
-                e.canvasY >= ay && e.canvasY <= ay + this._customDeselectAllButtonRect.height) {
-                const items = getItems(this);
-                items.forEach(item => item.enabled = false);
-                updateAll(items);
-                return true;
-            }
-        }
-        
-        if (this._customInvertSelectionButtonRect) {
-            const ax = nodePos[0] + this._customInvertSelectionButtonRect.x;
-            const ay = nodePos[1] + this._customInvertSelectionButtonRect.y;
-            if (e.canvasX >= ax && e.canvasX <= ax + this._customInvertSelectionButtonRect.width &&
-                e.canvasY >= ay && e.canvasY <= ay + this._customInvertSelectionButtonRect.height) {
-                const items = getItems(this);
-                items.forEach(item => item.enabled = !item.enabled);
-                updateAll(items);
-                return true;
-            }
-        }
-        
-        if (this._customViewModeButtonRect) {
-            const ax = nodePos[0] + this._customViewModeButtonRect.x;
-            const ay = nodePos[1] + this._customViewModeButtonRect.y;
-            if (e.canvasX >= ax && e.canvasX <= ax + this._customViewModeButtonRect.width &&
-                e.canvasY >= ay && e.canvasY <= ay + this._customViewModeButtonRect.height) {
-                
-                this.properties._viewMode = (this.properties._viewMode === 'combo') ? 'grid' : 'combo';
-                
-                // 触发重绘和重新布局
-                const items = getItems(this);
-                const layout = layoutCells(this, items);
-                ensureTextareas(this, layout, items);
-                app.graph.setDirtyCanvas(true, true);
-                return true;
+        if (this._customButtons) {
+            for (const btn of this._customButtons) {
+                if (x >= btn.rect.x && x <= btn.rect.x + btn.rect.w &&
+                    y >= btn.rect.y && y <= btn.rect.y + btn.rect.h) {
+                    if (btn.callback) {
+                        btn.callback();
+                        return true; // 阻止事件传播
+                    }
+                }
             }
         }
         
@@ -2014,7 +2210,7 @@ function installDrawingHandlers(node) {
         // 这里简化处理，只要移动就重绘（注意性能，如果卡顿则需要优化）
         // 由于是 Canvas 绘制，悬浮变色需要重绘
         // 只有当鼠标在底部区域时才重绘
-        if (y > this.size[1] - 40) {
+        if (y > this.size[1] - 80) { // 更新为 80 以匹配新的按钮区域
              app.graph.setDirtyCanvas(true, false);
         }
     };
@@ -2136,6 +2332,7 @@ function initDomRefs(node) {
         "__drawingInstalled", "__rafId", "__onWheel", "__onMouseDown", "__indexCheckInterval",
         "_customSelectAllButtonRect", "_customDeselectAllButtonRect", 
         "_customInvertSelectionButtonRect", "_customViewModeButtonRect",
+        "_customButtons",
         "_customMouseX", "_customMouseY"
     ];
     
@@ -2167,6 +2364,7 @@ app.registerExtension({
                 "__drawingInstalled", "__rafId", "__onWheel", "__onMouseDown", "__indexCheckInterval",
                 "_customSelectAllButtonRect", "_customDeselectAllButtonRect", 
                 "_customInvertSelectionButtonRect", "_customViewModeButtonRect",
+                "_customButtons",
                 "_customMouseX", "_customMouseY"
             ];
             propsToClear.forEach(p => {
@@ -2186,6 +2384,7 @@ app.registerExtension({
             initDomRefs(newNode);
             ensureStringsJsonWidget(newNode);
             installAddButton(newNode);
+            // installExtraButtons(newNode);
             installDrawingHandlers(newNode);
             installViewportSync(newNode);
             installIndexChangeListener(newNode);
@@ -2202,6 +2401,7 @@ app.registerExtension({
             ensureStringsJsonWidget(this);
             // installSelectionTools(this); // Removed in favor of canvas buttons
             installAddButton(this);
+            // installExtraButtons(this);
             installDrawingHandlers(this);
             installViewportSync(this);
             installIndexChangeListener(this);
