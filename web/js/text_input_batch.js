@@ -967,6 +967,248 @@ function handleTextareaWheel(e) {
     e.stopPropagation();
 }
 
+// {{ AURA-X: Add - 自定义下拉菜单，带搜索功能 }}
+function showCustomDropdown(node, items) {
+    // 如果已存在，先关闭
+    if (node.__customDropdown) {
+        node.__customDropdown.remove();
+        node.__customDropdown = null;
+        return;
+    }
+
+    const canvas = app?.canvas?.canvas;
+    const container = canvas?.parentElement || document.body;
+    if (!canvas) return;
+
+    // 创建容器
+    const dropdown = document.createElement('div');
+    dropdown.className = 'custom-dropdown-menu';
+    dropdown.style.cssText = `
+        position: absolute;
+        z-index: 9999;
+        background: #222;
+        border: 1px solid #666;
+        border-radius: 4px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        font-family: "Microsoft YaHei", sans-serif;
+        font-size: 12px;
+        color: #eee;
+        min-width: 150px;
+    `;
+    
+    // 阻止事件冒泡
+    dropdown.addEventListener('wheel', (e) => e.stopPropagation());
+    dropdown.addEventListener('mousedown', (e) => e.stopPropagation());
+    dropdown.addEventListener('mouseup', (e) => e.stopPropagation());
+
+    // 搜索框
+    const searchContainer = document.createElement('div');
+    searchContainer.style.cssText = `
+        padding: 6px;
+        border-bottom: 1px solid #444;
+        background: #333;
+        flex-shrink: 0;
+    `;
+    
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.placeholder = '🔍 搜索...';
+    searchInput.style.cssText = `
+        width: 100%;
+        box-sizing: border-box;
+        padding: 4px 6px;
+        border: 1px solid #555;
+        border-radius: 3px;
+        background: #111;
+        color: #fff;
+        font-size: 12px;
+        outline: none;
+    `;
+    
+    searchContainer.appendChild(searchInput);
+    dropdown.appendChild(searchContainer);
+    
+    // 列表容器
+    const listContainer = document.createElement('div');
+    listContainer.style.cssText = `
+        overflow-y: auto;
+        flex: 1;
+        max-height: 300px; /* 默认最大高度，会被动态调整覆盖 */
+    `;
+    
+    // {{ AURA-X: Add - 点击列表空白处关闭 }}
+    listContainer.addEventListener('click', (e) => {
+        if (e.target === listContainer) {
+            closeDropdown();
+        }
+    });
+    
+    dropdown.appendChild(listContainer);
+    
+    // 渲染列表函数
+    const renderList = (filterText = '') => {
+        listContainer.innerHTML = '';
+        const lowerFilter = filterText.toLowerCase();
+        let hasMatch = false;
+        
+        items.forEach((item, idx) => {
+            const title = item.title || `prompt_${idx}`;
+            const content = item.content || '';
+            // 搜索匹配：标题或内容
+            const match = title.toLowerCase().includes(lowerFilter) || content.toLowerCase().includes(lowerFilter);
+            
+            if (match) {
+                hasMatch = true;
+                const itemEl = document.createElement('div');
+                itemEl.style.cssText = `
+                    padding: 6px 10px;
+                    cursor: pointer;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    border-bottom: 1px solid #333;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                `;
+                
+                // 标题部分
+                const titleSpan = document.createElement('span');
+                titleSpan.textContent = title;
+                titleSpan.style.flex = "1";
+                titleSpan.style.overflow = "hidden";
+                titleSpan.style.textOverflow = "ellipsis";
+                itemEl.appendChild(titleSpan);
+                
+                // 悬浮提示
+                itemEl.title = content.substring(0, 100);
+                
+                // 选中状态
+                if (idx === getCurrentIndex(node)) {
+                    itemEl.style.background = '#4a9eff';
+                    itemEl.style.color = '#fff';
+                } else {
+                    itemEl.onmouseenter = () => { itemEl.style.background = '#444'; };
+                    itemEl.onmouseleave = () => { itemEl.style.background = 'transparent'; };
+                }
+                
+                // 点击事件
+                itemEl.onclick = (e) => {
+                    e.stopPropagation();
+                    setIndexSelectorValue(node, idx);
+                    closeDropdown();
+                };
+                
+                listContainer.appendChild(itemEl);
+            }
+        });
+        
+        if (!hasMatch) {
+            const emptyEl = document.createElement('div');
+            emptyEl.textContent = '无匹配结果';
+            emptyEl.style.padding = '10px';
+            emptyEl.style.color = '#888';
+            emptyEl.style.textAlign = 'center';
+            listContainer.appendChild(emptyEl);
+        }
+    };
+    
+    // 初始渲染
+    renderList();
+    
+    // 搜索事件
+    searchInput.addEventListener('input', (e) => {
+        renderList(e.target.value);
+    });
+    
+    // 关闭函数
+    const closeDropdown = () => {
+        if (node.__customDropdown) {
+            node.__customDropdown.remove();
+            node.__customDropdown = null;
+        }
+        document.removeEventListener('mousedown', onDocClick, true);
+        // 移除 window 上的事件（双重保险）
+        window.removeEventListener('mousedown', onDocClick, true);
+    };
+    
+    // 点击外部关闭
+    const onDocClick = (e) => {
+        // 如果点击的是 dropdown 内部，或者是 menuBtn，则不关闭
+        if (node.__customDropdown && 
+            node.__customDropdown.contains(e.target)) {
+            return;
+        }
+        if (node.__comboMenuBtn && node.__comboMenuBtn.contains(e.target)) {
+            return;
+        }
+        closeDropdown();
+    };
+    
+    document.addEventListener('mousedown', onDocClick, true);
+    // 同时监听 window 上的点击（双重保险，应对 Canvas 拦截）
+    window.addEventListener('mousedown', onDocClick, true);
+    
+    // ESC 关闭
+    searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeDropdown();
+        e.stopPropagation();
+    });
+
+    container.appendChild(dropdown);
+    node.__customDropdown = dropdown;
+    
+    // 立即更新一次位置
+    updateCustomDropdownPosition(node);
+    
+    // 聚焦搜索框
+    setTimeout(() => searchInput.focus(), 50);
+}
+
+// {{ AURA-X: Add - 更新下拉菜单位置 }}
+function updateCustomDropdownPosition(node) {
+    const dropdown = node.__customDropdown;
+    const menuBtn = node.__comboMenuBtn;
+    if (!dropdown || !menuBtn) return;
+    
+    const ds = app?.canvas?.ds;
+    if (!ds) return;
+    
+    const canvas = app.canvas.canvas;
+    const container = canvas.parentElement || document.body;
+    
+    const btnRect = menuBtn.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    
+    // 计算相对于 container 的位置
+    const left = btnRect.left - containerRect.left;
+    const top = btnRect.bottom - containerRect.top;
+    
+    // 宽度跟随节点，但有最小值和最大值
+    const nodeWidthPx = node.size[0] * ds.scale;
+    dropdown.style.width = `${Math.max(160, Math.min(nodeWidthPx, 220))}px`;
+    
+    // 高度限制：不超过节点高度
+    const nodeHeightPx = node.size[1] * ds.scale;
+    // 考虑到搜索框的高度（约 30px），列表高度应适配
+    // 另外要确保最小可用高度，但用户要求不超过节点高度
+    // 如果节点高度太小（例如小于100px），这可能会导致显示问题，但我们必须遵守用户要求
+    // 增加一个合理的最小值防止完全不可用，比如 100px，除非节点本身小于 100px
+    const maxDropdownHeight = Math.max(Math.min(100, nodeHeightPx), nodeHeightPx);
+    
+    // 检查屏幕底部空间，防止溢出
+    const spaceBelow = window.innerHeight - btnRect.bottom - 10;
+    const finalMaxHeight = Math.min(maxDropdownHeight, spaceBelow);
+    
+    dropdown.style.maxHeight = `${finalMaxHeight}px`;
+    
+    dropdown.style.left = `${left}px`;
+    dropdown.style.top = `${top}px`;
+}
+
 // {{ AURA-X: Add - 创建标题、内容和开关的UI元素. }}
 function ensureTextareas(node, layout, items) {
     const ds = app?.canvas?.ds;
@@ -1000,6 +1242,7 @@ function ensureTextareas(node, layout, items) {
         if (node.__comboSuffixEl) { node.__comboSuffixEl.remove(); node.__comboSuffixEl = null; }
         if (node.__comboMenuBtn) { node.__comboMenuBtn.remove(); node.__comboMenuBtn = null; }
         if (node.__comboToggleEl) { node.__comboToggleEl.remove(); node.__comboToggleEl = null; } // 清理 Combo 模式下的复选框
+        if (node.__customDropdown) { node.__customDropdown.remove(); node.__customDropdown = null; } // 清理下拉菜单
     };
 
     if (viewMode === 'combo') {
@@ -1053,56 +1296,9 @@ function ensureTextareas(node, layout, items) {
                 e.stopPropagation();
                 e.preventDefault();
                 
-                // 显示上下文菜单作为下拉列表
-                const Lite = window.LiteGraph || window?.app?.canvas?.graph?.constructor;
-                if (!Lite || !Lite.ContextMenu) return;
-                
-                // 重新获取 items 以确保标题最新
+                // {{ AURA-X: Modify - 使用自定义下拉菜单 }}
                 const currentItems = getItems(node);
-                
-                const menuItems = currentItems.map((item, idx) => {
-                    return {
-                        content: `${item.title || `prompt_${idx}`}`, // 显示完整标题
-                        callback: () => {
-                            setIndexSelectorValue(node, idx);
-                        },
-                        // LiteGraph ContextMenu 默认不高亮当前项，这里可以通过 title 或其他方式辅助
-                        // 或者如果支持的话，使用 checked 属性
-                        checked: idx === currentIndex
-                    };
-                });
-                
-                const cm = new Lite.ContextMenu(menuItems, {
-                    event: e,
-                    parentMenu: null,
-                    node: node
-                });
-
-                // {{ AURA-X: Add - 为菜单项添加悬浮提示 }}
-                const root = cm.root || cm.element || cm.menu || cm;
-                if (root) {
-                    const entries = Array.from(root.querySelectorAll('.litemenu-entry'));
-                    entries.forEach((entry, idx) => {
-                        // 确保索引对应（假设没有分隔符）
-                        if (idx < currentItems.length) {
-                            const item = currentItems[idx];
-                            entry.addEventListener('mouseenter', (evt) => {
-                                const rect = entry.getBoundingClientRect();
-                                Tooltip.scheduleShow(rect.right + 5, rect.top, item.title, item.content);
-                            });
-                            entry.addEventListener('mouseleave', () => {
-                                Tooltip.hide();
-                            });
-                        }
-                    });
-                    
-                    // Hook close 方法以确保菜单关闭时隐藏提示
-                    const origClose = cm.close;
-                    cm.close = function() {
-                        Tooltip.hide();
-                        if (origClose) origClose.apply(this, arguments);
-                    };
-                }
+                showCustomDropdown(node, currentItems);
             });
             
             menuBtn.addEventListener('wheel', (e) => { e.stopPropagation(); });
@@ -1441,6 +1637,12 @@ function ensureTextareas(node, layout, items) {
         ta.style.visibility = visibility;
         ta.style.pointerEvents = pointerEvents;
         
+        // {{ AURA-X: Add - 更新下拉菜单位置 }}
+        if (node.__customDropdown) {
+            updateCustomDropdownPosition(node);
+            node.__customDropdown.style.visibility = visibility;
+        }
+
         return; // Combo 模式处理完毕
     }
 
@@ -2328,6 +2530,7 @@ function initDomRefs(node) {
         "__taEls", "__titleEls", "__suffixEls", "__toggleEls", "__inputEls",
         "__comboSelect", "__comboTextarea", "__comboInputEl",
         "__comboTitleInput", "__comboSuffixEl", "__comboMenuBtn", "__comboToggleEl",
+        "__customDropdown", // Add this
         "__viewportSyncInstalled", "__indexListenerInstalled", "__addButtonInstalled",
         "__drawingInstalled", "__rafId", "__onWheel", "__onMouseDown", "__indexCheckInterval",
         "_customSelectAllButtonRect", "_customDeselectAllButtonRect", 
@@ -2360,6 +2563,7 @@ app.registerExtension({
                 "__taEls", "__titleEls", "__suffixEls", "__toggleEls", "__inputEls",
                 "__comboSelect", "__comboTextarea", "__comboInputEl",
                 "__comboTitleInput", "__comboSuffixEl", "__comboMenuBtn", "__comboToggleEl",
+                "__customDropdown", // Add this
                 "__viewportSyncInstalled", "__indexListenerInstalled", "__addButtonInstalled",
                 "__drawingInstalled", "__rafId", "__onWheel", "__onMouseDown", "__indexCheckInterval",
                 "_customSelectAllButtonRect", "_customDeselectAllButtonRect", 
@@ -2473,6 +2677,7 @@ function cleanupNodeDom(node) {
         "__comboMenuBtn",
         "__comboToggleEl",
         "__comboInputEl",
+        "__customDropdown", // Add this
         "__taEls",
         "__titleEls",
         "__suffixEls",
@@ -2506,6 +2711,7 @@ function resetNodeDomRefs(node) {
     node.__comboMenuBtn = null;
     node.__comboToggleEl = null;
     node.__comboInputEl = null;
+    node.__customDropdown = null; // Add this
 
     node.__taEls = [];
     node.__titleEls = [];
