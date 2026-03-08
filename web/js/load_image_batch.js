@@ -34,6 +34,213 @@ function chainCallback(object, property, callback) {
 }
 
 /**
+ * 获取多图片模式下的底部按钮配置
+ */
+function getCustomButtons(node) {
+    return [
+        {
+            text: '全选',
+            width: 60,
+            tooltip: '全选所有图片',
+            callback: () => {
+                if (node._customSelectedImages && node._customSelectedImages.length > 0) {
+                    node._customSelectedImages.fill(true);
+                    updateWidgetValue(node);
+                    app.graph.setDirtyCanvas(true, false);
+                }
+            }
+        },
+        {
+            text: '全不选',
+            width: 70,
+            tooltip: '取消所有选择',
+            callback: () => {
+                if (node._customSelectedImages && node._customSelectedImages.length > 0) {
+                    node._customSelectedImages.fill(false);
+                    updateWidgetValue(node);
+                    app.graph.setDirtyCanvas(true, false);
+                }
+            }
+        },
+        {
+            text: '反选',
+            width: 60,
+            tooltip: '反转当前选择',
+            callback: () => {
+                if (node._customSelectedImages && node._customSelectedImages.length > 0) {
+                    for (let i = 0; i < node._customSelectedImages.length; i++) {
+                        node._customSelectedImages[i] = !node._customSelectedImages[i];
+                    }
+                    updateWidgetValue(node);
+                    app.graph.setDirtyCanvas(true, false);
+                }
+            }
+        },
+        {
+            text: '清除选中',
+            width: 90,
+            tooltip: '清除选中的图片',
+            callback: () => {
+                if (node._customImagePaths && node._customSelectedImages) {
+                    const newPaths = [];
+                    const newSelected = [];
+                    const newNames = [];
+                    for (let i = 0; i < node._customImagePaths.length; i++) {
+                        if (!node._customSelectedImages[i]) {
+                            newPaths.push(node._customImagePaths[i]);
+                            newSelected.push(node._customSelectedImages[i]);
+                            if (node._customImageFileNames && node._customImageFileNames[i]) newNames.push(node._customImageFileNames[i]);
+                        }
+                    }
+                    node._customImagePaths = newPaths;
+                    node._customSelectedImages = newSelected.length ? newSelected : new Array(newPaths.length).fill(true);
+                    node._customImageFileNames = newNames;
+                    const imagePathsWidget = node.widgets.find(w => w.name === "image_paths");
+                    if (imagePathsWidget) imagePathsWidget.value = (node._customImagePaths || []).join(',');
+                    updateWidgetValue(node);
+                    showImages(node, node._customImagePaths);
+                    app.graph.setDirtyCanvas(true, false);
+                }
+            }
+        },
+        {
+            text: '清除未选',
+            width: 90,
+            tooltip: '清除未选中的图片',
+            callback: () => {
+                if (node._customImagePaths && node._customSelectedImages) {
+                    const newPaths = [];
+                    const newSelected = [];
+                    const newNames = [];
+                    for (let i = 0; i < node._customImagePaths.length; i++) {
+                        if (node._customSelectedImages[i]) {
+                            newPaths.push(node._customImagePaths[i]);
+                            newSelected.push(node._customSelectedImages[i]);
+                            if (node._customImageFileNames && node._customImageFileNames[i]) newNames.push(node._customImageFileNames[i]);
+                        }
+                    }
+                    node._customImagePaths = newPaths;
+                    node._customSelectedImages = newSelected.length ? newSelected : new Array(newPaths.length).fill(true);
+                    node._customImageFileNames = newNames;
+                    const imagePathsWidget = node.widgets.find(w => w.name === "image_paths");
+                    if (imagePathsWidget) imagePathsWidget.value = (node._customImagePaths || []).join(',');
+                    updateWidgetValue(node);
+                    showImages(node, node._customImagePaths);
+                    app.graph.setDirtyCanvas(true, false);
+                }
+            }
+        },
+        {
+            text: node._customShowOnlySelected ? '显示全部' : '仅显示勾选',
+            width: 90,
+            tooltip: node._customShowOnlySelected ? '恢复显示全部图片' : '仅显示勾选的图片',
+            callback: () => {
+                if (!node._customShowOnlySelected) {
+                    if (!node._customSelectedImages || !node._customSelectedImages.some(v => v)) {
+                        alert('当前没有勾选的图片，无法仅显示勾选。');
+                        return;
+                    }
+                    node._customShowOnlySelected = true;
+                } else {
+                    node._customShowOnlySelected = false;
+                }
+                if (node._customImagePaths && node._customImagePaths.length > 0) {
+                    calculateImageLayout(node, node._customImagePaths.length);
+                    app.graph.setDirtyCanvas(true, false);
+                }
+            }
+        },
+        {
+            text: '复制选中',
+            width: 90,
+            tooltip: '复制选中图片路径到剪贴板',
+            callback: () => {
+                if (node._customImagePaths && node._customSelectedImages) {
+                    const selectedPaths = [];
+                    for (let i = 0; i < node._customImagePaths.length; i++) {
+                        if (node._customSelectedImages[i]) {
+                            selectedPaths.push(node._customImagePaths[i]);
+                        }
+                    }
+                    
+                    if (selectedPaths.length > 0) {
+                        const textToCopy = selectedPaths.join('\n');
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            navigator.clipboard.writeText(textToCopy).then(() => {
+                                alert(`已复制 ${selectedPaths.length} 个文件路径到剪贴板`);
+                            }).catch(err => {
+                                console.error('无法复制文本: ', err);
+                                alert('复制失败，请查看控制台错误');
+                            });
+                        } else {
+                            const textArea = document.createElement("textarea");
+                            textArea.value = textToCopy;
+                            document.body.appendChild(textArea);
+                            textArea.select();
+                            try {
+                                document.execCommand('copy');
+                                alert(`已复制 ${selectedPaths.length} 个文件路径到剪贴板`);
+                            } catch (err) {
+                                console.error('无法复制文本: ', err);
+                                alert('复制失败');
+                            }
+                            document.body.removeChild(textArea);
+                        }
+                    } else {
+                        alert('没有选中的图片');
+                    }
+                }
+            }
+        },
+        {
+            text: node._customMaskReuseEnabled ? '遮罩复用✓' : '遮罩复用',
+            width: 100,
+            tooltip: '相同尺寸的图片复用第一个已编辑遮罩',
+            callback: () => {
+                node._customMaskReuseEnabled = !node._customMaskReuseEnabled;
+                const widget = node.widgets.find(w => w.name === "reuse_mask");
+                if (widget) {
+                    widget.value = !!node._customMaskReuseEnabled;
+                }
+                app.graph.setDirtyCanvas(true, false);
+            }
+        }
+    ];
+}
+
+/**
+ * 计算按钮布局
+ */
+function computeButtonLayout(node, buttons) {
+    const buttonHeight = 25;
+    const buttonSpacing = 10;
+    const rowSpacing = 5;
+    const startX = 10;
+    const nodeWidth = node.size[0];
+
+    const rows = [];
+    let currentRow = [];
+    let currentRowWidth = startX;
+
+    buttons.forEach(btn => {
+        if (currentRowWidth + btn.width + buttonSpacing > nodeWidth - 10) { // -10 padding right
+            if (currentRow.length > 0) {
+                rows.push(currentRow);
+                currentRow = [];
+                currentRowWidth = startX;
+            }
+        }
+        currentRow.push(btn);
+        currentRowWidth += btn.width + buttonSpacing;
+    });
+    if (currentRow.length > 0) rows.push(currentRow);
+
+    const totalHeight = rows.length * buttonHeight + Math.max(0, rows.length - 1) * rowSpacing + 10; // +10 padding bottom
+    
+    return { rows, totalHeight, buttonHeight, buttonSpacing, rowSpacing, startX };
+}
+
+/**
  * 计算图片网格布局，支持单图片模式和多图片模式
  * @param {object} node - LiteGraph节点实例
  * @param {number} imageCount - 图片数量
@@ -55,7 +262,11 @@ function calculateImageLayout(node, imageCount) {
     // 为顶部输入控件和图片标题预留更多空间
     const TOP_MARGIN = 185; // 再向下腾挪空间，容纳新增控件（如"应用透明到图像"开关）
     const TITLE_HEIGHT = 25; // 图片标题的高度
-    const BOTTOM_CONTROLS_HEIGHT = 25; // 底部控制按钮的高度
+    
+    // 计算底部控制按钮的高度
+    const buttons = getCustomButtons(node);
+    const layout = computeButtonLayout(node, buttons);
+    const BOTTOM_CONTROLS_HEIGHT = layout.totalHeight; // 底部控制按钮的高度
     
     const availableWidth = containerWidth - (PADDING * 2);
     const availableHeight = containerHeight - (PADDING * 2) - TOP_MARGIN - TITLE_HEIGHT - BOTTOM_CONTROLS_HEIGHT;
@@ -792,117 +1003,68 @@ function drawNodeImages(node, ctx) {
             ctx.fillText(fileName, node.size[0] / 2, fileNameY);
         }
     } else {
-        const buttonHeight = 25;
-        const buttonSpacing = 10;
-        const buttonY = node.size[1] - buttonHeight - 5;
-        const selectW = 60;
-        const deselectW = 70;
-        const invertW = 60;
-        const clearW = 90;
-        const showSelectedW = 90;
-        const reuseMaskW = 100;
-        const selectAllButtonX = 10;
-        const deselectAllButtonX = selectAllButtonX + selectW + buttonSpacing;
-        const invertSelectionButtonX = deselectAllButtonX + deselectW + buttonSpacing;
-        const clearSelectedButtonX = invertSelectionButtonX + invertW + buttonSpacing;
-        const clearUnselectedButtonX = clearSelectedButtonX + clearW + buttonSpacing;
-        const showSelectedButtonX = clearUnselectedButtonX + clearW + buttonSpacing;
-        const reuseMaskButtonX = showSelectedButtonX + showSelectedW + buttonSpacing;
-        const mouseInSelectAllButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
-            node._customMouseX >= selectAllButtonX && node._customMouseX <= selectAllButtonX + selectW &&
-            node._customMouseY >= buttonY && node._customMouseY <= buttonY + buttonHeight;
-        const mouseInDeselectAllButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
-            node._customMouseX >= deselectAllButtonX && node._customMouseX <= deselectAllButtonX + deselectW &&
-            node._customMouseY >= buttonY && node._customMouseY <= buttonY + buttonHeight;
-        const mouseInInvertSelectionButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
-            node._customMouseX >= invertSelectionButtonX && node._customMouseX <= invertSelectionButtonX + invertW &&
-            node._customMouseY >= buttonY && node._customMouseY <= buttonY + buttonHeight;
-        const mouseInClearSelectedButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
-            node._customMouseX >= clearSelectedButtonX && node._customMouseX <= clearSelectedButtonX + clearW &&
-            node._customMouseY >= buttonY && node._customMouseY <= buttonY + buttonHeight;
-        const mouseInClearUnselectedButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
-            node._customMouseX >= clearUnselectedButtonX && node._customMouseX <= clearUnselectedButtonX + clearW &&
-            node._customMouseY >= buttonY && node._customMouseY <= buttonY + buttonHeight;
-        const mouseInShowSelectedButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
-            node._customMouseX >= showSelectedButtonX && node._customMouseX <= showSelectedButtonX + showSelectedW &&
-            node._customMouseY >= buttonY && node._customMouseY <= buttonY + buttonHeight;
-        const mouseInReuseMaskButton = node._customMouseX !== undefined && node._customMouseY !== undefined &&
-            node._customMouseX >= reuseMaskButtonX && node._customMouseX <= reuseMaskButtonX + reuseMaskW &&
-            node._customMouseY >= buttonY && node._customMouseY <= buttonY + buttonHeight;
+        // 多图片模式下的底部按钮
+        const buttons = getCustomButtons(node);
+        const layout = computeButtonLayout(node, buttons);
+        const startY = node.size[1] - layout.totalHeight + 5; // +5 padding inside bottom area
+
+        // 清空旧的按钮区域
+        node._customButtons = [];
+        // 清空旧的单独按钮区域引用，防止干扰
+        node._customSelectAllButtonRect = null;
+        node._customDeselectAllButtonRect = null;
+        node._customInvertSelectionButtonRect = null;
+        node._customClearSelectedButtonRect = null;
+        node._customClearUnselectedButtonRect = null;
+        node._customShowSelectedButtonRect = null;
+        node._customCopyButtonRect = null;
+        node._customReuseMaskButtonRect = null;
+
         const r = 6;
-        function drawButton(x, w, text, hover) {
-            const y = buttonY, h = buttonHeight;
-            ctx.fillStyle = hover ? 'rgba(235,235,240,0.95)' : 'rgba(235,235,240,0.85)';
-            ctx.strokeStyle = hover ? 'rgba(80,80,90,0.9)' : 'rgba(120,120,130,0.8)';
-            ctx.lineWidth = hover ? 2 : 1;
-            ctx.beginPath();
-            ctx.moveTo(x + r, y);
-            ctx.lineTo(x + w - r, y);
-            ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-            ctx.lineTo(x + w, y + h - r);
-            ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-            ctx.lineTo(x + r, y + h);
-            ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-            ctx.lineTo(x, y + r);
-            ctx.quadraticCurveTo(x, y, x + r, y);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-            ctx.fillStyle = 'rgba(30,30,35,1)';
-            ctx.font = 'bold 13px "Microsoft YaHei", Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(text, x + w / 2, y + h / 2);
-        }
-        drawButton(selectAllButtonX, selectW, '全选', mouseInSelectAllButton);
-        drawButton(deselectAllButtonX, deselectW, '全不选', mouseInDeselectAllButton);
-        drawButton(invertSelectionButtonX, invertW, '反选', mouseInInvertSelectionButton);
-        drawButton(clearSelectedButtonX, clearW, '清除选中', mouseInClearSelectedButton);
-        drawButton(clearUnselectedButtonX, clearW, '清除未选', mouseInClearUnselectedButton);
-        drawButton(showSelectedButtonX, showSelectedW, node._customShowOnlySelected ? '显示全部' : '仅显示勾选', mouseInShowSelectedButton);
-        drawButton(reuseMaskButtonX, reuseMaskW, node._customMaskReuseEnabled ? '遮罩复用✓' : '遮罩复用', mouseInReuseMaskButton);
-        node._customSelectAllButtonRect = {
-            x: selectAllButtonX,
-            y: buttonY,
-            width: selectW,
-            height: buttonHeight
-        };
-        node._customDeselectAllButtonRect = {
-            x: deselectAllButtonX,
-            y: buttonY,
-            width: deselectW,
-            height: buttonHeight
-        };
-        node._customInvertSelectionButtonRect = {
-            x: invertSelectionButtonX,
-            y: buttonY,
-            width: invertW,
-            height: buttonHeight
-        };
-        node._customClearSelectedButtonRect = {
-            x: clearSelectedButtonX,
-            y: buttonY,
-            width: clearW,
-            height: buttonHeight
-        };
-        node._customClearUnselectedButtonRect = {
-            x: clearUnselectedButtonX,
-            y: buttonY,
-            width: clearW,
-            height: buttonHeight
-        };
-        node._customShowSelectedButtonRect = {
-            x: showSelectedButtonX,
-            y: buttonY,
-            width: showSelectedW,
-            height: buttonHeight
-        };
-        node._customReuseMaskButtonRect = {
-            x: reuseMaskButtonX,
-            y: buttonY,
-            width: reuseMaskW,
-            height: buttonHeight
-        };
+        
+        layout.rows.forEach((row, rowIndex) => {
+            let x = layout.startX;
+            let y = startY + rowIndex * (layout.buttonHeight + layout.rowSpacing);
+
+            row.forEach(btn => {
+                const hover = node._customMouseX >= x && node._customMouseX <= x + btn.width &&
+                              node._customMouseY >= y && node._customMouseY <= y + layout.buttonHeight;
+                
+                // 绘制按钮
+                const h = layout.buttonHeight;
+                ctx.fillStyle = hover ? 'rgba(235,235,240,0.95)' : 'rgba(235,235,240,0.85)';
+                ctx.strokeStyle = hover ? 'rgba(80,80,90,0.9)' : 'rgba(120,120,130,0.8)';
+                ctx.lineWidth = hover ? 2 : 1;
+                ctx.beginPath();
+                ctx.moveTo(x + r, y);
+                ctx.lineTo(x + btn.width - r, y);
+                ctx.quadraticCurveTo(x + btn.width, y, x + btn.width, y + r);
+                ctx.lineTo(x + btn.width, y + h - r);
+                ctx.quadraticCurveTo(x + btn.width, y + h, x + btn.width - r, y + h);
+                ctx.lineTo(x + r, y + h);
+                ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+                ctx.lineTo(x, y + r);
+                ctx.quadraticCurveTo(x, y, x + r, y);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                
+                ctx.fillStyle = 'rgba(30,30,35,1)';
+                ctx.font = 'bold 13px "Microsoft YaHei", Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(btn.text, x + btn.width / 2, y + h / 2);
+
+                // 记录点击区域
+                node._customButtons.push({
+                    rect: { x, y, w: btn.width, h: layout.buttonHeight },
+                    callback: btn.callback,
+                    tooltip: btn.tooltip
+                });
+                
+                x += btn.width + layout.buttonSpacing;
+            });
+        });
     }
     
     if (node._customSingleImageMode) { ctx.restore(); return;
@@ -1343,21 +1505,22 @@ function populate(imagePaths) {
                     }
                 }
             } else {
-                const controls = [
-                    { r: this._customSelectAllButtonRect, t: '全选所有图片' },
-                    { r: this._customInvertSelectionButtonRect, t: '反选当前选择' },
-                    { r: this._customClearSelectedButtonRect, t: '清除选中的图片' },
-                    { r: this._customClearUnselectedButtonRect, t: '清除未选的图片' },
-                    { r: this._customShowSelectedButtonRect, t: this._customShowOnlySelected ? '恢复显示全部图片' : '仅显示勾选的图片' },
-                    { r: this._customReuseMaskButtonRect, t: '相同尺寸的图片复用第一个已编辑遮罩' }
-                ];
-                for (const c of controls) {
-                    if (!c.r) continue;
-                    const ax = nodePos[0] + c.r.x, ay = nodePos[1] + c.r.y, aw = c.r.width, ah = c.r.height;
-                    if (e.canvasX >= ax && e.canvasX <= ax + aw && e.canvasY >= ay && e.canvasY <= ay + ah) {
-                        this.showControlTooltip(e, c.t);
-                        tooltipShown = true;
-                        break;
+                if (this._customButtons && this._customButtons.length > 0) {
+                    for (const btn of this._customButtons) {
+                        const ax = nodePos[0] + btn.rect.x;
+                        const ay = nodePos[1] + btn.rect.y;
+                        const aw = btn.rect.w;
+                        const ah = btn.rect.h;
+                        
+                        if (e.canvasX >= ax && e.canvasX <= ax + aw && 
+                            e.canvasY >= ay && e.canvasY <= ay + ah) {
+                            
+                            if (btn.tooltip) {
+                                this.showControlTooltip(e, btn.tooltip);
+                                tooltipShown = true;
+                            }
+                            break;
+                        }
                     }
                 }
             }
@@ -1517,156 +1680,25 @@ function populate(imagePaths) {
         }
         
         if (!this._customSingleImageMode) {
-            if (this._customSelectAllButtonRect) {
-                const ax = nodePos[0] + this._customSelectAllButtonRect.x;
-                const ay = nodePos[1] + this._customSelectAllButtonRect.y;
-                const aw = this._customSelectAllButtonRect.width;
-                const ah = this._customSelectAllButtonRect.height;
-                if (e.canvasX >= ax && e.canvasX <= ax + aw && e.canvasY >= ay && e.canvasY <= ay + ah) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (this._customSelectedImages && this._customSelectedImages.length > 0) {
-                        this._customSelectedImages.fill(true);
-                        updateWidgetValue(this);
-                        app.graph.setDirtyCanvas(true, false);
-                    }
-                    return true;
-                }
-            }
-            if (this._customDeselectAllButtonRect) {
-                const ax = nodePos[0] + this._customDeselectAllButtonRect.x;
-                const ay = nodePos[1] + this._customDeselectAllButtonRect.y;
-                const aw = this._customDeselectAllButtonRect.width;
-                const ah = this._customDeselectAllButtonRect.height;
-                if (e.canvasX >= ax && e.canvasX <= ax + aw && e.canvasY >= ay && e.canvasY <= ay + ah) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (this._customSelectedImages && this._customSelectedImages.length > 0) {
-                        this._customSelectedImages.fill(false);
-                        updateWidgetValue(this);
-                        app.graph.setDirtyCanvas(true, false);
-                    }
-                    return true;
-                }
-            }
-            if (this._customInvertSelectionButtonRect) {
-                const ax = nodePos[0] + this._customInvertSelectionButtonRect.x;
-                const ay = nodePos[1] + this._customInvertSelectionButtonRect.y;
-                const aw = this._customInvertSelectionButtonRect.width;
-                const ah = this._customInvertSelectionButtonRect.height;
-                if (e.canvasX >= ax && e.canvasX <= ax + aw && e.canvasY >= ay && e.canvasY <= ay + ah) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (this._customSelectedImages && this._customSelectedImages.length > 0) {
-                        for (let i = 0; i < this._customSelectedImages.length; i++) {
-                            this._customSelectedImages[i] = !this._customSelectedImages[i];
+            // 检查自定义按钮点击
+            if (this._customButtons && this._customButtons.length > 0) {
+                for (const btn of this._customButtons) {
+                    const ax = nodePos[0] + btn.rect.x;
+                    const ay = nodePos[1] + btn.rect.y;
+                    const aw = btn.rect.w;
+                    const ah = btn.rect.h;
+                    
+                    if (e.canvasX >= ax && e.canvasX <= ax + aw && 
+                        e.canvasY >= ay && e.canvasY <= ay + ah) {
+                        
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
+                        if (btn.callback) {
+                            btn.callback();
                         }
-                        updateWidgetValue(this);
-                        app.graph.setDirtyCanvas(true, false);
+                        return true;
                     }
-                    return true;
-                }
-            }
-            if (this._customClearSelectedButtonRect) {
-                const ax = nodePos[0] + this._customClearSelectedButtonRect.x;
-                const ay = nodePos[1] + this._customClearSelectedButtonRect.y;
-                const aw = this._customClearSelectedButtonRect.width;
-                const ah = this._customClearSelectedButtonRect.height;
-                if (e.canvasX >= ax && e.canvasX <= ax + aw && e.canvasY >= ay && e.canvasY <= ay + ah) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (this._customImagePaths && this._customSelectedImages) {
-                        const newPaths = [];
-                        const newSelected = [];
-                        const newNames = [];
-                        for (let i = 0; i < this._customImagePaths.length; i++) {
-                            if (!this._customSelectedImages[i]) {
-                                newPaths.push(this._customImagePaths[i]);
-                                newSelected.push(this._customSelectedImages[i]);
-                                if (this._customImageFileNames && this._customImageFileNames[i]) newNames.push(this._customImageFileNames[i]);
-                            }
-                        }
-                        this._customImagePaths = newPaths;
-                        this._customSelectedImages = newSelected.length ? newSelected : new Array(newPaths.length).fill(true);
-                        this._customImageFileNames = newNames;
-                        const imagePathsWidget = this.widgets.find(w => w.name === "image_paths");
-                        if (imagePathsWidget) imagePathsWidget.value = (this._customImagePaths || []).join(',');
-                        updateWidgetValue(this);
-                        showImages(this, this._customImagePaths);
-                        app.graph.setDirtyCanvas(true, false);
-                    }
-                    return true;
-                }
-            }
-            if (this._customClearUnselectedButtonRect) {
-                const ax = nodePos[0] + this._customClearUnselectedButtonRect.x;
-                const ay = nodePos[1] + this._customClearUnselectedButtonRect.y;
-                const aw = this._customClearUnselectedButtonRect.width;
-                const ah = this._customClearUnselectedButtonRect.height;
-                if (e.canvasX >= ax && e.canvasX <= ax + aw && e.canvasY >= ay && e.canvasY <= ay + ah) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (this._customImagePaths && this._customSelectedImages) {
-                        const newPaths = [];
-                        const newSelected = [];
-                        const newNames = [];
-                        for (let i = 0; i < this._customImagePaths.length; i++) {
-                            if (this._customSelectedImages[i]) {
-                                newPaths.push(this._customImagePaths[i]);
-                                newSelected.push(this._customSelectedImages[i]);
-                                if (this._customImageFileNames && this._customImageFileNames[i]) newNames.push(this._customImageFileNames[i]);
-                            }
-                        }
-                        this._customImagePaths = newPaths;
-                        this._customSelectedImages = newSelected.length ? newSelected : new Array(newPaths.length).fill(true);
-                        this._customImageFileNames = newNames;
-                        const imagePathsWidget = this.widgets.find(w => w.name === "image_paths");
-                        if (imagePathsWidget) imagePathsWidget.value = (this._customImagePaths || []).join(',');
-                        updateWidgetValue(this);
-                        showImages(this, this._customImagePaths);
-                        app.graph.setDirtyCanvas(true, false);
-                    }
-                    return true;
-                }
-            }
-            if (this._customShowSelectedButtonRect) {
-                const ax = nodePos[0] + this._customShowSelectedButtonRect.x;
-                const ay = nodePos[1] + this._customShowSelectedButtonRect.y;
-                const aw = this._customShowSelectedButtonRect.width;
-                const ah = this._customShowSelectedButtonRect.height;
-                if (e.canvasX >= ax && e.canvasX <= ax + aw && e.canvasY >= ay && e.canvasY <= ay + ah) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (!this._customShowOnlySelected) {
-                        if (!this._customSelectedImages || !this._customSelectedImages.some(v => v)) {
-                            alert('当前没有勾选的图片，无法仅显示勾选。');
-                            return true;
-                        }
-                        this._customShowOnlySelected = true;
-                    } else {
-                        this._customShowOnlySelected = false;
-                    }
-                    if (this._customImagePaths && this._customImagePaths.length > 0) {
-                        calculateImageLayout(this, this._customImagePaths.length);
-                        app.graph.setDirtyCanvas(true, false);
-                    }
-                    return true;
-                }
-            }
-            if (this._customReuseMaskButtonRect) {
-                const ax = nodePos[0] + this._customReuseMaskButtonRect.x;
-                const ay = nodePos[1] + this._customReuseMaskButtonRect.y;
-                const aw = this._customReuseMaskButtonRect.width;
-                const ah = this._customReuseMaskButtonRect.height;
-                if (e.canvasX >= ax && e.canvasX <= ax + aw && e.canvasY >= ay && e.canvasY <= ay + ah) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    this._customMaskReuseEnabled = !this._customMaskReuseEnabled;
-                    const widget = this.widgets.find(w => w.name === "reuse_mask");
-                    if (widget) {
-                        widget.value = !!this._customMaskReuseEnabled;
-                    }
-                    return true;
                 }
             }
         }
