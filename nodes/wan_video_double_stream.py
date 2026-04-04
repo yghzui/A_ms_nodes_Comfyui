@@ -11,7 +11,7 @@ class WanVideoDoubleStream:
 
     INPUT_TYPES = classmethod(lambda cls: {
         "required": {
-            "enable_mode": (["Auto", "Force True", "Force False"], {"default": "Auto"}),
+            "enable_mode": (["Auto", True, False], {"default": "Auto"}),
             "dict_input": ("STRING", {"default": "{}", "tooltip": "输入包含标题、内容、启用状态的字典，或直接输入字符串"}),
             "key_to_check": ("STRING", {"default": "judgment word", "multiline": True, "tooltip": "要检查的字符串key"}),
             "check_mode": (["absolute", "start_with", "contains", "regex", "absolute_invert", "start_with_invert", "contains_invert", "regex_invert"], {"default": "contains", "tooltip": "匹配模式"}),
@@ -279,14 +279,14 @@ class WanVideoDoubleStream:
         is_active = False
         ui_text_status = "False"
         
-        if enable_mode == "Force True":
+        if enable_mode is True or enable_mode in ["True", "true", "Force True"]:
             is_active = True
-            ui_text_status = "Force True"
-            print(f"UI Status Force True")
-        elif enable_mode == "Force False":
+            ui_text_status = "True"
+            print(f"UI Status True")
+        elif enable_mode is False or enable_mode in ["False", "false", "Force False"]:
             is_active = False
-            ui_text_status = "Force False"
-            print(f"UI Status Force False")
+            ui_text_status = "False"
+            print(f"UI Status False")
         else: # Auto
             is_active, _, ui_text_status = self.check_dict_key_logic(dict_input, key_to_check, check_mode)
             print(f"Auto Enable State: {is_active}, UI Status: {ui_text_status}")
