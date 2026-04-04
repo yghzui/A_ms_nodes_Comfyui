@@ -1,6 +1,7 @@
 import { app } from "../../../scripts/app.js";
 import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, isLowQuality } from "./utils/utils_canvas.js";
 import { RgthreeBaseWidget, RgthreeBetterButtonWidget } from "./utils/utils_widgets.js";
+import { modal } from "./utils/modal.js";
 import { moveArrayItem, showTopNotification } from "./utils/shared_utils.js";
 import { rgthree } from "./core/rgthree.js";
 import { api } from "../../../scripts/api.js";
@@ -290,6 +291,134 @@ class WanVideoLoraWidget extends RgthreeBaseWidget {
     }
 }
 
+// --- Import/Export Helper Functions ---
+function handleExport(node) {
+    const data = {
+        high: {
+            settings: node.widgets.find(w => w.name === "settings_high")?.value || {},
+            loras: node.highLoraWidgets.map(w => w.value)
+        },
+        low: {
+            settings: node.widgets.find(w => w.name === "settings_low")?.value || {},
+            loras: node.lowLoraWidgets.map(w => w.value)
+        }
+    };
+    
+    modal.show({
+        title: "导出 LoRA 配置",
+        content: "请选择导出方式：",
+        buttons: [
+            {
+                text: "导出为 JSON 文件",
+                type: "primary",
+                onClick: () => {
+                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = "wan_video_loras_export.json";
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    modal.close();
+                }
+            },
+            {
+                text: "复制到剪贴板",
+                type: "secondary",
+                onClick: () => {
+                    navigator.clipboard.writeText(JSON.stringify(data, null, 2))
+                        .then(() => showTopNotification("已复制到剪贴板", "success"))
+                        .catch(err => showTopNotification("复制失败: " + err, "error"));
+                    modal.close();
+                }
+            },
+            { text: "取消", onClick: () => modal.close() }
+        ]
+    });
+}
+
+function handleImport(node) {
+    const content = `
+        <div style="display:flex; flex-direction:column; gap:10px;">
+            <label>粘贴内容 (JSON):</label>
+            <textarea id="import-text" class="custom-modal-textarea" placeholder="在此粘贴..."></textarea>
+            <label>或 选择文件:</label>
+            <input type="file" id="import-file" accept=".json" class="custom-modal-file-input">
+        </div>
+    `;
+
+    modal.show({
+        title: "导入 LoRA 配置 (追加模式)",
+        content: content,
+        width: "500px",
+        buttons: [
+            {
+                text: "确认导入",
+                type: "primary",
+                onClick: async () => {
+                    const textEl = document.getElementById("import-text");
+                    const fileEl = document.getElementById("import-file");
+                    let rawData = textEl.value.trim();
+
+                    if (fileEl.files.length > 0) {
+                        const file = fileEl.files[0];
+                        rawData = await file.text();
+                    }
+
+                    if (!rawData) {
+                        showTopNotification("请输入内容或选择文件", "warning");
+                        return;
+                    }
+
+                    processImport(node, rawData);
+                    modal.close();
+                }
+            },
+            { text: "取消", onClick: () => modal.close() }
+        ]
+    });
+}
+
+function processImport(node, rawData) {
+    try {
+        const parsed = JSON.parse(rawData);
+        if (!parsed || (typeof parsed !== 'object')) {
+            throw new Error("Invalid format");
+        }
+
+        // Load High Stream (Append mode)
+        if (parsed.high) {
+            // Option to overwrite settings or leave as is. Here we overwrite if provided.
+            if (parsed.high.settings) {
+                const settingsHigh = node.widgets.find(w => w.name === "settings_high");
+                if (settingsHigh) settingsHigh.value = parsed.high.settings;
+            }
+            if (Array.isArray(parsed.high.loras)) {
+                parsed.high.loras.forEach(l => node.addNewLoraWidget("High", l));
+            }
+        }
+
+        // Load Low Stream (Append mode)
+        if (parsed.low) {
+            if (parsed.low.settings) {
+                const settingsLow = node.widgets.find(w => w.name === "settings_low");
+                if (settingsLow) settingsLow.value = parsed.low.settings;
+            }
+            if (Array.isArray(parsed.low.loras)) {
+                parsed.low.loras.forEach(l => node.addNewLoraWidget("Low", l));
+            }
+        }
+
+        node.reorderWidgets();
+        node.ensureHiddenWidgets();
+        node.setDirtyCanvas(true, true);
+        showTopNotification("导入成功 (已追加)", "success");
+    } catch (e) {
+        console.error("Import error:", e);
+        showTopNotification("未识别到有效的配置数据，请检查格式。", "error");
+    }
+}
+
 // --- Main Extension ---
 
 app.registerExtension({
@@ -369,6 +498,14 @@ app.registerExtension({
                  showLoraChooser(rgthree.lastCanvasMouseEvent || e, (value) => {
                     if (typeof value === "string" && value && value !== "None") this.addNewLoraWidget("Low", { on: true, lora: value, strength: 1 });
                  }, null, null, this, this.btnAddLow);
+            }));
+
+            // Add Import/Export Buttons
+            this.btnImport = this.addCustomWidget(new RgthreeBetterButtonWidget("📥 Import LoRAs", (e,p,n) => {
+                handleImport(this);
+            }));
+            this.btnExport = this.addCustomWidget(new RgthreeBetterButtonWidget("📤 Export LoRAs", (e,p,n) => {
+                handleExport(this);
             }));
 
             // 4. Setup Auto Enable Logic Section (Label only, inputs are standard)
@@ -476,6 +613,10 @@ app.registerExtension({
             moveToBottom(settingsLow);
             this.lowLoraWidgets.forEach(w => moveToBottom(w));
             moveToBottom(this.btnAddLow);
+
+            // Import/Export
+            moveToBottom(this.btnImport);
+            moveToBottom(this.btnExport);
 
             // Logic Config (Previously at Bottom - Removed from here)
             // moveToBottom(this.labelAuto);
@@ -754,13 +895,24 @@ app.registerExtension({
             }
             
             const useOfficial = this.properties?.useOfficialLoraList ?? false;
-            menu.push({
-                content: useOfficial ? "Use Custom Lora List (Default)" : "Use Official Lora List",
-                callback: () => {
-                    if (!this.properties) this.properties = {};
-                    this.properties['useOfficialLoraList'] = !useOfficial;
+            menu.push(
+                {
+                    content: "📥 Import LoRAs",
+                    callback: () => handleImport(this)
+                },
+                {
+                    content: "📤 Export LoRAs",
+                    callback: () => handleExport(this)
+                },
+                null, // separator
+                {
+                    content: useOfficial ? "Use Custom Lora List (Default)" : "Use Official Lora List",
+                    callback: () => {
+                        if (!this.properties) this.properties = {};
+                        this.properties['useOfficialLoraList'] = !useOfficial;
+                    }
                 }
-            });
+            );
             
             return menu;
         };
