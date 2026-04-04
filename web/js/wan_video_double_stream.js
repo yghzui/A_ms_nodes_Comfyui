@@ -1,10 +1,10 @@
 import { app } from "../../../scripts/app.js";
-import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, isLowQuality } from "./utils_canvas.js";
-import { RgthreeBaseWidget, RgthreeBetterButtonWidget } from "./utils_widgets.js";
-import { moveArrayItem, showTopNotification } from "./shared_utils.js";
-import { rgthree } from "./rgthree.js";
+import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, isLowQuality } from "./utils/utils_canvas.js";
+import { RgthreeBaseWidget, RgthreeBetterButtonWidget } from "./utils/utils_widgets.js";
+import { moveArrayItem, showTopNotification } from "./utils/shared_utils.js";
+import { rgthree } from "./core/rgthree.js";
 import { api } from "../../../scripts/api.js";
-import { rgthreeApi } from "./rgthree_api.js";
+import { rgthreeApi } from "./core/rgthree_api.js";
 
 // --- Helper Functions ---
 
@@ -739,7 +739,7 @@ app.registerExtension({
 
             new LiteGraph.ContextMenu(menuItems, { 
                 title: "LoRA Item", 
-                event: rgthree.lastCanvasMouseEvent, 
+                event: rgthree.lastCanvasMouseEvent || event, 
                 className: "dark", 
                 scale: Math.max(1, app?.canvas?.ds?.scale || 1) 
             });

@@ -38,6 +38,7 @@ class AnyBatchAccumulator:
     RETURN_TYPES = (ANY_TYPE, ANY_TYPE, ANY_TYPE, ANY_TYPE, ANY_TYPE, ANY_TYPE, ANY_TYPE, ANY_TYPE)
     RETURN_NAMES = ("data_out", "data_out_1", "data_out_2", "data_out_3", "data_out_4", "data_out_5", "data_out_6", "data_out_7")
     # OUTPUT_IS_LIST = (True, True, True, True, True) # Disable list output to prevent early execution
+    INPUT_IS_LIST = True
     FUNCTION = "accumulate"
     CATEGORY = "A_my_nodes/logic"
 
@@ -172,70 +173,76 @@ class AnyBatchAccumulator:
             return [res]
         return [item]
 
-    def accumulate(self, data, trybatch=True, batch_manager=None, prompt=None, unique_id=None, **kwargs):
+    def accumulate(self, data, trybatch=None, batch_manager=None, prompt=None, unique_id=None, **kwargs):
+        # Unwrap INPUT_IS_LIST parameters
+        # ComfyUI passes single inputs as a list of 1 element when INPUT_IS_LIST=True
+        
+        # Handle batch_manager
+        bm = None
+        if batch_manager is not None and len(batch_manager) > 0:
+            bm = batch_manager[0]
+            
+        # Handle trybatch (default True)
+        do_batch = True
+        if trybatch is not None and len(trybatch) > 0:
+            do_batch = trybatch[0]
+            
         inputs = self._collect_inputs(data, kwargs)
         
         # Non-batch mode (pass through)
-        if batch_manager is None:
+        if bm is None:
             # When not in batch mode, we return lists (as single objects)
             # The companion node will unpack them.
-            return tuple(self._process_single(inputs[i], trybatch) for i in range(8))
+            # With INPUT_IS_LIST=True, 'inputs' are lists of all items from upstream.
+            # We process them as a single batch result.
+            return tuple(self._process_single(inputs[i], do_batch) for i in range(8))
 
         # Ensure batch_manager has necessary attributes
-        if not hasattr(batch_manager, "any_batch_results") or not isinstance(batch_manager.any_batch_results, list) or len(batch_manager.any_batch_results) < 8:
+        if not hasattr(bm, "any_batch_results") or not isinstance(bm.any_batch_results, list) or len(bm.any_batch_results) < 8:
             print(f"AnyBatchAccumulator: 重置any_batch_results")
-            batch_manager.any_batch_results = [[] for _ in range(8)]
+            bm.any_batch_results = [[] for _ in range(8)]
             
-        # Initialize list expansion index if not present
-        if not hasattr(batch_manager, "current_list_index"):
-            batch_manager.current_list_index = 0
-
-        # 如果是新的运行的开始（index=0 且 list_index=0），清理旧结果
-        # MyBatchManager reset() 会重置 current_index 为 0
-        if batch_manager.current_index == 0 and batch_manager.current_list_index == 0:
+        # 如果是新的运行的开始（index=0），清理旧结果
+        if bm.current_index == 0:
             # 只有在确实有数据需要清理时才重置，避免不必要的对象创建
-            if any(len(x) > 0 for x in batch_manager.any_batch_results):
+            if any(len(x) > 0 for x in bm.any_batch_results):
                 print(f"AnyBatchAccumulator: 检测到新运行，清理旧结果")
-                batch_manager.any_batch_results = [[] for _ in range(8)]
+                bm.any_batch_results = [[] for _ in range(8)]
 
         # 累积数据
-        for i, item in enumerate(inputs):
-            if item is not None:
-                batch_manager.any_batch_results[i].append(self._clone_value(item))
+        # inputs[i] is a list of items from upstream execution
+        for i, item_list in enumerate(inputs):
+            if item_list is not None:
+                # Iterate over the list from upstream and append each item
+                # ComfyUI's INPUT_IS_LIST passes the whole list of outputs from previous node
+                # We treat this entire list as "one batch step's result"
+                # If we want to flatten it, we extend.
+                # If we want to keep structure, we append.
+                # Based on previous logic, we append items one by one.
+                if isinstance(item_list, list):
+                    for val in item_list:
+                        bm.any_batch_results[i].append(self._clone_value(val))
+                else:
+                    # Should not happen with INPUT_IS_LIST=True, but safe fallback
+                    bm.any_batch_results[i].append(self._clone_value(item_list))
         
-        # 获取列表展开计数 (默认为1，即无展开)
-        # 如果 list_count 为 0 或 1，都视为 1
-        effective_list_count = max(1, getattr(batch_manager, "list_count", 1))
-        
-        # 增加列表索引
-        batch_manager.current_list_index += 1
-        
-        print(f"AnyBatchAccumulator: Processing batch {batch_manager.current_index + 1}/{batch_manager.total_count}, List step {batch_manager.current_list_index}/{effective_list_count}")
-
-        # 检查列表展开是否完成
-        if batch_manager.current_list_index < effective_list_count:
-            # 列表展开进行中，阻止后续执行，等待下一次输入
-            print(f"AnyBatchAccumulator: 列表展开进行中，当前 ({batch_manager.current_list_index}/{effective_list_count})")
-            return tuple(ExecutionBlocker(None) for _ in range(8))
-        
-        # 列表展开的当前批次完成
-        # 重置列表索引，准备下一个批次
-        batch_manager.current_list_index = 0
         # 增加批次索引
-        batch_manager.current_index += 1
+        bm.current_index += 1
         
+        print(f"AnyBatchAccumulator: Processing batch {bm.current_index}/{bm.total_count}")
+
         # 检查是否还有更多批次
-        if batch_manager.current_index < batch_manager.total_count:
-            print(f"AnyBatchAccumulator: 列表展开/批次处理完成，触发下一批次请求 ({batch_manager.current_index}/{batch_manager.total_count})")
+        if bm.current_index < bm.total_count:
+            print(f"AnyBatchAccumulator: 批次处理完成，触发下一批次请求 ({bm.current_index}/{bm.total_count})")
             requeue_workflow_unchecked()
             return tuple(ExecutionBlocker(None) for _ in range(8))
             
         # 所有批次完成
         print("AnyBatchAccumulator: Batch complete.")
-        batch_manager.is_running = False
-        raw_results = batch_manager.any_batch_results
+        bm.is_running = False
+        raw_results = bm.any_batch_results
         # 重置结果以便下次使用
-        batch_manager.any_batch_results = [[] for _ in range(8)]
+        bm.any_batch_results = [[] for _ in range(8)]
 
         
         # Process results with Baseline Synchronization
@@ -252,17 +259,11 @@ class AnyBatchAccumulator:
                 success_flags.append(True) # Empty is considered success (or irrelevant)
                 continue
             
-            if trybatch:
+            if do_batch:
                 batched = self._try_batch_results(raw)
                 
                 # Determine success
                 is_success = False
-                # If batched object is different from raw input list object, we assume some transformation happened.
-                # However, _try_batch_results creates new lists for transpose, so 'is not' check is insufficient if it returns copy.
-                # But our _try_batch_results returns 'results' (the input arg) on failure path.
-                # So identity check 'is not' is valid, provided _try_batch_results doesn't return a copy on failure.
-                # Looking at code: `return results` on failure. `results` is the argument.
-                # So identity check is robust.
                 if batched is not raw:
                     is_success = True
                 
@@ -274,9 +275,8 @@ class AnyBatchAccumulator:
         
         # 2. Synchronize: If ANY input failed batching, revert ALL to raw
         use_batch_results = True
-        if trybatch:
+        if do_batch:
             # Check only ports that actually had data (raw is not empty)
-            # Actually success_flags handles empty ones as True.
             if not all(success_flags):
                 print("AnyBatchAccumulator: One or more inputs failed batching. Reverting all to raw lists.")
                 use_batch_results = False
@@ -287,7 +287,7 @@ class AnyBatchAccumulator:
                 processed_results.append([])
                 continue
                 
-            if trybatch and use_batch_results:
+            if do_batch and use_batch_results:
                 # Return the batched result directly. 
                 # Since OUTPUT_IS_LIST is False, this object is passed as-is.
                 processed_results.append(candidate_results[i])
@@ -326,7 +326,7 @@ class AnyBatchListConverter:
 
         def flatten(item):
             if item is None:
-                print(f"AnyBatchListConverter: 输入为空,返回空列表")
+                # print(f"AnyBatchListConverter: 输入为空,返回空列表")
                 return []
             if isinstance(item, list):
                 print(f"AnyBatchListConverter: 输入为列表,开始扁平化")

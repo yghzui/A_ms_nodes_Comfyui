@@ -23,54 +23,67 @@ class ImageBatchAccumulator:
 
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image_batch",)
+    INPUT_IS_LIST = True
     FUNCTION = "accumulate"
     CATEGORY = "A_my_nodes/image"
 
     def accumulate(self, image, batch_manager=None):
-        # image shape is [B, H, W, C]
+        # image is a list of tensors [B, H, W, C]
+        # batch_manager is a list [batch_manager_obj]
         
-        if batch_manager is None:
-            # If no batch manager is provided, just pass through the image
-            return (image,)
+        bm = None
+        if batch_manager is not None and len(batch_manager) > 0:
+            bm = batch_manager[0]
+        
+        if bm is None:
+            # If no batch manager is provided, just pass through the image list as a single batch
+            # We need to concatenate the list into a single tensor
+            try:
+                if isinstance(image, list) and len(image) > 0:
+                    return (torch.cat(image, dim=0),)
+                return (image,)
+            except:
+                return (image,)
 
         # Ensure results is a list
-        if not hasattr(batch_manager, "results") or not isinstance(batch_manager.results, list):
-            batch_manager.results = []
+        if not hasattr(bm, "results") or not isinstance(bm.results, list):
+            bm.results = []
             
-        # Add current image to results
-        # Clone to avoid reference issues
-        batch_manager.results.append(image.clone())
+        # Add current image(s) to results
+        if isinstance(image, list):
+            for img in image:
+                bm.results.append(img.clone())
+        else:
+            bm.results.append(image.clone())
         
         # Increment index
-        batch_manager.current_index += 1
+        bm.current_index += 1
         
-        print(f"ImageBatchAccumulator: Step {batch_manager.current_index}/{batch_manager.total_count}")
+        print(f"ImageBatchAccumulator: Step {bm.current_index}/{bm.total_count}")
         
         # Check if loop is finished
-        if batch_manager.current_index < batch_manager.total_count:
+        if bm.current_index < bm.total_count:
              # Trigger requeue for the next step
              print("ImageBatchAccumulator: Triggering requeue and stopping current execution...")
              requeue_workflow_unchecked()
              
              # Return ExecutionBlocker to silently stop downstream nodes
-             # This prevents errors in nodes like SaveImage that don't handle empty lists
              return (ExecutionBlocker(None),)
         
         # Loop finished
         print("ImageBatchAccumulator: Batch complete.")
         
         # Reset batch manager state
-        batch_manager.is_running = False
+        bm.is_running = False
         
         # Concatenate and return final result
         try:
             # Concatenate all tensors in the list along the batch dimension (dim 0)
-            final_batch = torch.cat(batch_manager.results, dim=0)
+            final_batch = torch.cat(bm.results, dim=0)
             # Clear results to free memory
-            batch_manager.results = []
+            bm.results = []
             return (final_batch,)
         except Exception as e:
             print(f"ImageBatchAccumulator Error: Failed to concatenate images. {e}")
-            # Fallback to current image if concatenation fails (e.g. dimension mismatch)
-            # But since we are finished, we must return something.
+            # Fallback to current image if concatenation fails
             return (image,)

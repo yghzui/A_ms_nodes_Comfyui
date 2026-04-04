@@ -3,7 +3,7 @@ console.log("Loading custom node: A_my_nodes/web/js/load_image_batch.js");
 
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
-import { showImageLightbox } from "./lightbox_preview.js";
+import { showImageLightbox } from "./utils/lightbox_preview.js";
 
 /**
  * 从 VideoHelperSuite 示例中借鉴的健壮的回调链函数。

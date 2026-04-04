@@ -1,9 +1,9 @@
 import { app } from "../../../scripts/app.js";
-import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, isLowQuality, } from "./utils_canvas.js";
-import { RgthreeBaseWidget, RgthreeBetterButtonWidget, RgthreeDividerWidget, } from "./utils_widgets.js";
-import { rgthreeApi } from "./rgthree_api.js";
-import { moveArrayItem, removeArrayItem, showTopNotification } from "./shared_utils.js";
-import { rgthree } from "./rgthree.js";
+import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, isLowQuality, } from "./utils/utils_canvas.js";
+import { RgthreeBaseWidget, RgthreeBetterButtonWidget, RgthreeDividerWidget, } from "./utils/utils_widgets.js";
+import { rgthreeApi } from "./core/rgthree_api.js";
+import { moveArrayItem, removeArrayItem, showTopNotification } from "./utils/shared_utils.js";
+import { rgthree } from "./core/rgthree.js";
 
 console.log("Patching node: wan_video_lora_batch.js");
 console.log("Loaded wan_video_lora_batch.js");
@@ -466,7 +466,7 @@ class WanVideoLoraBatchNode extends LGraphNode {
             // 直接使用LiteGraph.ContextMenu，参考rgthree官方实现
             const cm = new LiteGraph.ContextMenu(menuItems, {
                 title: "LORA WIDGET",
-                event: rgthree.lastCanvasMouseEvent,
+                event: rgthree.lastCanvasMouseEvent || event,
                 className: "dark",
                 // 传入缩放，匹配ComfyUI官方的行为，避免缩放下的尺寸/位置异常
                 scale: Math.max(1, app?.canvas?.ds?.scale || 1),

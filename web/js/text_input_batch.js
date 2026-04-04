@@ -1,7 +1,7 @@
 import { app } from "../../../scripts/app.js";
-import { rgthree } from "./rgthree.js"; // 统一右键菜单定位使用的事件来源
+import { rgthree } from "./core/rgthree.js"; // 统一右键菜单定位使用的事件来源
 import { modal } from "./utils/modal.js";
-import { showTopNotification } from "./shared_utils.js";
+import { showTopNotification } from "./utils/shared_utils.js";
 
 console.log("Patching node: text_input_batch.js");
 

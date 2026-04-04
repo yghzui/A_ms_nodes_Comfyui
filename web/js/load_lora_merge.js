@@ -1,9 +1,9 @@
 import { app } from "../../../scripts/app.js";
-import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, isLowQuality, } from "./utils_canvas.js";
-import { RgthreeBaseWidget, RgthreeBetterButtonWidget, RgthreeDividerWidget, } from "./utils_widgets.js";
-import { moveArrayItem, removeArrayItem, showTopNotification } from "./shared_utils.js";
-import { rgthree } from "./rgthree.js";
-import { rgthreeApi } from "./rgthree_api.js";
+import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, isLowQuality, } from "./utils/utils_canvas.js";
+import { RgthreeBaseWidget, RgthreeBetterButtonWidget, RgthreeDividerWidget, } from "./utils/utils_widgets.js";
+import { moveArrayItem, removeArrayItem, showTopNotification } from "./utils/shared_utils.js";
+import { rgthree } from "./core/rgthree.js";
+import { rgthreeApi } from "./core/rgthree_api.js";
 
 console.log("Loaded load_lora_merge.js");
 

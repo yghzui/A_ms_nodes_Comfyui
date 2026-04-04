@@ -1,9 +1,9 @@
 import { app } from "../../../scripts/app.js";
-import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, isLowQuality, } from "./utils_canvas.js";
-import { RgthreeBaseWidget, RgthreeBetterButtonWidget, RgthreeDividerWidget, } from "./utils_widgets.js";
-import { rgthreeApi } from "./rgthree_api.js";
-import { moveArrayItem, removeArrayItem, showTopNotification } from "./shared_utils.js";
-import { rgthree } from "./rgthree.js";
+import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, isLowQuality, } from "./utils/utils_canvas.js";
+import { RgthreeBaseWidget, RgthreeBetterButtonWidget, RgthreeDividerWidget, } from "./utils/utils_widgets.js";
+import { rgthreeApi } from "./core/rgthree_api.js";
+import { moveArrayItem, removeArrayItem, showTopNotification } from "./utils/shared_utils.js";
+import { rgthree } from "./core/rgthree.js";
 
 console.log("Patching node: load_lora_batch.js");
 console.log("Loaded load_lora_batch.js");
@@ -293,7 +293,7 @@ class LoadLoraBatchNode extends LGraphNode {
             // 直接使用LiteGraph.ContextMenu，参考rgthree官方实现
             const menu = new LiteGraph.ContextMenu(menuItems, {
                 title: "LORA WIDGET",
-                event: rgthree.lastCanvasMouseEvent,
+                event: rgthree.lastCanvasMouseEvent || event,
             });
             return undefined;
         }

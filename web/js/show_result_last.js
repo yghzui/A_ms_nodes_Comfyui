@@ -5,7 +5,7 @@ console.log("Patching node: ShowResultLast1");
 import { ComfyWidgets } from "../../../scripts/widgets.js";
 console.log("Patching node: ShowResultLast2");
 import { api } from "../../../scripts/api.js";
-import { showVideoLightbox } from "./lightbox_preview.js";
+import { showVideoLightbox } from "./utils/lightbox_preview.js";
 
 app.registerExtension({
     name: "A_my_nodes.ShowResultLast.UI",

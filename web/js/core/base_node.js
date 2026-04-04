@@ -1,6 +1,6 @@
 import { ComfyWidgets } from "../../../scripts/widgets.js";
 import { LogLevel, rgthree } from "./rgthree.js";
-import { defineProperty, moveArrayItem } from "./shared_utils.js";
+import { defineProperty, moveArrayItem } from "../utils/shared_utils.js";
 
 export class RgthreeBaseNode extends LGraphNode {
     constructor(title = RgthreeBaseNode.title, skipOnConstructedCall = true) {
