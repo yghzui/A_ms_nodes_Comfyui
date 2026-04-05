@@ -336,6 +336,93 @@ async def register_local_preview(request):
         print(f"❌ [AssetManager] 智能路径注册失败: {e}")
         return web.json_response({"success": False, "error": str(e)})
 
+async def check_model_exists(request):
+    """接收模型相对路径（如 loras/flux/xxx.safetensors），检查是否存在"""
+    try:
+        model_path = request.rel_url.query.get("path", "")
+        if not model_path or model_path == "None":
+            return web.json_response({"exists": False})
+            
+        # ComfyUI 的 folder_paths.get_full_path_or_raise 可能会抛出异常
+        # 这里我们用 get_full_path 安全地获取
+        import folder_paths
+        
+        # 尝试猜测类型，默认从 loras 找，如果找不到也可以尝试 checkpoints 等
+        # 因为资产管理器主要存的是 lora
+        full_path = folder_paths.get_full_path("loras", model_path)
+        
+        if full_path and os.path.exists(full_path):
+            return web.json_response({"exists": True})
+            
+        # 如果作为 lora 找不到，再作为 checkpoints 找
+        full_path_ckpt = folder_paths.get_full_path("checkpoints", model_path)
+        if full_path_ckpt and os.path.exists(full_path_ckpt):
+            return web.json_response({"exists": True})
+            
+        return web.json_response({"exists": False})
+        
+    except Exception as e:
+        print(f"❌ [AssetManager] 检查模型存在失败: {e}")
+        return web.json_response({"exists": False, "error": str(e)})
+
+import functools
+from pypinyin import lazy_pinyin, Style
+
+@functools.lru_cache(maxsize=10000)
+def get_pinyin_info(text):
+    """
+    获取字符串的全拼和首字母（带LRU缓存机制）
+    返回: (全拼字符串, 首字母字符串)
+    """
+    if not text:
+        return "", ""
+    try:
+        full_pinyin = "".join(lazy_pinyin(text))
+        initials = "".join(lazy_pinyin(text, style=Style.FIRST_LETTER))
+        return full_pinyin.lower(), initials.lower()
+    except Exception as e:
+        print(f"获取拼音信息失败: {e}")
+        return "", ""
+
+async def search_pinyin(request):
+    """
+    接收要搜索的文本（text）和关键词（keyword），返回是否匹配。
+    """
+    try:
+        data = await request.json()
+        texts = data.get("texts", [])
+        search_text = data.get("keyword", "")
+        
+        if not search_text:
+            return web.json_response({"matches": [True] * len(texts)})
+            
+        search_text = str(search_text).lower()
+        results = []
+        
+        for text in texts:
+            if not text:
+                results.append(False)
+                continue
+                
+            text_lower = str(text).lower()
+            
+            # 1. 优先匹配原文本
+            if search_text in text_lower:
+                results.append(True)
+                continue
+                
+            # 2. 匹配拼音
+            full_pinyin, initials = get_pinyin_info(str(text))
+            if search_text in full_pinyin or search_text in initials:
+                results.append(True)
+            else:
+                results.append(False)
+                
+        return web.json_response({"matches": results})
+    except Exception as e:
+        print(f"❌ [AssetManager] 拼音搜索失败: {e}")
+        return web.json_response({"error": str(e), "matches": []})
+
 # ====================================================================
 
 # 路由注册函数 - 这个函数会在ComfyUI初始化时被调用
@@ -390,6 +477,8 @@ def register_routes():
                 PromptServer.instance.routes.get("/a_my_nodes/assets/view_preview")(view_asset_preview)
                 PromptServer.instance.routes.post("/a_my_nodes/assets/upload_preview")(upload_asset_preview)
                 PromptServer.instance.routes.post("/a_my_nodes/assets/register_local_preview")(register_local_preview)
+                PromptServer.instance.routes.get("/a_my_nodes/assets/check_model_exists")(check_model_exists)
+                PromptServer.instance.routes.post("/a_my_nodes/assets/search_pinyin")(search_pinyin)
                 print("✅ 资产管理系统 (Asset Manager) API 注册成功！")
 
             _routes_registered = True  # 设置注册标志

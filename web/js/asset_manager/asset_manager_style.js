@@ -149,14 +149,20 @@ export const cssStyles = `
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
     gap: 20px;
+    align-content: start;
 }
 .am-grid .am-card {
     display: flex;
     flex-direction: column;
+    height: 100%;
+}
+.am-grid .am-card-content {
+    flex: 1; /* 让内容区域自动撑满剩余空间，把总结推到底部 */
 }
 .am-grid .am-card-img {
     width: 100%;
-    height: 150px;
+    max-height: 150px;
+    height: auto;
     object-fit: contain;
     background: #000;
     border-radius: 4px;
@@ -212,11 +218,25 @@ export const cssStyles = `
     font-size: 12px;
     color: #aaa;
     white-space: pre-wrap;
-    max-height: 60px;
-    overflow: hidden;
+    max-height: 100px;
+    overflow-y: auto;
 }
 
-/* Drawer / Flyout for Nodes */
+.am-list .am-card {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 15px;
+    height: auto;
+}
+.am-list .am-card-img {
+    width: 120px;
+    max-height: 120px;
+    object-fit: contain;
+    background: #000;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
 .am-drawer {
     position: absolute;
     background: rgba(30, 30, 30, 0.95);

@@ -202,6 +202,68 @@ class AssetManagerUI {
                             $el("button", { textContent: "➕ 新建条目", onclick: () => this.addItem() }),
                             $el("button", { textContent: "📥 导入", onclick: () => this.importData() }),
                             $el("button", { textContent: "📤 导出", onclick: () => this.exportData() }),
+                            $el("div", {
+                                style: {
+                                    position: "relative",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    marginLeft: "10px"
+                                }
+                            }, [
+                                $el("input", {
+                                    type: "text",
+                                    id: "am-search-input",
+                                    placeholder: "🔍 搜索拼音/原名/首字母...",
+                                    style: {
+                                        padding: "4px 24px 4px 8px", // 右侧留出清除按钮的空间
+                                        borderRadius: "4px",
+                                        border: "1px solid var(--am-border)",
+                                        background: "var(--am-bg)",
+                                        color: "var(--am-text)",
+                                        width: "200px",
+                                        boxSizing: "border-box"
+                                    },
+                                    oninput: (e) => {
+                                        this.searchKeyword = e.target.value.toLowerCase();
+                                        
+                                        // 控制清除按钮的显示与隐藏
+                                        const clearBtn = document.getElementById("am-search-clear-btn");
+                                        if (clearBtn) {
+                                            clearBtn.style.display = this.searchKeyword ? "block" : "none";
+                                        }
+                                        
+                                        // 防抖处理调用后端API
+                                        if (this.searchTimeout) clearTimeout(this.searchTimeout);
+                                        this.searchTimeout = setTimeout(() => {
+                                            this.renderItems();
+                                        }, 300);
+                                    }
+                                }),
+                                $el("span", {
+                                    id: "am-search-clear-btn",
+                                    textContent: "✖",
+                                    style: {
+                                        position: "absolute",
+                                        right: "6px",
+                                        cursor: "pointer",
+                                        color: "#aaa",
+                                        fontSize: "12px",
+                                        display: "none" // 默认隐藏
+                                    },
+                                    onclick: () => {
+                                        const input = document.getElementById("am-search-input");
+                                        if (input) {
+                                            input.value = "";
+                                            this.searchKeyword = "";
+                                            document.getElementById("am-search-clear-btn").style.display = "none";
+                                            if (this.searchTimeout) clearTimeout(this.searchTimeout);
+                                            this.renderItems();
+                                        }
+                                    },
+                                    onmouseenter: (e) => e.target.style.color = "#fff",
+                                    onmouseleave: (e) => e.target.style.color = "#aaa"
+                                })
+                            ]),
                             $el("span", { style: { flex: 1 } }),
                             $el("select", {
                                 onchange: (e) => { this.viewMode = e.target.value; this.renderItems(); }
@@ -402,7 +464,7 @@ class AssetManagerUI {
     pasteClipboard() { DragSelectHandler.pasteClipboard(this); }
     showContextMenu(x, y) { DragSelectHandler.showContextMenu(this, x, y); }
 
-    renderItems() {
+    async renderItems() {
         const listEl = document.getElementById("am-item-list");
         listEl.innerHTML = "";
         listEl.className = `am-items-area am-${this.viewMode}`;
@@ -412,7 +474,40 @@ class AssetManagerUI {
         
         if (!group || !group.items) return;
         
-        group.items.forEach((item, index) => {
+        // 调用后端 API 进行拼音模糊搜索
+        let filteredItems = [];
+        if (this.searchKeyword) {
+            try {
+                const titles = group.items.map(i => i.title || i.keyword || "");
+                const res = await api.fetchApi("/a_my_nodes/assets/search_pinyin", {
+                    method: "POST",
+                    body: JSON.stringify({ texts: titles, keyword: this.searchKeyword }),
+                    headers: { "Content-Type": "application/json" }
+                });
+                const data = await res.json();
+                
+                if (data && data.matches) {
+                    filteredItems = group.items.map((item, originalIndex) => ({ item, originalIndex }))
+                        .filter((_, idx) => data.matches[idx]);
+                } else {
+                    // 后端报错或返回异常时，退回到简单前端匹配
+                    filteredItems = group.items.map((item, originalIndex) => ({ item, originalIndex }))
+                        .filter(({ item }) => (item.title || item.keyword || "").toLowerCase().includes(this.searchKeyword.toLowerCase()));
+                }
+            } catch (e) {
+                console.error("Search API failed:", e);
+                // 退回到简单前端匹配
+                filteredItems = group.items.map((item, originalIndex) => ({ item, originalIndex }))
+                    .filter(({ item }) => (item.title || item.keyword || "").toLowerCase().includes(this.searchKeyword.toLowerCase()));
+            }
+        } else {
+            filteredItems = group.items.map((item, originalIndex) => ({ item, originalIndex }));
+        }
+        
+        // 由于 renderItems 变成了 async，可能会有竞态条件导致渲染旧结果。清空并重新填充
+        listEl.innerHTML = "";
+        
+        filteredItems.forEach(({ item, originalIndex: index }) => {
             const card = $el("div", {
                 className: "am-card" + (this.selectedIndices.has(index) ? " selected" : ""),
                 draggable: true,
@@ -506,6 +601,49 @@ class AssetManagerUI {
                 const imgEl = $el("img", { className: "am-card-img", src: imgSrc });
                 imgEl.onerror = () => { imgEl.style.display = "none"; };
                 card.appendChild(imgEl);
+                
+                // 列表模式下的悬浮预览图逻辑
+                if (this.viewMode === "list") {
+                    let hoverPreview = null;
+
+                    card.addEventListener("mouseenter", (e) => {
+                        if (!imgEl.style.display || imgEl.style.display !== "none") {
+                            hoverPreview = document.createElement("img");
+                            hoverPreview.src = imgSrc;
+                            hoverPreview.style.position = "fixed";
+                            hoverPreview.style.maxWidth = "300px";
+                            hoverPreview.style.maxHeight = "300px";
+                            hoverPreview.style.objectFit = "contain";
+                            hoverPreview.style.border = "2px solid #555";
+                            hoverPreview.style.borderRadius = "4px";
+                            hoverPreview.style.zIndex = "11000";
+                            hoverPreview.style.pointerEvents = "none";
+                            hoverPreview.style.boxShadow = "0 4px 8px rgba(0,0,0,0.5)";
+                            hoverPreview.style.background = "#111";
+                            
+                            const x = e.clientX + 15;
+                            const y = e.clientY + 15;
+                            hoverPreview.style.left = x + "px";
+                            hoverPreview.style.top = y + "px";
+                            
+                            document.body.appendChild(hoverPreview);
+                        }
+                    });
+
+                    card.addEventListener("mousemove", (e) => {
+                        if (hoverPreview) {
+                            hoverPreview.style.left = (e.clientX + 15) + "px";
+                            hoverPreview.style.top = (e.clientY + 15) + "px";
+                        }
+                    });
+
+                    card.addEventListener("mouseleave", () => {
+                        if (hoverPreview) {
+                            hoverPreview.remove();
+                            hoverPreview = null;
+                        }
+                    });
+                }
             }
 
             const contentWrapper = $el("div", { className: "am-card-content" });
@@ -521,6 +659,21 @@ class AssetManagerUI {
                 let displayStr = "";
                 
                 // 从 high_loras 或 low_loras 中提取第一个有效的模型作为摘要展示
+                let validCount = 0;
+                let invalidCount = 0;
+                
+                const countValidInvalid = (loraArr) => {
+                    if (!loraArr) return;
+                    loraArr.forEach(l => {
+                        if (l.lora && l.lora !== "None") {
+                            if (l._isValid === false) invalidCount++;
+                            else validCount++; // 默认为true或未检测时算作有效
+                        }
+                    });
+                };
+                countValidInvalid(item.high_loras);
+                countValidInvalid(item.low_loras);
+                
                 if (item.high_loras && item.high_loras.length > 0 && item.high_loras[0].lora && item.high_loras[0].lora !== "None") {
                     displayPath = item.high_loras[0].lora;
                     displayStr = item.high_loras[0].strength !== undefined ? item.high_loras[0].strength : 1.0;
@@ -533,7 +686,8 @@ class AssetManagerUI {
                 if (displayPath) {
                     descText = `路径: ${displayPath}\n强度: ${displayStr}`;
                     const totalLoras = (item.high_loras?.length || 0) + (item.low_loras?.length || 0);
-                    if (totalLoras > 1) descText += ` (等 ${totalLoras} 个模型)`;
+                    if (totalLoras > 1) descText += ` (等 ${totalLoras} 个模型)\n[有效: ${validCount} | 丢失/无效: ${invalidCount}]`;
+                    else descText += `\n[状态: ${invalidCount > 0 ? '❌ 丢失' : '✅ 正常'}]`;
                 } else {
                     descText = "空配置 (请双击添加模型)";
                 }
@@ -893,8 +1047,47 @@ class AssetManagerUI {
                         nameInput.onchange = (e) => {
                             loraItem.lora = e.target.value;
                             nameInput.title = e.target.value;
+                            checkModelStatus(); // 重新检查
                         };
                         topRow.appendChild(nameInput);
+                        
+                        // 模型状态图标
+                        const statusIcon = $el("span", {
+                            textContent: "⏳",
+                            title: "检查模型是否存在...",
+                            style: { fontSize: "12px", marginLeft: "2px", flexShrink: 0 }
+                        });
+                        topRow.appendChild(statusIcon);
+                        
+                        const checkModelStatus = async () => {
+                            if (!loraItem.lora || loraItem.lora === "None") {
+                                statusIcon.textContent = "➖";
+                                statusIcon.title = "未选择模型";
+                                loraItem._isValid = false;
+                                return;
+                            }
+                            try {
+                                const res = await api.fetchApi(`/a_my_nodes/assets/check_model_exists?path=${encodeURIComponent(loraItem.lora)}`);
+                                const data = await res.json();
+                                if (data.exists) {
+                                    statusIcon.textContent = "✅";
+                                    statusIcon.title = "模型存在";
+                                    statusIcon.style.color = "#28a745";
+                                    loraItem._isValid = true;
+                                } else {
+                                    statusIcon.textContent = "❌";
+                                    statusIcon.title = "模型文件丢失或路径错误";
+                                    statusIcon.style.color = "#dc3545";
+                                    loraItem._isValid = false;
+                                }
+                            } catch(e) {
+                                statusIcon.textContent = "⚠️";
+                                statusIcon.title = "检查失败";
+                                loraItem._isValid = false;
+                            }
+                        };
+                        // 初始检查
+                        checkModelStatus();
                         
                         // Select Lora Button
                         const chooseBtn = $el("button", {
@@ -908,6 +1101,7 @@ class AssetManagerUI {
                                         nameInput.value = value;
                                         nameInput.title = value; // 更新title
                                         loraItem.lora = value;
+                                        checkModelStatus(); // 重新检查
                                     }
                                 });
                             }
