@@ -256,8 +256,13 @@ async def upload_asset_preview(request):
     try:
         reader = await request.multipart()
         field = await reader.next()
+        
+        # 为了兼容可能在后续 chunk 里出现的 original_name 字段，我们先用默认名
+        original_name = ""
+        
+        # 很多时候 multipart 的顺序是不确定的，这里为了简化，我们先直接检查是不是 image
         if field.name == 'image':
-            filename = str(uuid.uuid4()) + "_" + field.filename
+            filename = str(uuid.uuid4()) + "_" + (field.filename or "uploaded.png")
             file_path = os.path.join(PREVIEWS_DIR, filename)
             with open(file_path, 'wb') as f:
                 while True:
@@ -271,27 +276,62 @@ async def upload_asset_preview(request):
     return web.json_response({"success": False, "error": "Upload failed"})
 
 async def register_local_preview(request):
-    """智能路径分析：判断本地绝对路径是否在 models 目录下，决定是零拷贝引用还是复制到 previews"""
+    """智能路径分析：判断本地绝对路径是否在 models 目录下，支持软连接(symlink)及异盘映射，决定是零拷贝引用还是复制"""
     try:
         data = await request.json()
         local_path = data.get("path", "")
-        if not os.path.exists(local_path):
-            return web.json_response({"success": False, "error": "File does not exist"})
-            
-        models_root = os.path.abspath(folder_paths.models_dir)
-        abs_local = os.path.abspath(local_path)
         
-        # 智能路径分析：如果在 models 目录下，则生成 models:// 协议路径（零拷贝）
-        if abs_local.startswith(models_root):
-            rel_path = os.path.relpath(abs_local, models_root)
-            uri = f"models://{rel_path.replace(os.sep, '/')}"
+        models_root = os.path.abspath(folder_paths.models_dir)
+        real_models_root = os.path.realpath(models_root)
+        
+        # 辅助函数：判断目标绝对路径是否能映射到 models_dir
+        def get_models_uri_if_valid(test_path):
+            if not os.path.exists(test_path):
+                return None
+            abs_p = os.path.abspath(test_path)
+            real_p = os.path.realpath(abs_p)
+            
+            # 1. 真实路径在 models 真实路径内 (软连接解析后匹配)
+            if real_p.startswith(real_models_root):
+                rel = os.path.relpath(real_p, real_models_root)
+                return f"models://{rel.replace(os.sep, '/')}"
+            # 2. 原始路径在 models 目录内 (防某些特殊挂载)
+            if abs_p.startswith(models_root):
+                rel = os.path.relpath(abs_p, models_root)
+                return f"models://{rel.replace(os.sep, '/')}"
+            return None
+
+        # 尝试 1: 直接使用拖拽传过来的绝对路径进行智能校验
+        uri = get_models_uri_if_valid(local_path)
+        if uri:
             return web.json_response({"success": True, "uri": uri, "action": "referenced"})
-        else:
-            # 不在 models 目录下，拷贝到 previews 目录
+            
+        # 尝试 2: 容错处理。用户可能拖拽的是 H:\models\loras\...
+        # 即使它和 ComfyUI 不在一个盘符且不是标准软连接，只要路径包含已知模型子目录，我们就尝试把它拼接到当前 ComfyUI 的 models 目录下检查
+        lower_path = local_path.lower()
+        # 常见模型目录名
+        for sub in ["loras", "checkpoints", "embeddings", "controlnet", "unet", "vae"]:
+            for sep in ["\\", "/"]:
+                keyword = f"{sep}{sub}{sep}"
+                idx = lower_path.find(keyword)
+                if idx != -1:
+                    # 提取相对部分，比如 loras\flux_klein\口交\FK_giantbbcoral_123864001.png
+                    rel_path = local_path[idx + 1:] 
+                    alt_path = os.path.join(models_root, rel_path)
+                    
+                    uri = get_models_uri_if_valid(alt_path)
+                    if uri:
+                        return web.json_response({"success": True, "uri": uri, "action": "referenced"})
+
+        # 如果前两步都没匹配上，说明这真的只是一个外部文件（比如桌面的一张截图）
+        if os.path.exists(local_path):
             filename = str(uuid.uuid4()) + "_" + os.path.basename(local_path)
             dest_path = os.path.join(PREVIEWS_DIR, filename)
-            shutil.copy2(abs_local, dest_path)
+            shutil.copy2(local_path, dest_path)
             return web.json_response({"success": True, "uri": f"previews://{filename}", "action": "copied"})
+        else:
+            return web.json_response({"success": False, "error": f"文件不存在或无法访问: {local_path}"})
+            
     except Exception as e:
         print(f"❌ [AssetManager] 智能路径注册失败: {e}")
         return web.json_response({"success": False, "error": str(e)})

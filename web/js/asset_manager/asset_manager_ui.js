@@ -3,6 +3,7 @@ import { api } from "../../../scripts/api.js";
 import { $el } from "../../../scripts/ui.js";
 import { AMDialog } from "./am_dialog.js";
 import { cssStyles } from "./asset_manager_style.js";
+import { PreviewHandler } from "./asset_manager_preview_handler.js";
 
 // ================= CSS 注入 =================
 const style = document.createElement("style");
@@ -439,7 +440,46 @@ class AssetManagerUI {
             if (e.ctrlKey && e.key.toLowerCase() === 'a') { e.preventDefault(); this.selectAll(); }
             else if (e.key === 'Delete' || e.key === 'Backspace') { this.deleteSelected(); }
             else if (e.ctrlKey && e.key.toLowerCase() === 'c') { this.copySelected(); }
-            else if (e.ctrlKey && e.key.toLowerCase() === 'v') { this.pasteClipboard(); }
+            else if (e.ctrlKey && e.key.toLowerCase() === 'v') { 
+                // 拦截原有的粘贴功能：如果在未编辑状态，且选中了且只有1个条目，先不要去执行 item 拷贝粘贴，而是尝试触发系统自带的 paste 事件读取图片
+                // 只有当不是更换预览图的意图时，再执行剪贴板条目粘贴
+                if (this.selectedIndices.size === 1) {
+                    // 不调用 e.preventDefault()，让浏览器触发原生的 paste 事件，在 paste 监听器里处理
+                    return;
+                }
+                this.pasteClipboard(); 
+            }
+        });
+
+        // 监听系统 paste 事件（用户按 Ctrl+V 时触发），这比 navigator.clipboard.read() 更能绕过安全限制获取本地文件
+        document.addEventListener('paste', async (e) => {
+            if (this.modal.style.display !== "flex") return;
+            if (document.activeElement && ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+            
+            if (this.selectedIndices.size === 1) {
+                e.preventDefault();
+                e.stopPropagation();
+                try {
+                    const uri = await PreviewHandler.handlePasteEvent(e);
+                    if (uri) {
+                        const data = this.currentTab === 'prompts' ? this.promptsData : this.modelsData;
+                        const group = data.groups[this.currentGroupIndex];
+                        const idx = Array.from(this.selectedIndices)[0];
+                        group.items[idx].preview_image = uri;
+                        this.saveData();
+                        this.renderItems();
+                    }
+                } catch (err) {
+                    // 如果 paste 没有图片，再尝试是否是内部复制的 item 条目
+                    if (err.message.includes("没有发现图片文件")) {
+                        this.pasteClipboard();
+                    } else {
+                        this.alert(err.message);
+                    }
+                }
+            } else if (this.selectedIndices.size === 0) {
+                this.pasteClipboard();
+            }
         });
 
         area.addEventListener('contextmenu', (e) => {
@@ -538,7 +578,7 @@ class AssetManagerUI {
             if (disabled) { item.style.opacity = "0.5"; item.style.pointerEvents = "none"; }
             this.contextMenu.appendChild(item);
         };
-        
+
         if (this.selectedIndices.size > 0) {
             addMenuItem(`📋 复制选中 (${this.selectedIndices.size})`, () => this.copySelected());
             addMenuItem(`🗑️ 删除选中 (${this.selectedIndices.size})`, () => this.deleteSelected());
@@ -597,8 +637,40 @@ class AssetManagerUI {
                     const indices = Array.from(this.selectedIndices);
                     e.dataTransfer.setData("text/plain", JSON.stringify({ indices, tab: this.currentTab, type: "items" }));
                 },
-                ondragover: (e) => e.preventDefault(),
-                ondrop: (e) => this.handleDrop(e, index),
+                ondragover: (e) => {
+                    e.preventDefault();
+                    if (e.dataTransfer.types && e.dataTransfer.types.includes("Files")) {
+                        card.style.border = "2px dashed var(--am-accent)";
+                    }
+                },
+                ondragleave: (e) => {
+                    card.style.border = "";
+                },
+                ondrop: (e) => {
+                    card.style.border = "";
+                    
+                    const isFiles = e.dataTransfer.files && e.dataTransfer.files.length > 0;
+                    const textData = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text/uri-list");
+                    const isPathText = textData && (textData.includes(":\\") || textData.startsWith("file://") || textData.startsWith("/") || textData.match(/\.(png|jpg|jpeg|webp)$/i));
+                    
+                    // 排除内部卡片排序拖拽（我们在 ondragstart 中设置了 type="items" 或 type="group" 等 JSON）
+                    let isInternalDrag = false;
+                    try {
+                        const dragData = JSON.parse(textData);
+                        if (dragData.type === "items" || dragData.type === "group") isInternalDrag = true;
+                    } catch(err) {}
+
+                    // 如果不是内部排序拖拽，且有文件或路径，则触发更换预览图逻辑
+                    if (!isInternalDrag && (isFiles || isPathText)) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        this.handlePreviewDrop(e, index);
+                        return;
+                    }
+                    
+                    // 否则走正常的排序逻辑
+                    this.handleDrop(e, index);
+                },
                 ondblclick: (e) => {
                     e.stopPropagation();
                     this.enterItemEditMode(card, item, index);
@@ -668,6 +740,50 @@ class AssetManagerUI {
             card.appendChild(contentWrapper);
             listEl.appendChild(card);
         });
+    }
+
+    async handlePreviewDrop(e, targetIndex) {
+        let uri = null;
+        
+        try {
+            // 尝试提取拖拽附带的文本路径（有些浏览器拖拽文件会带路径）
+            let textPath = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text/uri-list");
+            if (textPath) {
+                textPath = textPath.trim().replace(/^"|"$/g, '');
+                if (textPath.startsWith("file:///")) {
+                    textPath = decodeURI(textPath.replace("file:///", ""));
+                    if (textPath.match(/^[a-zA-Z]:\//)) {
+                        // 修正 Windows 盘符
+                        textPath = textPath.replace(/\//g, "\\");
+                    } else {
+                        textPath = "/" + textPath;
+                    }
+                }
+                if (textPath.includes(":\\") || textPath.startsWith("/") || textPath.startsWith("models://")) {
+                    uri = await PreviewHandler.processPreviewSource(textPath, null);
+                }
+            }
+            
+            // 如果文本路径无效，回退到文件上传
+            if (!uri && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                const file = e.dataTransfer.files[0];
+                if (!file.type.startsWith("image/")) {
+                    this.alert("请拖拽有效的图片文件！");
+                    return;
+                }
+                uri = await PreviewHandler.processPreviewSource(null, file);
+            }
+            
+            if (uri) {
+                const data = this.currentTab === 'prompts' ? this.promptsData : this.modelsData;
+                const group = data.groups[this.currentGroupIndex];
+                group.items[targetIndex].preview_image = uri;
+                this.saveData();
+                this.renderItems();
+            }
+        } catch (err) {
+            this.alert(err.message);
+        }
     }
 
     handleDrop(e, targetIndex) {
