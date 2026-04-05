@@ -460,6 +460,8 @@ class DoubleButtonWidget extends RgthreeBaseWidget {
 // --- Import/Export Helper Functions ---
 function handleExport(node) {
     const data = {
+        key_to_check: node.widgets.find(w => w.name === "key_to_check")?.value || "",
+        check_mode: node.widgets.find(w => w.name === "check_mode")?.value || "contains",
         high: {
             settings: node.widgets.find(w => w.name === "settings_high")?.value || {},
             loras: node.highLoraWidgets.map(w => w.value)
@@ -471,7 +473,7 @@ function handleExport(node) {
     };
     
     modal.show({
-        title: "导出 LoRA 配置",
+        title: "导出节点配置",
         content: "请选择导出方式：",
         buttons: [
             {
@@ -482,7 +484,7 @@ function handleExport(node) {
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement("a");
                     a.href = url;
-                    a.download = "wan_video_loras_export.json";
+                    a.download = "wan_video_node_config.json";
                     a.click();
                     URL.revokeObjectURL(url);
                     modal.close();
@@ -514,7 +516,7 @@ function handleImport(node) {
     `;
 
     modal.show({
-        title: "导入 LoRA 配置 (追加模式)",
+        title: "导入节点配置 (追加模式)",
         content: content,
         width: "500px",
         buttons: [
@@ -552,26 +554,44 @@ function processImport(node, rawData) {
             throw new Error("Invalid format");
         }
 
-        // Load High Stream (Append mode)
-        if (parsed.high) {
-            // Option to overwrite settings or leave as is. Here we overwrite if provided.
-            if (parsed.high.settings) {
-                const settingsHigh = node.widgets.find(w => w.name === "settings_high");
-                if (settingsHigh) settingsHigh.value = parsed.high.settings;
+        // Load key_to_check (Append logic)
+        if (parsed.key_to_check || parsed.keyword) {
+            const newKey = parsed.key_to_check || parsed.keyword;
+            const wKey = node.widgets.find(w => w.name === "key_to_check");
+            if (wKey) {
+                const currentKeys = wKey.value.split(';').map(k => k.trim()).filter(k => k);
+                if (!currentKeys.includes(newKey)) {
+                    currentKeys.push(newKey);
+                    wKey.value = currentKeys.join(';');
+                }
             }
-            if (Array.isArray(parsed.high.loras)) {
-                parsed.high.loras.forEach(l => node.addNewLoraWidget("High", l));
+        }
+        
+        // Mode remains untouched as per requirement "模式不用管"
+
+        // Load High Stream (Append mode)
+        const highData = parsed.high || parsed.high_loras;
+        if (highData) {
+            if (highData.settings) {
+                const settingsHigh = node.widgets.find(w => w.name === "settings_high");
+                if (settingsHigh) settingsHigh.value = highData.settings;
+            }
+            const loras = Array.isArray(highData) ? highData : highData.loras;
+            if (Array.isArray(loras)) {
+                loras.forEach(l => node.addNewLoraWidget("High", l));
             }
         }
 
         // Load Low Stream (Append mode)
-        if (parsed.low) {
-            if (parsed.low.settings) {
+        const lowData = parsed.low || parsed.low_loras;
+        if (lowData) {
+            if (lowData.settings) {
                 const settingsLow = node.widgets.find(w => w.name === "settings_low");
-                if (settingsLow) settingsLow.value = parsed.low.settings;
+                if (settingsLow) settingsLow.value = lowData.settings;
             }
-            if (Array.isArray(parsed.low.loras)) {
-                parsed.low.loras.forEach(l => node.addNewLoraWidget("Low", l));
+            const loras = Array.isArray(lowData) ? lowData : lowData.loras;
+            if (Array.isArray(loras)) {
+                loras.forEach(l => node.addNewLoraWidget("Low", l));
             }
         }
 
@@ -618,7 +638,7 @@ app.registerExtension({
 
             // 2. Setup High Stream Section
             this.labelHigh = this.addCustomWidget(new LabelWidget("label_high", "🔼 High Stream", (collapsed) => {
-                toggleWidgets(["settings_high", "➕ Add High LoRA"], collapsed);
+                toggleWidgets(["settings_high", "➕ Add High LoRA", "✨ 从资产库选择 (High)"], collapsed);
                 this.highLoraWidgets.forEach(w => w.hidden = collapsed);
                 const newSize = this.computeSize();
                 this.setSize([this.size[0], newSize[1]]);
@@ -640,6 +660,130 @@ app.registerExtension({
                     if (typeof value === "string" && value && value !== "None") this.addNewLoraWidget("High", { on: true, lora: value, strength: 1 });
                  }, null, null, this, this.btnAddHigh);
             }));
+
+            // {{ AURA-X: Add - 资产库全局导入按钮 }}
+            this.btnImportAsset = this.addCustomWidget(new DoubleButtonWidget(
+                "asset_manager_btns", 
+                "✨ 插入模板", 
+                "💾 保存到资产库", 
+                (e,p,n) => {
+                    if (window.AssetManager) {
+                        window.AssetManager.showDrawer(this, 'models', (selectedModels) => {
+                            selectedModels.forEach(m => {
+                                // 1. 追加 key_to_check
+                                if (m.keyword) {
+                                    const wKey = this.widgets.find(w => w.name === "key_to_check");
+                                    if (wKey) {
+                                        const currentKeys = wKey.value.split(';').map(k => k.trim()).filter(k => k);
+                                        if (!currentKeys.includes(m.keyword)) {
+                                            currentKeys.push(m.keyword);
+                                            wKey.value = currentKeys.join(';');
+                                        }
+                                    }
+                                }
+                                
+                                // 2. 注入 High Stream
+                                if (Array.isArray(m.high_loras)) {
+                                    m.high_loras.forEach(lora => {
+                                        if (lora && lora.lora && lora.lora !== "None") {
+                                            this.addNewLoraWidget("High", lora);
+                                        }
+                                    });
+                                }
+                                
+                                // 3. 注入 Low Stream
+                                if (Array.isArray(m.low_loras)) {
+                                    m.low_loras.forEach(lora => {
+                                        if (lora && lora.lora && lora.lora !== "None") {
+                                            this.addNewLoraWidget("Low", lora);
+                                        }
+                                    });
+                                }
+                            });
+                            this.reorderWidgets();
+                            this.setDirtyCanvas(true, true);
+                        });
+                    } else {
+                        if (window.AMDialog) {
+                            window.AMDialog.alert("资产管理系统未就绪！");
+                        } else {
+                            alert("资产管理系统未就绪！");
+                        }
+                    }
+                },
+                async (e,p,n) => {
+                    try {
+                        const res = await api.fetchApi("/a_my_nodes/assets/models");
+                        const modelsData = await res.json();
+                        const groups = modelsData.groups || [];
+                        
+                        if (groups.length === 0) {
+                            alert("资产库中没有模型分组，请先在资产库中创建分组！");
+                            return;
+                        }
+                        
+                        const groupOptions = groups.map((g, i) => `<option value="${i}">${g.name}</option>`).join("");
+                        
+                        const currentKey = this.widgets.find(w => w.name === "key_to_check")?.value || "未命名配置";
+                        
+                        const content = `
+                            <div style="display:flex; flex-direction:column; gap:10px; color:white;">
+                                <label>保存到分组:</label>
+                                <select id="am-save-group" style="background:#333; color:white; padding:5px; border:1px solid #555; border-radius:4px;">
+                                    ${groupOptions}
+                                </select>
+                                <label>条目标题 (key_to_check):</label>
+                                <input type="text" id="am-save-title" value="${currentKey}" style="background:#333; color:white; padding:5px; border:1px solid #555; border-radius:4px;">
+                            </div>
+                        `;
+                        
+                        modal.show({
+                            title: "保存到资产库",
+                            content: content,
+                            width: "400px",
+                            buttons: [
+                                {
+                                    text: "保存",
+                                    type: "primary",
+                                    onClick: async () => {
+                                        const groupIdx = parseInt(document.getElementById("am-save-group").value);
+                                        const title = document.getElementById("am-save-title").value.trim() || "未命名配置";
+                                        
+                                        const newItem = {
+                                            id: Date.now().toString() + Math.random().toString().slice(2, 6),
+                                            keyword: title,
+                                            check_mode: this.widgets.find(w => w.name === "check_mode")?.value || "contains",
+                                            high_loras: this.highLoraWidgets.map(w => w.value).filter(v => v.lora && v.lora !== "None"),
+                                            low_loras: this.lowLoraWidgets.map(w => w.value).filter(v => v.lora && v.lora !== "None"),
+                                            preview_image: ""
+                                        };
+                                        
+                                        groups[groupIdx].items.push(newItem);
+                                        
+                                        await api.fetchApi("/a_my_nodes/assets/models", {
+                                            method: "POST",
+                                            body: JSON.stringify(modelsData),
+                                            headers: { "Content-Type": "application/json" }
+                                        });
+                                        
+                                        if (window.AssetManager) {
+                                            window.AssetManager.loadData();
+                                        }
+                                        
+                                        showTopNotification("成功保存到资产库！", "success");
+                                        modal.close();
+                                    }
+                                },
+                                { text: "取消", onClick: () => modal.close() }
+                            ]
+                        });
+                        
+                    } catch (err) {
+                        console.error(err);
+                        alert("无法连接到资产库 API！");
+                    }
+                }
+            ));
 
             // 3. Setup Low Stream Section
             this.labelLow = this.addCustomWidget(new LabelWidget("label_low", "🔽 Low Stream", (collapsed) => {
@@ -784,7 +928,8 @@ app.registerExtension({
             this.lowLoraWidgets.forEach(w => moveToBottom(w));
             moveToBottom(this.btnAddLow);
 
-            // Import/Export
+            // Import/Export and Asset Manager
+            moveToBottom(this.btnImportAsset);
             moveToBottom(this.btnImportExport);
 
             // Big Status Label at the very bottom

@@ -145,6 +145,159 @@ async def delete_output_file(request):
             content_type='application/json'
         )
 
+import uuid
+import shutil
+import folder_paths
+
+# ================= 资产管理系统 (Asset Manager) API =================
+ASSETS_DIR = os.path.dirname(os.path.abspath(__file__))
+PREVIEWS_DIR = os.path.join(ASSETS_DIR, "previews")
+os.makedirs(PREVIEWS_DIR, exist_ok=True)
+
+def get_asset_db_path(db_name):
+    return os.path.join(ASSETS_DIR, f"{db_name}.json")
+
+async def get_asset_prompts(request):
+    db_path = get_asset_db_path("prompts_db")
+    if os.path.exists(db_path):
+        try:
+            with open(db_path, "r", encoding="utf-8") as f:
+                return web.json_response(json.load(f))
+        except Exception as e:
+            print(f"❌ [AssetManager] 读取提示词库失败: {e}")
+    return web.json_response({"groups": []})
+
+async def save_asset_prompts(request):
+    db_path = get_asset_db_path("prompts_db")
+    try:
+        data = await request.json()
+        with open(db_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return web.json_response({"success": True})
+    except Exception as e:
+        print(f"❌ [AssetManager] 保存提示词库失败: {e}")
+        return web.json_response({"success": False, "error": str(e)})
+
+async def get_asset_models(request):
+    db_path = get_asset_db_path("models_db")
+    if os.path.exists(db_path):
+        try:
+            with open(db_path, "r", encoding="utf-8") as f:
+                return web.json_response(json.load(f))
+        except Exception as e:
+            print(f"❌ [AssetManager] 读取模型库失败: {e}")
+    return web.json_response({"groups": []})
+
+async def save_asset_models(request):
+    db_path = get_asset_db_path("models_db")
+    try:
+        data = await request.json()
+        with open(db_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return web.json_response({"success": True})
+    except Exception as e:
+        print(f"❌ [AssetManager] 保存模型库失败: {e}")
+        return web.json_response({"success": False, "error": str(e)})
+
+async def view_asset_preview(request):
+    """根据智能路径协议返回预览图"""
+    path_uri = request.query.get("path", "")
+    fallback_lora = request.query.get("fallback_lora", "")
+    
+    real_path = ""
+    try:
+        # 处理 path_uri
+        if path_uri:
+            if path_uri.startswith("models://"):
+                rel_path = path_uri[len("models://"):]
+                real_path = os.path.join(folder_paths.models_dir, os.path.normpath(rel_path))
+            elif path_uri.startswith("previews://"):
+                rel_path = path_uri[len("previews://"):]
+                real_path = os.path.join(PREVIEWS_DIR, os.path.normpath(rel_path))
+            else:
+                real_path = path_uri
+                
+            if os.path.exists(real_path) and os.path.isfile(real_path):
+                return web.FileResponse(real_path)
+            
+            # 如果绝对路径不存在，尝试提取 models 相对路径
+            # 兼容用户输入类似 H:\models\loras\... 或 H:\model\loras\... 的错误路径
+            lower_path = real_path.lower()
+            idx = lower_path.find("\\loras\\")
+            if idx == -1:
+                idx = lower_path.find("/loras/")
+            if idx != -1:
+                rel_path = real_path[idx + 7:] # skip \loras\
+                alt_path = os.path.join(folder_paths.models_dir, "loras", rel_path)
+                if os.path.exists(alt_path) and os.path.isfile(alt_path):
+                    return web.FileResponse(alt_path)
+                        
+        # 如果 path_uri 没找到，或者为空，检查 fallback_lora
+        if fallback_lora:
+            lora_path = folder_paths.get_full_path("loras", fallback_lora)
+            if lora_path and os.path.exists(lora_path):
+                lora_dir = os.path.dirname(lora_path)
+                lora_base = os.path.splitext(os.path.basename(lora_path))[0]
+                
+                # 查找同级目录下以模型名开头的 png 文件
+                for file in os.listdir(lora_dir):
+                    if file.lower().endswith(".png") and file.startswith(lora_base):
+                        fallback_path = os.path.join(lora_dir, file)
+                        if os.path.exists(fallback_path) and os.path.isfile(fallback_path):
+                            return web.FileResponse(fallback_path)
+
+    except Exception as e:
+        print(f"❌ [AssetManager] 预览图读取异常: {e}")
+        
+    return web.Response(status=404, text="Preview not found")
+
+async def upload_asset_preview(request):
+    """处理纯外部图片的上传，保存到 previews 目录"""
+    try:
+        reader = await request.multipart()
+        field = await reader.next()
+        if field.name == 'image':
+            filename = str(uuid.uuid4()) + "_" + field.filename
+            file_path = os.path.join(PREVIEWS_DIR, filename)
+            with open(file_path, 'wb') as f:
+                while True:
+                    chunk = await field.read_chunk()
+                    if not chunk: break
+                    f.write(chunk)
+            return web.json_response({"success": True, "uri": f"previews://{filename}"})
+    except Exception as e:
+        print(f"❌ [AssetManager] 图片上传失败: {e}")
+        return web.json_response({"success": False, "error": str(e)})
+    return web.json_response({"success": False, "error": "Upload failed"})
+
+async def register_local_preview(request):
+    """智能路径分析：判断本地绝对路径是否在 models 目录下，决定是零拷贝引用还是复制到 previews"""
+    try:
+        data = await request.json()
+        local_path = data.get("path", "")
+        if not os.path.exists(local_path):
+            return web.json_response({"success": False, "error": "File does not exist"})
+            
+        models_root = os.path.abspath(folder_paths.models_dir)
+        abs_local = os.path.abspath(local_path)
+        
+        # 智能路径分析：如果在 models 目录下，则生成 models:// 协议路径（零拷贝）
+        if abs_local.startswith(models_root):
+            rel_path = os.path.relpath(abs_local, models_root)
+            uri = f"models://{rel_path.replace(os.sep, '/')}"
+            return web.json_response({"success": True, "uri": uri, "action": "referenced"})
+        else:
+            # 不在 models 目录下，拷贝到 previews 目录
+            filename = str(uuid.uuid4()) + "_" + os.path.basename(local_path)
+            dest_path = os.path.join(PREVIEWS_DIR, filename)
+            shutil.copy2(abs_local, dest_path)
+            return web.json_response({"success": True, "uri": f"previews://{filename}", "action": "copied"})
+    except Exception as e:
+        print(f"❌ [AssetManager] 智能路径注册失败: {e}")
+        return web.json_response({"success": False, "error": str(e)})
+
+# ====================================================================
+
 # 路由注册函数 - 这个函数会在ComfyUI初始化时被调用
 def register_routes():
     """注册自定义路由到PromptServer"""
@@ -187,6 +340,17 @@ def register_routes():
                 print("✅ 分辨率预设路由 /a_my_nodes/resolution_presets 注册成功！")
             else:
                 print("⚠️ 路由 /a_my_nodes/resolution_presets 已经存在，跳过注册")
+
+            # 注册资产管理系统 (Asset Manager) API
+            if "/a_my_nodes/assets/prompts" not in existing_routes:
+                PromptServer.instance.routes.get("/a_my_nodes/assets/prompts")(get_asset_prompts)
+                PromptServer.instance.routes.post("/a_my_nodes/assets/prompts")(save_asset_prompts)
+                PromptServer.instance.routes.get("/a_my_nodes/assets/models")(get_asset_models)
+                PromptServer.instance.routes.post("/a_my_nodes/assets/models")(save_asset_models)
+                PromptServer.instance.routes.get("/a_my_nodes/assets/view_preview")(view_asset_preview)
+                PromptServer.instance.routes.post("/a_my_nodes/assets/upload_preview")(upload_asset_preview)
+                PromptServer.instance.routes.post("/a_my_nodes/assets/register_local_preview")(register_local_preview)
+                print("✅ 资产管理系统 (Asset Manager) API 注册成功！")
 
             _routes_registered = True  # 设置注册标志
         else:

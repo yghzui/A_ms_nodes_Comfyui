@@ -325,6 +325,33 @@ function installAddButton(node) {
         return true;
     });
     addBtn.options.serialize = false;
+
+    // {{ AURA-X: Add - 资产管理选择按钮 }}
+    const assetBtn = node.addWidget("button", "✨ 从资产库插入模板", null, () => {
+        if (window.AssetManager) {
+            window.AssetManager.showDrawer(node, 'prompts', (content) => {
+                const currentIndex = getCurrentIndex(node);
+                const items = getItems(node);
+                if (items[currentIndex]) {
+                    // 追加到当前选中的内容中
+                    const oldContent = items[currentIndex].content;
+                    items[currentIndex].content = oldContent ? oldContent + "\n" + content : content;
+                    setItems(node, items);
+                    const layout = layoutCells(node, items);
+                    ensureTextareas(node, layout, items);
+                    app.graph.setDirtyCanvas(true, true);
+                }
+            });
+        } else {
+            if (window.AMDialog) {
+                window.AMDialog.alert("资产管理系统未就绪！");
+            } else {
+                alert("资产管理系统未就绪！");
+            }
+        }
+    });
+    assetBtn.options.serialize = false;
+
     node.__addButtonInstalled = true;
 }
 
