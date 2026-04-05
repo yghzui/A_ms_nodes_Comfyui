@@ -864,6 +864,25 @@ class AssetManagerUI {
         
         cardEl.appendChild(editWrapper);
 
+        // 自动滚动以确保编辑框完整可见
+        setTimeout(() => {
+            const listEl = document.getElementById("am-item-list");
+            if (listEl) {
+                const wrapperRect = editWrapper.getBoundingClientRect();
+                const listRect = listEl.getBoundingClientRect();
+                
+                // 如果编辑框的底部超出了列表的底部可见区域
+                if (wrapperRect.bottom > listRect.bottom) {
+                    // 计算需要滚动的高度，使得编辑框底部刚好贴在列表底部，再额外加 20px 边距
+                    const scrollAmount = wrapperRect.bottom - listRect.bottom + 20;
+                    listEl.scrollBy({
+                        top: scrollAmount,
+                        behavior: "smooth" // 平滑滚动
+                    });
+                }
+            }
+        }, 50);
+
         // 点击外部取消编辑逻辑
         const outsideClickListener = (e) => {
             if (e.target.closest('.litegraph.litecontextmenu')) return;
