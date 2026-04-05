@@ -715,7 +715,14 @@ app.registerExtension({
                 listContainer.style.flex = "1";
                 listContainer.style.overflowY = "auto";
                 
-                // 渲染已选中区域
+                if (this._renderListToken) {
+                    cancelAnimationFrame(this._renderListToken);
+                }
+                const currentPass = {};
+                this._renderListPass = currentPass;
+
+                let selItemsContainer = null;
+                // 渲染已选中区域标题
                 if (selectedItems.length > 0) {
                     const selTitle = document.createElement("div");
                     selTitle.textContent = `已选模型 (${selectedItems.length}) - 拖拽排序 / 右键编辑`;
@@ -724,14 +731,12 @@ app.registerExtension({
                     selTitle.style.borderBottom = "1px solid #555";
                     listContainer.appendChild(selTitle);
 
-                    const selItemsContainer = document.createElement("div");
-                    selectedItems.forEach((item, idx) => {
-                        selItemsContainer.appendChild(renderItem(item, true, idx));
-                    });
+                    selItemsContainer = document.createElement("div");
                     listContainer.appendChild(selItemsContainer);
                 }
 
-                // 渲染未选中区域
+                let unselItemsContainer = null;
+                // 渲染未选中区域标题
                 if (unselectedItems.length > 0) {
                     const unselTitle = document.createElement("div");
                     unselTitle.textContent = `未选模型 (${unselectedItems.length})`;
@@ -742,14 +747,48 @@ app.registerExtension({
                     unselTitle.style.color = "#aaa";
                     listContainer.appendChild(unselTitle);
 
-                    const unselItemsContainer = document.createElement("div");
-                    unselectedItems.forEach((item) => {
-                        unselItemsContainer.appendChild(renderItem(item, false, -1));
-                    });
+                    unselItemsContainer = document.createElement("div");
                     listContainer.appendChild(unselItemsContainer);
                 }
 
                 container.appendChild(listContainer);
+
+                const CHUNK_SIZE = 15;
+                let selIndex = 0;
+                let unselIndex = 0;
+
+                const renderNextChunk = () => {
+                    if (this._renderListPass !== currentPass) return;
+
+                    const fragmentSel = document.createDocumentFragment();
+                    const fragmentUnsel = document.createDocumentFragment();
+                    let count = 0;
+
+                    while (selIndex < selectedItems.length && count < CHUNK_SIZE) {
+                        fragmentSel.appendChild(renderItem(selectedItems[selIndex], true, selIndex));
+                        selIndex++;
+                        count++;
+                    }
+
+                    while (unselIndex < unselectedItems.length && count < CHUNK_SIZE) {
+                        fragmentUnsel.appendChild(renderItem(unselectedItems[unselIndex], false, -1));
+                        unselIndex++;
+                        count++;
+                    }
+
+                    if (selItemsContainer && fragmentSel.childNodes.length > 0) {
+                        selItemsContainer.appendChild(fragmentSel);
+                    }
+                    if (unselItemsContainer && fragmentUnsel.childNodes.length > 0) {
+                        unselItemsContainer.appendChild(fragmentUnsel);
+                    }
+
+                    if (selIndex < selectedItems.length || unselIndex < unselectedItems.length) {
+                        this._renderListToken = requestAnimationFrame(renderNextChunk);
+                    }
+                };
+
+                this._renderListToken = requestAnimationFrame(renderNextChunk);
             };
         }
     }

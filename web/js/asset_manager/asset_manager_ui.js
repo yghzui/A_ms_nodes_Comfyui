@@ -265,6 +265,22 @@ class AssetManagerUI {
                                 })
                             ]),
                             $el("span", { style: { flex: 1 } }),
+                            $el("button", {
+                                textContent: "🔄 刷新",
+                                title: "全局重新加载数据并刷新界面",
+                                style: {
+                                    background: "var(--am-panel-bg)",
+                                    border: "1px solid var(--am-border)",
+                                    color: "white",
+                                    padding: "2px 8px",
+                                    marginRight: "10px",
+                                    borderRadius: "4px",
+                                    cursor: "pointer"
+                                },
+                                onclick: () => {
+                                    this.loadData();
+                                }
+                            }),
                             $el("select", {
                                 onchange: (e) => { this.viewMode = e.target.value; this.renderItems(); }
                             }, [
@@ -464,8 +480,192 @@ class AssetManagerUI {
     pasteClipboard() { DragSelectHandler.pasteClipboard(this); }
     showContextMenu(x, y) { DragSelectHandler.showContextMenu(this, x, y); }
 
-    async renderItems() {
+    createCardElement(item, index) {
+        const card = $el("div", {
+            className: "am-card" + (this.selectedIndices.has(index) ? " selected" : ""),
+            draggable: true,
+            title: "单击选择, Ctrl/Shift多选, 双击编辑",
+            onclick: (e) => {
+                if (['INPUT', 'BUTTON', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+                if (e.ctrlKey) {
+                    if (this.selectedIndices.has(index)) this.selectedIndices.delete(index);
+                    else this.selectedIndices.add(index);
+                    this.lastClickedIndex = index;
+                } else if (e.shiftKey) {
+                    if (this.lastClickedIndex === -1) this.lastClickedIndex = 0;
+                    const start = Math.min(this.lastClickedIndex, index);
+                    const end = Math.max(this.lastClickedIndex, index);
+                    this.selectedIndices.clear();
+                    for(let i = start; i <= end; i++) this.selectedIndices.add(i);
+                } else {
+                    this.selectedIndices.clear();
+                    this.selectedIndices.add(index);
+                    this.lastClickedIndex = index;
+                }
+                this.updateSelectionUI();
+            },
+            ondragstart: (e) => {
+                if (!this.selectedIndices.has(index)) {
+                    this.selectedIndices.clear();
+                    this.selectedIndices.add(index);
+                    this.updateSelectionUI();
+                }
+                const indices = Array.from(this.selectedIndices);
+                e.dataTransfer.setData("text/plain", JSON.stringify({ indices, tab: this.currentTab, type: "items" }));
+            },
+            ondragover: (e) => {
+                e.preventDefault();
+                if (e.dataTransfer.types && e.dataTransfer.types.includes("Files")) {
+                    card.style.border = "2px dashed var(--am-accent)";
+                }
+            },
+            ondragleave: (e) => {
+                card.style.border = "";
+            },
+            ondrop: (e) => {
+                card.style.border = "";
+                
+                const isFiles = e.dataTransfer.files && e.dataTransfer.files.length > 0;
+                const textData = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text/uri-list");
+                const isPathText = textData && (textData.includes(":\\") || textData.startsWith("file://") || textData.startsWith("/") || textData.match(/\.(png|jpg|jpeg|webp)$/i));
+                
+                let isInternalDrag = false;
+                try {
+                    const dragData = JSON.parse(textData);
+                    if (dragData.type === "items" || dragData.type === "group") isInternalDrag = true;
+                } catch(err) {}
+
+                if (!isInternalDrag && (isFiles || isPathText)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.handlePreviewDrop(e, index);
+                    return;
+                }
+                
+                this.handleDrop(e, index);
+            },
+            ondblclick: (e) => {
+                e.stopPropagation();
+                this.enterItemEditMode(card, item, index);
+            }
+        });
+
+        let imgSrc = "";
+        if (item.preview_image) {
+            imgSrc = `/a_my_nodes/assets/view_preview?path=${encodeURIComponent(item.preview_image)}`;
+        } else if (this.currentTab === 'models') {
+            let firstLora = "";
+            if (item.high_loras && item.high_loras.length > 0 && item.high_loras[0].lora) {
+                firstLora = item.high_loras[0].lora;
+            } else if (item.low_loras && item.low_loras.length > 0 && item.low_loras[0].lora) {
+                firstLora = item.low_loras[0].lora;
+            }
+            if (firstLora && firstLora !== "None") {
+                imgSrc = `/a_my_nodes/assets/view_preview?fallback_lora=${encodeURIComponent(firstLora)}`;
+            }
+        }
+
+        if (imgSrc) {
+            const imgEl = $el("img", { className: "am-card-img", src: imgSrc });
+            imgEl.onerror = () => { imgEl.style.display = "none"; };
+            card.appendChild(imgEl);
+            
+            if (this.viewMode === "list") {
+                let hoverPreview = null;
+                card.addEventListener("mouseenter", (e) => {
+                    if (!imgEl.style.display || imgEl.style.display !== "none") {
+                        hoverPreview = document.createElement("img");
+                        hoverPreview.src = imgSrc;
+                        hoverPreview.style.position = "fixed";
+                        hoverPreview.style.maxWidth = "300px";
+                        hoverPreview.style.maxHeight = "300px";
+                        hoverPreview.style.objectFit = "contain";
+                        hoverPreview.style.border = "2px solid #555";
+                        hoverPreview.style.borderRadius = "4px";
+                        hoverPreview.style.zIndex = "11000";
+                        hoverPreview.style.pointerEvents = "none";
+                        hoverPreview.style.boxShadow = "0 4px 8px rgba(0,0,0,0.5)";
+                        hoverPreview.style.background = "#111";
+                        
+                        const x = e.clientX + 15;
+                        const y = e.clientY + 15;
+                        hoverPreview.style.left = x + "px";
+                        hoverPreview.style.top = y + "px";
+                        document.body.appendChild(hoverPreview);
+                    }
+                });
+                card.addEventListener("mousemove", (e) => {
+                    if (hoverPreview) {
+                        hoverPreview.style.left = (e.clientX + 15) + "px";
+                        hoverPreview.style.top = (e.clientY + 15) + "px";
+                    }
+                });
+                card.addEventListener("mouseleave", () => {
+                    if (hoverPreview) { hoverPreview.remove(); hoverPreview = null; }
+                });
+            }
+        }
+
+        const contentWrapper = $el("div", { className: "am-card-content" });
+
+        // Title
+        contentWrapper.appendChild($el("div", { className: "am-card-title", textContent: item.title || item.keyword || "未命名" }));
+        
+        // Description / Content
+        if (this.currentTab === 'prompts') {
+            contentWrapper.appendChild($el("div", { className: "am-card-desc", textContent: item.content || "" }));
+        } else {
+            let displayPath = "";
+            let displayStr = "";
+            
+            let validCount = 0;
+            let invalidCount = 0;
+            
+            const countValidInvalid = (loraArr) => {
+                if (!loraArr) return;
+                loraArr.forEach(l => {
+                    if (l.lora && l.lora !== "None") {
+                        if (l._isValid === false) invalidCount++;
+                        else validCount++; 
+                    }
+                });
+            };
+            countValidInvalid(item.high_loras);
+            countValidInvalid(item.low_loras);
+            
+            if (item.high_loras && item.high_loras.length > 0 && item.high_loras[0].lora && item.high_loras[0].lora !== "None") {
+                displayPath = item.high_loras[0].lora;
+                displayStr = item.high_loras[0].strength !== undefined ? item.high_loras[0].strength : 1.0;
+            } else if (item.low_loras && item.low_loras.length > 0 && item.low_loras[0].lora && item.low_loras[0].lora !== "None") {
+                displayPath = item.low_loras[0].lora;
+                displayStr = item.low_loras[0].strength !== undefined ? item.low_loras[0].strength : 1.0;
+            }
+            
+            let descText = "";
+            if (displayPath) {
+                descText = `路径: ${displayPath}\n强度: ${displayStr}`;
+                const totalLoras = (item.high_loras?.length || 0) + (item.low_loras?.length || 0);
+                if (totalLoras > 1) descText += ` (等 ${totalLoras} 个模型)\n[有效: ${validCount} | 丢失/无效: ${invalidCount}]`;
+                else descText += `\n[状态: ${invalidCount > 0 ? '❌ 丢失' : '✅ 正常'}]`;
+            } else {
+                descText = "空配置 (请双击添加模型)";
+            }
+            
+            contentWrapper.appendChild($el("div", { 
+                className: "am-card-desc", 
+                textContent: descText,
+                style: { whiteSpace: "pre-wrap", wordBreak: "break-all" } 
+            }));
+        }
+        
+        card.appendChild(contentWrapper);
+        return card;
+    }
+
+    async renderItems(preserveScroll = false) {
         const listEl = document.getElementById("am-item-list");
+        const savedScrollTop = preserveScroll ? listEl.scrollTop : 0;
+        
         listEl.innerHTML = "";
         listEl.className = `am-items-area am-${this.viewMode}`;
         
@@ -504,204 +704,50 @@ class AssetManagerUI {
             filteredItems = group.items.map((item, originalIndex) => ({ item, originalIndex }));
         }
         
-        // 由于 renderItems 变成了 async，可能会有竞态条件导致渲染旧结果。清空并重新填充
-        listEl.innerHTML = "";
+        // 取消之前可能正在进行的分帧渲染
+        if (this._renderToken) cancelAnimationFrame(this._renderToken);
+        const currentPass = {};
+        this._renderPass = currentPass;
         
-        filteredItems.forEach(({ item, originalIndex: index }) => {
-            const card = $el("div", {
-                className: "am-card" + (this.selectedIndices.has(index) ? " selected" : ""),
-                draggable: true,
-                title: "单击选择, Ctrl/Shift多选, 双击编辑",
-                onclick: (e) => {
-                    if (['INPUT', 'BUTTON', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
-                    if (e.ctrlKey) {
-                        if (this.selectedIndices.has(index)) this.selectedIndices.delete(index);
-                        else this.selectedIndices.add(index);
-                        this.lastClickedIndex = index;
-                    } else if (e.shiftKey) {
-                        if (this.lastClickedIndex === -1) this.lastClickedIndex = 0;
-                        const start = Math.min(this.lastClickedIndex, index);
-                        const end = Math.max(this.lastClickedIndex, index);
-                        this.selectedIndices.clear();
-                        for(let i = start; i <= end; i++) this.selectedIndices.add(i);
-                    } else {
-                        this.selectedIndices.clear();
-                        this.selectedIndices.add(index);
-                        this.lastClickedIndex = index;
-                    }
-                    this.updateSelectionUI();
-                },
-                ondragstart: (e) => {
-                    if (!this.selectedIndices.has(index)) {
-                        this.selectedIndices.clear();
-                        this.selectedIndices.add(index);
-                        this.updateSelectionUI();
-                    }
-                    const indices = Array.from(this.selectedIndices);
-                    e.dataTransfer.setData("text/plain", JSON.stringify({ indices, tab: this.currentTab, type: "items" }));
-                },
-                ondragover: (e) => {
-                    e.preventDefault();
-                    if (e.dataTransfer.types && e.dataTransfer.types.includes("Files")) {
-                        card.style.border = "2px dashed var(--am-accent)";
-                    }
-                },
-                ondragleave: (e) => {
-                    card.style.border = "";
-                },
-                ondrop: (e) => {
-                    card.style.border = "";
-                    
-                    const isFiles = e.dataTransfer.files && e.dataTransfer.files.length > 0;
-                    const textData = e.dataTransfer.getData("text/plain") || e.dataTransfer.getData("text/uri-list");
-                    const isPathText = textData && (textData.includes(":\\") || textData.startsWith("file://") || textData.startsWith("/") || textData.match(/\.(png|jpg|jpeg|webp)$/i));
-                    
-                    // 排除内部卡片排序拖拽（我们在 ondragstart 中设置了 type="items" 或 type="group" 等 JSON）
-                    let isInternalDrag = false;
-                    try {
-                        const dragData = JSON.parse(textData);
-                        if (dragData.type === "items" || dragData.type === "group") isInternalDrag = true;
-                    } catch(err) {}
-
-                    // 如果不是内部排序拖拽，且有文件或路径，则触发更换预览图逻辑
-                    if (!isInternalDrag && (isFiles || isPathText)) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        this.handlePreviewDrop(e, index);
-                        return;
-                    }
-                    
-                    // 否则走正常的排序逻辑
-                    this.handleDrop(e, index);
-                },
-                ondblclick: (e) => {
-                    e.stopPropagation();
-                    this.enterItemEditMode(card, item, index);
-                }
-            });
-
-            // Preview Image
-            let imgSrc = "";
-            if (item.preview_image) {
-                imgSrc = `/a_my_nodes/assets/view_preview?path=${encodeURIComponent(item.preview_image)}`;
-            } else if (this.currentTab === 'models') {
-                let firstLora = "";
-                if (item.high_loras && item.high_loras.length > 0 && item.high_loras[0].lora) {
-                    firstLora = item.high_loras[0].lora;
-                } else if (item.low_loras && item.low_loras.length > 0 && item.low_loras[0].lora) {
-                    firstLora = item.low_loras[0].lora;
-                }
-                
-                if (firstLora && firstLora !== "None") {
-                    imgSrc = `/a_my_nodes/assets/view_preview?fallback_lora=${encodeURIComponent(firstLora)}`;
-                }
-            }
-
-            if (imgSrc) {
-                const imgEl = $el("img", { className: "am-card-img", src: imgSrc });
-                imgEl.onerror = () => { imgEl.style.display = "none"; };
-                card.appendChild(imgEl);
-                
-                // 列表模式下的悬浮预览图逻辑
-                if (this.viewMode === "list") {
-                    let hoverPreview = null;
-
-                    card.addEventListener("mouseenter", (e) => {
-                        if (!imgEl.style.display || imgEl.style.display !== "none") {
-                            hoverPreview = document.createElement("img");
-                            hoverPreview.src = imgSrc;
-                            hoverPreview.style.position = "fixed";
-                            hoverPreview.style.maxWidth = "300px";
-                            hoverPreview.style.maxHeight = "300px";
-                            hoverPreview.style.objectFit = "contain";
-                            hoverPreview.style.border = "2px solid #555";
-                            hoverPreview.style.borderRadius = "4px";
-                            hoverPreview.style.zIndex = "11000";
-                            hoverPreview.style.pointerEvents = "none";
-                            hoverPreview.style.boxShadow = "0 4px 8px rgba(0,0,0,0.5)";
-                            hoverPreview.style.background = "#111";
-                            
-                            const x = e.clientX + 15;
-                            const y = e.clientY + 15;
-                            hoverPreview.style.left = x + "px";
-                            hoverPreview.style.top = y + "px";
-                            
-                            document.body.appendChild(hoverPreview);
-                        }
-                    });
-
-                    card.addEventListener("mousemove", (e) => {
-                        if (hoverPreview) {
-                            hoverPreview.style.left = (e.clientX + 15) + "px";
-                            hoverPreview.style.top = (e.clientY + 15) + "px";
-                        }
-                    });
-
-                    card.addEventListener("mouseleave", () => {
-                        if (hoverPreview) {
-                            hoverPreview.remove();
-                            hoverPreview = null;
-                        }
-                    });
-                }
-            }
-
-            const contentWrapper = $el("div", { className: "am-card-content" });
-
-            // Title
-            contentWrapper.appendChild($el("div", { className: "am-card-title", textContent: item.title || item.keyword || "未命名" }));
+        listEl.innerHTML = "";
+        listEl.className = `am-items-area am-${this.viewMode}`;
+        
+        if (filteredItems.length === 0) return;
+        
+        const CHUNK_SIZE = 15;
+        let currentIndex = 0;
+        
+        const renderNextChunk = () => {
+            if (this._renderPass !== currentPass) return; // 已经被取消
             
-            // Description / Content
-            if (this.currentTab === 'prompts') {
-                contentWrapper.appendChild($el("div", { className: "am-card-desc", textContent: item.content || "" }));
-            } else {
-                let displayPath = "";
-                let displayStr = "";
+            const fragment = document.createDocumentFragment();
+            let count = 0;
+            
+            while (currentIndex < filteredItems.length && count < CHUNK_SIZE) {
+                const { item, originalIndex: index } = filteredItems[currentIndex];
                 
-                // 从 high_loras 或 low_loras 中提取第一个有效的模型作为摘要展示
-                let validCount = 0;
-                let invalidCount = 0;
+                const card = this.createCardElement(item, index);
                 
-                const countValidInvalid = (loraArr) => {
-                    if (!loraArr) return;
-                    loraArr.forEach(l => {
-                        if (l.lora && l.lora !== "None") {
-                            if (l._isValid === false) invalidCount++;
-                            else validCount++; // 默认为true或未检测时算作有效
-                        }
-                    });
-                };
-                countValidInvalid(item.high_loras);
-                countValidInvalid(item.low_loras);
+                fragment.appendChild(card);
                 
-                if (item.high_loras && item.high_loras.length > 0 && item.high_loras[0].lora && item.high_loras[0].lora !== "None") {
-                    displayPath = item.high_loras[0].lora;
-                    displayStr = item.high_loras[0].strength !== undefined ? item.high_loras[0].strength : 1.0;
-                } else if (item.low_loras && item.low_loras.length > 0 && item.low_loras[0].lora && item.low_loras[0].lora !== "None") {
-                    displayPath = item.low_loras[0].lora;
-                    displayStr = item.low_loras[0].strength !== undefined ? item.low_loras[0].strength : 1.0;
-                }
-                
-                let descText = "";
-                if (displayPath) {
-                    descText = `路径: ${displayPath}\n强度: ${displayStr}`;
-                    const totalLoras = (item.high_loras?.length || 0) + (item.low_loras?.length || 0);
-                    if (totalLoras > 1) descText += ` (等 ${totalLoras} 个模型)\n[有效: ${validCount} | 丢失/无效: ${invalidCount}]`;
-                    else descText += `\n[状态: ${invalidCount > 0 ? '❌ 丢失' : '✅ 正常'}]`;
-                } else {
-                    descText = "空配置 (请双击添加模型)";
-                }
-                
-                contentWrapper.appendChild($el("div", { 
-                    className: "am-card-desc", 
-                    textContent: descText,
-                    style: { whiteSpace: "pre-wrap", wordBreak: "break-all" } 
-                }));
+                currentIndex++;
+                count++;
             }
             
-            card.appendChild(contentWrapper);
-            listEl.appendChild(card);
-        });
+            listEl.appendChild(fragment);
+            
+            if (preserveScroll) {
+                listEl.scrollTop = savedScrollTop;
+            }
+            
+            if (currentIndex < filteredItems.length) {
+                this._renderToken = requestAnimationFrame(renderNextChunk);
+            } else if (preserveScroll) {
+                listEl.scrollTop = savedScrollTop;
+            }
+        };
+        
+        this._renderToken = requestAnimationFrame(renderNextChunk);
     }
 
     handlePreviewDrop(e, targetIndex) { DragSelectHandler.handlePreviewDrop(this, e, targetIndex); }
@@ -828,7 +874,10 @@ class AssetManagerUI {
                 data.groups[this.currentGroupIndex].items[index] = originalItem;
                 
                 document.removeEventListener('mousedown', outsideClickListener);
-                this.renderItems();
+                
+                // 仅替换当前卡片
+                const newCard = this.createCardElement(originalItem, index);
+                cardEl.replaceWith(newCard);
             }
         };
 
@@ -1066,10 +1115,11 @@ class AssetManagerUI {
                                 loraItem._isValid = false;
                                 return;
                             }
+                            
                             try {
                                 const res = await api.fetchApi(`/a_my_nodes/assets/check_model_exists?path=${encodeURIComponent(loraItem.lora)}`);
                                 const data = await res.json();
-                                if (data.exists) {
+                                if (data && data.exists) {
                                     statusIcon.textContent = "✅";
                                     statusIcon.title = "模型存在";
                                     statusIcon.style.color = "#28a745";
@@ -1080,7 +1130,8 @@ class AssetManagerUI {
                                     statusIcon.style.color = "#dc3545";
                                     loraItem._isValid = false;
                                 }
-                            } catch(e) {
+                            } catch (e) {
+                                console.error("Check model failed", e);
                                 statusIcon.textContent = "⚠️";
                                 statusIcon.title = "检查失败";
                                 loraItem._isValid = false;
@@ -1179,7 +1230,10 @@ class AssetManagerUI {
                 
                 document.removeEventListener('mousedown', outsideClickListener);
                 this.saveData();
-                this.renderItems();
+                
+                // 仅替换当前编辑的卡片
+                const newCard = this.createCardElement(item, index);
+                cardEl.replaceWith(newCard);
             }
         });
 
@@ -1193,7 +1247,10 @@ class AssetManagerUI {
                     const data = this.currentTab === 'prompts' ? this.promptsData : this.modelsData;
                     data.groups[this.currentGroupIndex].items.splice(index, 1);
                     this.saveData();
-                    this.renderItems();
+                    
+                    // 删除时移除卡片 DOM，然后强制触发全量渲染以确保索引(index)对齐
+                    // 仅移除 DOM 会导致后续卡片的 index 不匹配
+                    this.renderItems(true);
                 }
             }
         });

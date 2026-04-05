@@ -365,6 +365,43 @@ async def check_model_exists(request):
         print(f"❌ [AssetManager] 检查模型存在失败: {e}")
         return web.json_response({"exists": False, "error": str(e)})
 
+async def check_models_exist(request):
+    """批量接收模型路径，检查是否存在
+    请求体: {"paths": ["loras/a.safetensors", "loras/b.safetensors"]}
+    返回: {"results": {"loras/a.safetensors": True, "loras/b.safetensors": False}}
+    """
+    try:
+        data = await request.json()
+        paths = data.get("paths", [])
+        results = {}
+        
+        import folder_paths
+        import os
+        
+        for path in paths:
+            if not path or path == "None":
+                results[path] = False
+                continue
+                
+            # 1. 查 loras
+            full_path = folder_paths.get_full_path("loras", path)
+            if full_path and os.path.exists(full_path):
+                results[path] = True
+                continue
+                
+            # 2. 查 checkpoints
+            full_path_ckpt = folder_paths.get_full_path("checkpoints", path)
+            if full_path_ckpt and os.path.exists(full_path_ckpt):
+                results[path] = True
+                continue
+                
+            results[path] = False
+            
+        return web.json_response({"results": results})
+    except Exception as e:
+        print(f"❌ [AssetManager] 批量检查模型存在失败: {e}")
+        return web.json_response({"results": {}, "error": str(e)})
+
 import functools
 from pypinyin import lazy_pinyin, Style
 
@@ -478,6 +515,7 @@ def register_routes():
                 PromptServer.instance.routes.post("/a_my_nodes/assets/upload_preview")(upload_asset_preview)
                 PromptServer.instance.routes.post("/a_my_nodes/assets/register_local_preview")(register_local_preview)
                 PromptServer.instance.routes.get("/a_my_nodes/assets/check_model_exists")(check_model_exists)
+                PromptServer.instance.routes.post("/a_my_nodes/assets/check_models_exist")(check_models_exist)
                 PromptServer.instance.routes.post("/a_my_nodes/assets/search_pinyin")(search_pinyin)
                 print("✅ 资产管理系统 (Asset Manager) API 注册成功！")
 
