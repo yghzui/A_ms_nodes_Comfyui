@@ -9,6 +9,58 @@ import { rgthreeApi } from "./core/rgthree_api.js";
 
 // --- Helper Functions ---
 
+// --- Status Label Settings ---
+let statusLabelSettings = JSON.parse(localStorage.getItem("wan_video_status_label_settings") || "{}");
+statusLabelSettings = {
+    fontSize: statusLabelSettings.fontSize || 24,
+    textColor: statusLabelSettings.textColor || "#ffffff",
+    bgColor: statusLabelSettings.bgColor || "#000000",
+    opacity: statusLabelSettings.opacity !== undefined ? statusLabelSettings.opacity : 0.8
+};
+
+function saveStatusLabelSettings() {
+    localStorage.setItem("wan_video_status_label_settings", JSON.stringify(statusLabelSettings));
+    app.canvas.setDirty(true, true);
+}
+
+function showStatusLabelSettingsModal() {
+    const content = `
+        <div style="display:flex; flex-direction:column; gap:10px; color: white;">
+            <label>字体大小 (px):</label>
+            <input type="number" id="lbl-fontsize" value="${statusLabelSettings.fontSize}" style="background:#333; color:white; border:1px solid #555; padding:5px;">
+            <label>文字颜色:</label>
+            <input type="color" id="lbl-textcolor" value="${statusLabelSettings.textColor}" style="width:100%; height:30px; padding:0; border:none;">
+            <label>背景颜色:</label>
+            <input type="color" id="lbl-bgcolor" value="${statusLabelSettings.bgColor}" style="width:100%; height:30px; padding:0; border:none;">
+            <label>透明度 (0.0 - 1.0):</label>
+            <input type="number" step="0.1" min="0" max="1" id="lbl-opacity" value="${statusLabelSettings.opacity}" style="background:#333; color:white; border:1px solid #555; padding:5px;">
+        </div>
+    `;
+
+    modal.show({
+        title: "全局标签显示设置",
+        content: content,
+        width: "300px",
+        buttons: [
+            {
+                text: "保存",
+                type: "primary",
+                onClick: () => {
+                    statusLabelSettings.fontSize = parseInt(document.getElementById("lbl-fontsize").value) || 24;
+                    statusLabelSettings.textColor = document.getElementById("lbl-textcolor").value;
+                    statusLabelSettings.bgColor = document.getElementById("lbl-bgcolor").value;
+                    statusLabelSettings.opacity = parseFloat(document.getElementById("lbl-opacity").value);
+                    if (isNaN(statusLabelSettings.opacity)) statusLabelSettings.opacity = 0.8;
+                    saveStatusLabelSettings();
+                    modal.close();
+                }
+            },
+            { text: "取消", onClick: () => modal.close() }
+        ]
+    });
+}
+
+
 // Helper function to show the LoRA chooser menu (From LoadLoraMerge)
 async function showLoraChooser(event, callback, parentMenu, loras, buttonNode) {
     const canvas = app.canvas;
@@ -291,6 +343,120 @@ class WanVideoLoraWidget extends RgthreeBaseWidget {
     }
 }
 
+class BigStatusLabelWidget extends RgthreeBaseWidget {
+    constructor(name) {
+        super(name);
+        this.type = "custom";
+    }
+
+    computeSize(width) {
+        return [width, statusLabelSettings.fontSize + 20];
+    }
+
+    draw(ctx, node, w, posY, height) {
+        const wKey = node.widgets.find(w => w.name === "key_to_check");
+        const wStatus = node.widgets.find(w => w.name === "Check Status");
+        
+        const keyText = wKey ? wKey.value : "";
+        const statusText = wStatus ? wStatus.value : "";
+        
+        // Clean up status text for cleaner display
+        let displayStatus = statusText;
+        if (displayStatus.includes("✅")) displayStatus = "✅ 已启用";
+        else if (displayStatus.includes("❌")) displayStatus = "❌ 未启用";
+        else if (displayStatus.includes("🔒 Force True")) displayStatus = "✅ 强制启用";
+        else if (displayStatus.includes("🔒 Force False")) displayStatus = "❌ 强制关闭";
+        
+        const text = `🔍 ${keyText}  |  ${displayStatus}`;
+
+        ctx.save();
+        
+        ctx.globalAlpha = statusLabelSettings.opacity;
+        
+        // Draw background
+        drawRoundedRectangle(ctx, { pos: [0, posY], size: [w, height], color: statusLabelSettings.bgColor, radius: 5 });
+        
+        ctx.globalAlpha = 1.0;
+        ctx.fillStyle = statusLabelSettings.textColor;
+        ctx.font = `bold ${statusLabelSettings.fontSize}px Arial`;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        
+        ctx.fillText(fitString(ctx, text, w - 20), 10, posY + height / 2);
+        
+        ctx.restore();
+        
+        this.last_y = posY;
+    }
+}
+
+class DoubleButtonWidget extends RgthreeBaseWidget {
+    constructor(name, label1, label2, callback1, callback2) {
+        super(name);
+        this.type = "custom";
+        this.label1 = label1;
+        this.label2 = label2;
+        this.callback1 = callback1;
+        this.callback2 = callback2;
+        this.hitAreas = {
+            btn1: { bounds: [0, 0], onDown: this.onBtn1Down.bind(this) },
+            btn2: { bounds: [0, 0], onDown: this.onBtn2Down.bind(this) }
+        };
+    }
+
+    draw(ctx, node, w, posY, height) {
+        this.node = node;
+        ctx.save();
+        
+        const margin = 10;
+        const innerMargin = 5;
+        const btnWidth = (w - margin * 2 - innerMargin) / 2;
+        
+        // Button 1
+        const btn1X = margin;
+        ctx.fillStyle = "#333";
+        ctx.beginPath();
+        ctx.roundRect(btn1X, posY + 2, btnWidth, height - 4, 4);
+        ctx.fill();
+        ctx.strokeStyle = "#555";
+        ctx.stroke();
+        
+        ctx.fillStyle = "#fff";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = "12px Arial";
+        ctx.fillText(this.label1, btn1X + btnWidth / 2, posY + height / 2);
+        
+        this.hitAreas.btn1.bounds = [btn1X, btnWidth];
+        
+        // Button 2
+        const btn2X = margin + btnWidth + innerMargin;
+        ctx.fillStyle = "#333";
+        ctx.beginPath();
+        ctx.roundRect(btn2X, posY + 2, btnWidth, height - 4, 4);
+        ctx.fill();
+        ctx.strokeStyle = "#555";
+        ctx.stroke();
+        
+        ctx.fillStyle = "#fff";
+        ctx.fillText(this.label2, btn2X + btnWidth / 2, posY + height / 2);
+        
+        this.hitAreas.btn2.bounds = [btn2X, btnWidth];
+        
+        ctx.restore();
+    }
+
+    onBtn1Down(event, pos, node) {
+        if (this.callback1) this.callback1(event, pos, node || this.node);
+        return true;
+    }
+
+    onBtn2Down(event, pos, node) {
+        if (this.callback2) this.callback2(event, pos, node || this.node);
+        return true;
+    }
+}
+
 // --- Import/Export Helper Functions ---
 function handleExport(node) {
     const data = {
@@ -501,12 +667,13 @@ app.registerExtension({
             }));
 
             // Add Import/Export Buttons
-            this.btnImport = this.addCustomWidget(new RgthreeBetterButtonWidget("📥 Import LoRAs", (e,p,n) => {
-                handleImport(this);
-            }));
-            this.btnExport = this.addCustomWidget(new RgthreeBetterButtonWidget("📤 Export LoRAs", (e,p,n) => {
-                handleExport(this);
-            }));
+            this.btnImportExport = this.addCustomWidget(new DoubleButtonWidget(
+                "import_export_btns", 
+                "📥 Import LoRAs", 
+                "📤 Export LoRAs", 
+                (e,p,n) => handleImport(this),
+                (e,p,n) => handleExport(this)
+            ));
 
             // 4. Setup Auto Enable Logic Section (Label only, inputs are standard)
             this.labelAuto = this.addCustomWidget(new LabelWidget("label_auto", "⚙️ Auto Enable Logic", (collapsed) => {
@@ -515,6 +682,9 @@ app.registerExtension({
                 this.setSize([this.size[0], newSize[1]]);
                 this.setDirtyCanvas(true, true);
             }));
+
+            // Setup Big Status Label
+            // this.bigStatusLabel = this.addCustomWidget(new BigStatusLabelWidget("big_status_label"));
 
             // 5. Initial Layout Reordering
             this.reorderWidgets();
@@ -615,8 +785,10 @@ app.registerExtension({
             moveToBottom(this.btnAddLow);
 
             // Import/Export
-            moveToBottom(this.btnImport);
-            moveToBottom(this.btnExport);
+            moveToBottom(this.btnImportExport);
+
+            // Big Status Label at the very bottom
+            // moveToBottom(this.bigStatusLabel);
 
             // Logic Config (Previously at Bottom - Removed from here)
             // moveToBottom(this.labelAuto);
@@ -754,11 +926,72 @@ app.registerExtension({
             this.ensureHiddenWidgets();
         };
         
+        const onDrawForeground = nodeType.prototype.onDrawForeground;
+        nodeType.prototype.onDrawForeground = function(ctx) {
+            if (onDrawForeground) onDrawForeground.apply(this, arguments);
+
+            const wKey = this.widgets.find(w => w.name === "key_to_check");
+            const wStatus = this.widgets.find(w => w.name === "Check Status");
+            
+            const keyText = wKey ? wKey.value : "";
+            const statusText = wStatus ? wStatus.value : "";
+            
+            let displayStatus = statusText;
+            if (displayStatus.includes("✅")) displayStatus = "✅ 已启用";
+            else if (displayStatus.includes("❌")) displayStatus = "❌ 未启用";
+            else if (displayStatus.includes("🔒 Force True")) displayStatus = "✅ 强制启用";
+            else if (displayStatus.includes("🔒 Force False")) displayStatus = "❌ 强制关闭";
+            
+            const text = `${keyText}  |  ${displayStatus}`;
+            
+            ctx.save();
+            ctx.globalAlpha = statusLabelSettings.opacity;
+            
+            const margin = 10;
+            const height = statusLabelSettings.fontSize + 20;
+            const posY = this.size[1] + margin;
+            const w = this.size[0];
+            
+            // Draw background
+            drawRoundedRectangle(ctx, { pos: [0, posY], size: [w, height], color: statusLabelSettings.bgColor, radius: 5 });
+            
+            ctx.globalAlpha = 1.0;
+            ctx.fillStyle = statusLabelSettings.textColor;
+            ctx.font = `bold ${statusLabelSettings.fontSize}px Arial`;
+            ctx.textAlign = "left";
+            ctx.textBaseline = "middle";
+            
+            ctx.fillText(fitString(ctx, text, w - 20), 10, posY + height / 2);
+            
+            ctx.restore();
+            
+            // Save bounding box for hit testing
+            this.bigLabelBounds = [0, posY, w, height];
+        };
+
         // Context Menu for removal
         const getSlotMenuOptions = nodeType.prototype.getSlotMenuOptions;
         nodeType.prototype.getSlotMenuOptions = function(slot) {
             getSlotMenuOptions?.apply(this, arguments);
             
+            if (slot && slot.output && slot.output.type === "STATUS_LABEL_WIDGET") {
+                const menuItems = [
+                    {
+                        content: "⚙️ 设置标签样式 (全局)",
+                        callback: () => {
+                            showStatusLabelSettingsModal();
+                        }
+                    }
+                ];
+                new LiteGraph.ContextMenu(menuItems, { 
+                    title: "Label Settings", 
+                    event: rgthree.lastCanvasMouseEvent || event, 
+                    className: "dark", 
+                    scale: Math.max(1, app?.canvas?.ds?.scale || 1) 
+                });
+                return undefined;
+            }
+
             if (!slot || !slot.widget || !slot.widget.streamType) return null;
             
             const widget = slot.widget;
@@ -932,6 +1165,16 @@ app.registerExtension({
             // But LoadLoraMerge implementation implies canvasY is absolute canvas coord?
             // "this.pos[1]" is node Y. "widget.last_y" is relative Y.
             
+            // Check if mouse is over the external big status label
+            if (this.bigLabelBounds) {
+                const [lx, ly, lw, lh] = this.bigLabelBounds;
+                // canvasX and canvasY passed to getSlotInPosition are node-relative coordinates!
+                if (canvasX >= lx && canvasX <= lx + lw && 
+                    canvasY >= ly && canvasY <= ly + lh) {
+                    return { widget: null, output: { type: "STATUS_LABEL_WIDGET" } };
+                }
+            }
+
             for (const widget of this.widgets) {
                 if (widget.last_y === undefined) continue;
                 
@@ -951,7 +1194,5 @@ app.registerExtension({
             }
             return null;
         };
-
-
     }
 });
