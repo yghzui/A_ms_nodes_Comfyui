@@ -41,6 +41,7 @@ from .nodes.imageconcatmultims import ImageConcatMultiMs
 from .nodes.resolutionpreset import ResolutionPresetNode
 from .nodes.load_ui_node_value import GetNodeInputValue
 from .nodes.wan_video_double_stream import WanVideoDoubleStream
+from .nodes.wan_video_double_stream_asset import WanVideoDoubleStreamAsset
 from .nodes.crop_face_fast import CropFaceFast
 
 
@@ -147,6 +148,7 @@ NODE_CLASS_MAPPINGS = {
     # "AnyDataAnalyzer": AnyDataAnalyzer,
     "GetNodeInputValue": GetNodeInputValue,
     "WanVideoDoubleStream": WanVideoDoubleStream,
+    "WanVideoDoubleStreamAsset": WanVideoDoubleStreamAsset,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by ms",
@@ -216,6 +218,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     # "AnyDataAnalyzer": "AnyDataAnalyzer 任意数据分析器 by ms",
     "GetNodeInputValue": "获取节点输入值 by ms",
     "WanVideoDoubleStream": "WanVideoDoubleStream 双流视频LoRA加载 by ms",
+    "WanVideoDoubleStreamAsset": "WanVideoDoubleStreamAsset by ms",
 }
 
 WEB_DIRECTORY = "./web/js"
