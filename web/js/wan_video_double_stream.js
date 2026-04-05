@@ -668,16 +668,58 @@ app.registerExtension({
                 "💾 保存到资产库", 
                 (e,p,n) => {
                     if (window.AssetManager) {
-                        window.AssetManager.showDrawer(this, 'models', (selectedModels) => {
+                        window.AssetManager.showDrawer(this, 'models', async (selectedModels) => {
+                            // 判断当前节点是否已经有模型配置
+                            const hasExistingConfig = this.highLoraWidgets.length > 0 || this.lowLoraWidgets.length > 0;
+                            let mode = "append";
+                            
+                            if (hasExistingConfig) {
+                                // 弹窗询问覆盖还是追加
+                                const userChoice = await new Promise(resolve => {
+                                    modal.show({
+                                        title: "检测到已有配置",
+                                        content: "当前节点已有模型配置，请选择插入模式：<br><br><b>追加</b>：保留现有模型，在末尾添加新模型。<br><b>覆盖</b>：清空当前节点的所有模型配置，然后应用新模板。",
+                                        width: "400px",
+                                        buttons: [
+                                            { text: "覆盖 (清空现有)", type: "secondary", onClick: () => { resolve("override"); modal.close(); } },
+                                            { text: "追加 (保留现有)", type: "primary", onClick: () => { resolve("append"); modal.close(); } },
+                                            { text: "取消", onClick: () => { resolve("cancel"); modal.close(); } }
+                                        ]
+                                    });
+                                });
+                                
+                                if (userChoice === "cancel") return;
+                                mode = userChoice;
+                            }
+
+                            if (mode === "override") {
+                                // 清空现有的模型配置
+                                this.highLoraWidgets.forEach(w => {
+                                    const idx = this.widgets.indexOf(w);
+                                    if (idx > -1) this.widgets.splice(idx, 1);
+                                });
+                                this.lowLoraWidgets.forEach(w => {
+                                    const idx = this.widgets.indexOf(w);
+                                    if (idx > -1) this.widgets.splice(idx, 1);
+                                });
+                                this.highLoraWidgets = [];
+                                this.lowLoraWidgets = [];
+                                this.loraWidgetsCounter = 0;
+                            }
+
                             selectedModels.forEach(m => {
-                                // 1. 追加 key_to_check
+                                // 1. 处理 key_to_check
                                 if (m.keyword) {
                                     const wKey = this.widgets.find(w => w.name === "key_to_check");
                                     if (wKey) {
-                                        const currentKeys = wKey.value.split(';').map(k => k.trim()).filter(k => k);
-                                        if (!currentKeys.includes(m.keyword)) {
-                                            currentKeys.push(m.keyword);
-                                            wKey.value = currentKeys.join(';');
+                                        if (mode === "override") {
+                                            wKey.value = m.keyword;
+                                        } else {
+                                            const currentKeys = wKey.value.split(';').map(k => k.trim()).filter(k => k);
+                                            if (!currentKeys.includes(m.keyword)) {
+                                                currentKeys.push(m.keyword);
+                                                wKey.value = currentKeys.join(';');
+                                            }
                                         }
                                     }
                                 }
@@ -700,8 +742,11 @@ app.registerExtension({
                                     });
                                 }
                             });
+                            
                             this.reorderWidgets();
                             this.setDirtyCanvas(true, true);
+                            const newSize = this.computeSize();
+                            this.setSize([this.size[0], newSize[1]]);
                         });
                     } else {
                         if (window.AMDialog) {

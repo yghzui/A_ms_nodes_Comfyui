@@ -1525,30 +1525,54 @@ class AssetManagerUI {
         this.drawer.style.display = "block";
         this.drawer.innerHTML = ""; // 清空
         
+        // 顶部添加一个明显的标题和关闭按钮栏
+        const drawerHeader = $el("div", { 
+            style: { 
+                display: "flex", 
+                justifyContent: "space-between", 
+                alignItems: "center",
+                borderBottom: "1px solid var(--am-accent)", 
+                marginBottom: "10px",
+                paddingBottom: "5px"
+            } 
+        });
+        drawerHeader.appendChild($el("span", { textContent: tabType === 'prompts' ? "选择提示词模板" : "选择模型配置", style: { fontWeight: "bold", fontSize: "14px" } }));
+        drawerHeader.appendChild($el("button", {
+            textContent: "✖",
+            title: "关闭",
+            style: { background: "transparent", border: "none", color: "white", cursor: "pointer", fontSize: "16px" },
+            onclick: () => this.hideDrawer()
+        }));
+        this.drawer.appendChild(drawerHeader);
+        
+        // 绑定点击外部隐藏抽屉事件（使用 pointerdown 并绑定到 window 层级进行全局捕获）
+        if (this._drawerOutsideClickListener) {
+            window.removeEventListener('pointerdown', this._drawerOutsideClickListener, true);
+        }
+        this._drawerOutsideClickListener = (e) => {
+            if (this.drawer && this.drawer.style.display === "block") {
+                // 如果点击不在抽屉内，且不是触发按钮
+                if (!this.drawer.contains(e.target)) {
+                    // 放宽判断条件，避开按钮上的文字或 svg 等子元素
+                    const isBtn = e.target.closest('.rgthree-better-button') || 
+                                  (e.target.textContent && e.target.textContent.includes('插入模板'));
+                    if (!isBtn) {
+                        this.hideDrawer();
+                    }
+                }
+            }
+        };
+        // 延迟绑定避免立即触发，第三个参数 true 开启捕获模式
+        setTimeout(() => {
+            window.addEventListener('pointerdown', this._drawerOutsideClickListener, true);
+        }, 100);
+        
         // 渲染抽屉内容
         const data = tabType === 'prompts' ? this.promptsData : this.modelsData;
         
         if (!data.groups || data.groups.length === 0) {
             this.drawer.appendChild($el("div", { style: { padding: "10px" }, textContent: "暂无数据，请先在资产管理中添加" }));
             return;
-        }
-
-        // 添加一个全选/反选区域 (仅对模型有效，但为了统一，可以做多选回调，但目前提示词主要是单选/插入，模型是多选)
-        if (tabType === 'models') {
-            const toolBar = $el("div", { style: { display: "flex", gap: "10px", marginBottom: "10px" } }, [
-                $el("button", { textContent: "✅ 全选", onclick: () => this.toggleDrawerCheckboxes(true) }),
-                $el("button", { textContent: "❌ 反选", onclick: () => this.toggleDrawerCheckboxes(false) }),
-                $el("button", { 
-                    textContent: "🚀 应用选中模型", 
-                    style: { background: "var(--am-accent)", color: "white", flex: 1 },
-                    onclick: () => {
-                        const selected = this.getDrawerSelectedModels();
-                        callback(selected);
-                        this.hideDrawer();
-                    }
-                })
-            ]);
-            this.drawer.appendChild(toolBar);
         }
 
         // 按组渲染
@@ -1576,18 +1600,13 @@ class AssetManagerUI {
                             this.hideDrawer();
                         };
                     } else {
-                        // 模型：带复选框
-                        const cb = $el("input", { type: "checkbox", className: "am-model-cb" });
-                        cb.dataset.modelInfo = JSON.stringify(item);
-                        // 默认勾选状态依据 item.on，或者全不勾选让用户选
-                        cb.checked = item.on !== false; 
+                        // 模型配置模板：直接点击该条目应用（不再使用复选框多选）
+                        itemEl.appendChild($el("span", { textContent: item.keyword || "未命名配置" }));
                         
-                        itemEl.appendChild(cb);
-                        itemEl.appendChild($el("span", { textContent: item.keyword || item.model_path }));
-                        
-                        // 点击整行也能切换复选框
-                        itemEl.onclick = (e) => {
-                            if (e.target !== cb) cb.checked = !cb.checked;
+                        itemEl.onclick = () => {
+                            // 由于原 callback 期望的是数组，我们把它包装成单元素数组返回
+                            callback([item]);
+                            this.hideDrawer();
                         };
                     }
                     
@@ -1603,6 +1622,10 @@ class AssetManagerUI {
     hideDrawer() {
         if (this.drawer) this.drawer.style.display = "none";
         this.hideTooltip();
+        if (this._drawerOutsideClickListener) {
+            window.removeEventListener('pointerdown', this._drawerOutsideClickListener, true);
+            this._drawerOutsideClickListener = null;
+        }
     }
 
     toggleDrawerCheckboxes(check) {
