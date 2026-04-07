@@ -204,6 +204,18 @@ function getCustomButtons(node) {
                 }
                 app.graph.setDirtyCanvas(true, false);
             }
+        },
+        {
+            text: '追加图片',
+            width: 90,
+            tooltip: '选择并直接追加图片',
+            callback: () => {
+                if (node._customTriggerAppend) {
+                    node._customTriggerAppend();
+                } else {
+                    alert('节点尚未完全初始化或不支持该操作');
+                }
+            }
         }
     ];
 }
@@ -2415,6 +2427,8 @@ app.registerExtension({
                 if (pathWidget) pathWidget.hidden = true;
                 if (pathUseWidget) pathUseWidget.hidden = false;
 
+                let isForceAppend = false; // 用于标记是否由"追加图片"按钮触发
+
                 const fileInput = document.createElement("input");
                 Object.assign(fileInput, {
                     type: "file",
@@ -2425,11 +2439,12 @@ app.registerExtension({
                         if (!event.target.files.length) return;
                         try {
                             const files = Array.from(event.target.files);
-                            await handleIncomingFiles(files);
+                            await handleIncomingFiles(files, isForceAppend);
                         } catch (error) {
                             console.error("处理选择的图片时出错:", error);
                         } finally {
                             event.target.value = "";
+                            isForceAppend = false; // 重置状态
                         }
                     },
                 });
@@ -2437,8 +2452,16 @@ app.registerExtension({
                 document.body.appendChild(fileInput);
                 this.onRemoved = () => fileInput.remove();
                 
-                const uploadWidget = node.addWidget("button", "选择图片", "select_files", () => fileInput.click());
+                const uploadWidget = node.addWidget("button", "选择图片", "select_files", () => {
+                    isForceAppend = false;
+                    fileInput.click();
+                });
                 uploadWidget.options.serialize = false;
+
+                node._customTriggerAppend = () => {
+                    isForceAppend = true;
+                    fileInput.click();
+                };
 
                 // ---------------- 新增：通用工具与拖拽/粘贴支持 ----------------
                 // 判断 DataTransfer 是否包含文件
@@ -2574,7 +2597,7 @@ app.registerExtension({
                 }
 
                 // 处理拖拽/粘贴得到的文件，含"追加/替换"选择
-                async function handleIncomingFiles(files) {
+                async function handleIncomingFiles(files, forceAppend = false) {
                     if (!files || files.length === 0) return;
                     try {
                         // 先上传
@@ -2585,9 +2608,13 @@ app.registerExtension({
                         const oldList = oldStr ? oldStr.split(',').filter(s => s.trim()) : [];
                         let mode = 'replace';
                         if (oldList.length > 0) {
-                            const choice = await askAppendOrReplaceIfNeeded(oldList, newPaths.length);
-                            if (choice === 'cancel') return;
-                            mode = choice === 'append' ? 'append' : 'replace';
+                            if (forceAppend) {
+                                mode = 'append';
+                            } else {
+                                const choice = await askAppendOrReplaceIfNeeded(oldList, newPaths.length);
+                                if (choice === 'cancel') return;
+                                mode = choice === 'append' ? 'append' : 'replace';
+                            }
                         }
                         applyPathsToNode(newPaths, mode);
                     } catch (err) {
