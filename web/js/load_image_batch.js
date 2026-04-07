@@ -2425,45 +2425,11 @@ app.registerExtension({
                         if (!event.target.files.length) return;
                         try {
                             const files = Array.from(event.target.files);
-                            
-                            // 使用 Promise.all 并发上传所有文件
-                            const uploadPromises = files.map(file => {
-                                const formData = new FormData();
-                                formData.append("image", file, file.name);
-                                // 为每个文件创建一个独立的上传请求
-                                return api.fetchApi("/upload/image", { method: "POST", body: formData });
-                            });
-
-                            const responses = await Promise.all(uploadPromises);
-
-                            const allPaths = [];
-                            let hasError = false;
-
-                            for (const response of responses) {
-                                if (response.status === 200 || response.status === 201) {
-                                    const data = await response.json();
-                                    const path = data.subfolder ? `${data.subfolder}/${data.name}` : data.name;
-                                    allPaths.push(path);
-                                } else {
-                                    console.error("图片上传失败:", await response.text());
-                                    hasError = true;
-                                }
-                            }
-
-                            if (hasError) {
-                                alert("部分或全部图片上传失败，请查看浏览器控制台获取详细信息。");
-                            }
-
-                            if (allPaths.length > 0) {
-                                const joined = allPaths.join(',');
-                                pathWidget.value = joined;
-                                if (pathUseWidget) pathUseWidget.value = joined;
-                                populate.call(node, allPaths);
-                            }
-
+                            await handleIncomingFiles(files);
                         } catch (error) {
-                            alert(`上传出错: ${error}`);
-                            console.error(error);
+                            console.error("处理选择的图片时出错:", error);
+                        } finally {
+                            event.target.value = "";
                         }
                     },
                 });

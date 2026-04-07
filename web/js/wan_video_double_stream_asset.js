@@ -20,6 +20,12 @@ app.registerExtension({
                 this.groupsList = []; // 存储所有组名
                 this.currentGroupFilter = "All"; // 当前选择的组过滤器
                 this.viewMode = "list"; // 'list' 或 'grid'
+                try {
+                    const savedViewMode = localStorage.getItem("wan_video_double_stream_asset_view_mode");
+                    if (savedViewMode === "list" || savedViewMode === "grid") {
+                        this.viewMode = savedViewMode;
+                    }
+                } catch (e) {}
                 this.selectedAssets = []; // 存储当前选中的资产，保持顺序
                 this.hitStatus = {}; // 存储运行后的命中状态 {id: true/false}
 
@@ -282,6 +288,9 @@ app.registerExtension({
                 viewSelect.value = this.viewMode;
                 viewSelect.onchange = (e) => {
                     this.viewMode = e.target.value;
+                    try {
+                        localStorage.setItem("wan_video_double_stream_asset_view_mode", this.viewMode);
+                    } catch (err) {}
                     this.renderList();
                 };
 
@@ -732,6 +741,11 @@ app.registerExtension({
                     listContainer.appendChild(selTitle);
 
                     selItemsContainer = document.createElement("div");
+                    if (this.viewMode === "grid") {
+                        selItemsContainer.style.display = "flex";
+                        selItemsContainer.style.flexWrap = "wrap";
+                        selItemsContainer.style.justifyContent = "center";
+                    }
                     listContainer.appendChild(selItemsContainer);
                 }
 
@@ -748,6 +762,11 @@ app.registerExtension({
                     listContainer.appendChild(unselTitle);
 
                     unselItemsContainer = document.createElement("div");
+                    if (this.viewMode === "grid") {
+                        unselItemsContainer.style.display = "flex";
+                        unselItemsContainer.style.flexWrap = "wrap";
+                        unselItemsContainer.style.justifyContent = "center";
+                    }
                     listContainer.appendChild(unselItemsContainer);
                 }
 
