@@ -276,9 +276,14 @@ function calculateImageLayout(node, imageCount) {
     const TITLE_HEIGHT = 25; // 图片标题的高度
     
     // 计算底部控制按钮的高度
-    const buttons = getCustomButtons(node);
-    const layout = computeButtonLayout(node, buttons);
-    const BOTTOM_CONTROLS_HEIGHT = layout.totalHeight; // 底部控制按钮的高度
+    let BOTTOM_CONTROLS_HEIGHT = 0;
+    if (node._customSingleImageMode) {
+        BOTTOM_CONTROLS_HEIGHT = 0; // 单图模式下，底部已经由 PADDING(8) + TITLE_HEIGHT(25) 预留了 33px 的空间，足够显示按钮和文件名
+    } else {
+        const buttons = getCustomButtons(node);
+        const layout = computeButtonLayout(node, buttons);
+        BOTTOM_CONTROLS_HEIGHT = layout.totalHeight; // 底部控制按钮的高度
+    }
     
     const availableWidth = containerWidth - (PADDING * 2);
     const availableHeight = containerHeight - (PADDING * 2) - TOP_MARGIN - TITLE_HEIGHT - BOTTOM_CONTROLS_HEIGHT;
@@ -329,10 +334,9 @@ function calculateImageLayout(node, imageCount) {
     
     // 检查是否处于单图片模式
     if (node._customSingleImageMode && node._customFocusedImageIndex >= 0 && node._customFocusedImageIndex < imageCount) {
-        // 单图片模式：只显示一个图片，最大化显示
-        const imageSize = Math.min(availableWidth, availableHeight);
-        const x = PADDING + (availableWidth - imageSize) / 2;
-        const y = PADDING + TOP_MARGIN + (availableHeight - imageSize) / 2;
+        // 单图片模式：只显示一个图片，最大化显示，利用全部可用宽和高
+        const x = PADDING;
+        const y = PADDING + TOP_MARGIN;
         
         node._customImageRects = [];
         for (let i = 0; i < imageCount; i++) {
@@ -341,8 +345,8 @@ function calculateImageLayout(node, imageCount) {
                 node._customImageRects.push({
                     x: x,
                     y: y,
-                    width: imageSize,
-                    height: imageSize,
+                    width: availableWidth,
+                    height: availableHeight,
                     visible: true
                 });
             } else {
