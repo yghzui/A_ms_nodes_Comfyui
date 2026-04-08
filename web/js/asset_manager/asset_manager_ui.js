@@ -823,6 +823,7 @@ class AssetManagerUI {
     }
 
     enterItemEditMode(cardEl, item, index) {
+        if (cardEl.classList.contains("edit-mode")) return;
         const originalItemStr = JSON.stringify(item);
         
         // 记录原始尺寸，作为占位符，防止网格塌陷或跳跃
@@ -853,6 +854,9 @@ class AssetManagerUI {
                 cursor: "default"
             }
         });
+        
+        // 阻止双击事件冒泡，防止双击内部元素时退出并重新进入编辑模式
+        editWrapper.ondblclick = (e) => e.stopPropagation();
         
         // 智能定位：如果靠右边，则向左展开，防止溢出屏幕
         const listRect = document.getElementById("am-item-list").getBoundingClientRect();

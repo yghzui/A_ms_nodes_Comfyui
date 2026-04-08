@@ -637,7 +637,8 @@ app.registerExtension({
                         checkbox.style.zIndex = "10";
                     }
                     checkbox.addEventListener("change", (e) => {
-                        if (e.target.checked) {
+                        const isChecked = e.target.checked;
+                        if (isChecked) {
                             this.selectedAssets.push({
                                 id: item.id,
                                 enable_mode: "Auto" // 仅保存必须的状态：id和enable_mode
@@ -646,7 +647,56 @@ app.registerExtension({
                             this.selectedAssets = this.selectedAssets.filter(sel => sel.id !== item.id);
                         }
                         this.updateWidgetValue();
-                        this.renderList();
+                        
+                        // 局部更新 DOM 而不刷新整个列表，避免滚动条变化
+                        const listContainer = div.closest(".am-list-container");
+                        if (!listContainer) {
+                            this.renderList();
+                            return;
+                        }
+                        
+                        const selContainer = listContainer.querySelector(".am-sel-items");
+                        const unselContainer = listContainer.querySelector(".am-unsel-items");
+                        const selTitle = listContainer.querySelector(".am-sel-title");
+                        const unselTitle = listContainer.querySelector(".am-unsel-title");
+                        
+                        // 如果容器不存在，说明之前某一边是空的，需要完整刷新并恢复滚动位置
+                        if ((isChecked && !selContainer) || (!isChecked && !unselContainer)) {
+                            const scrollTop = listContainer.scrollTop;
+                            this.renderList();
+                            setTimeout(() => {
+                                const newContainer = this.renderContainer.querySelector(".am-list-container");
+                                if (newContainer) newContainer.scrollTop = scrollTop;
+                            }, 50);
+                            return;
+                        }
+                        
+                        // 创建新节点并替换
+                        const newItem = { ...item, enable_mode: "Auto", selected: isChecked };
+                        const newDiv = renderItem(newItem, isChecked, isChecked ? this.selectedAssets.length - 1 : -1);
+                        
+                        if (isChecked) {
+                            selContainer.appendChild(newDiv);
+                        } else {
+                            unselContainer.appendChild(newDiv);
+                        }
+                        div.remove();
+                        
+                        // 更新标题计数
+                        if (selTitle) {
+                            selTitle.textContent = `已选模型 (${this.selectedAssets.length}) - 拖拽排序 / 右键编辑`;
+                        }
+                        if (unselTitle) {
+                            let unselCount = 0;
+                            this.assetsData.forEach(a => {
+                                if (!this.selectedAssets.find(sel => sel.id === a.id)) {
+                                    if (this.currentGroupFilter === "All" || a.groupName === this.currentGroupFilter) {
+                                        unselCount++;
+                                    }
+                                }
+                            });
+                            unselTitle.textContent = `未选模型 (${unselCount})`;
+                        }
                     });
                     
                     if (this.viewMode === "list") controlRow.appendChild(checkbox);
@@ -721,6 +771,7 @@ app.registerExtension({
 
                 // --- 渲染列表容器 ---
                 const listContainer = document.createElement("div");
+                listContainer.className = "am-list-container";
                 listContainer.style.flex = "1";
                 listContainer.style.overflowY = "auto";
                 
@@ -734,6 +785,7 @@ app.registerExtension({
                 // 渲染已选中区域标题
                 if (selectedItems.length > 0) {
                     const selTitle = document.createElement("div");
+                    selTitle.className = "am-sel-title";
                     selTitle.textContent = `已选模型 (${selectedItems.length}) - 拖拽排序 / 右键编辑`;
                     selTitle.style.fontWeight = "bold";
                     selTitle.style.marginBottom = "5px";
@@ -741,6 +793,7 @@ app.registerExtension({
                     listContainer.appendChild(selTitle);
 
                     selItemsContainer = document.createElement("div");
+                    selItemsContainer.className = "am-sel-items";
                     if (this.viewMode === "grid") {
                         selItemsContainer.style.display = "flex";
                         selItemsContainer.style.flexWrap = "wrap";
@@ -753,6 +806,7 @@ app.registerExtension({
                 // 渲染未选中区域标题
                 if (unselectedItems.length > 0) {
                     const unselTitle = document.createElement("div");
+                    unselTitle.className = "am-unsel-title";
                     unselTitle.textContent = `未选模型 (${unselectedItems.length})`;
                     unselTitle.style.fontWeight = "bold";
                     unselTitle.style.marginTop = "10px";
@@ -762,6 +816,7 @@ app.registerExtension({
                     listContainer.appendChild(unselTitle);
 
                     unselItemsContainer = document.createElement("div");
+                    unselItemsContainer.className = "am-unsel-items";
                     if (this.viewMode === "grid") {
                         unselItemsContainer.style.display = "flex";
                         unselItemsContainer.style.flexWrap = "wrap";
