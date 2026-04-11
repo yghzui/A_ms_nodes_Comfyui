@@ -389,10 +389,10 @@ app.registerExtension({
                         editBtn.style.cursor = "pointer";
                         editBtn.onmouseenter = () => editBtn.style.background = "#444";
                         editBtn.onmouseleave = () => editBtn.style.background = "transparent";
-                        editBtn.onclick = () => {
+                        editBtn.onclick = async () => {
                             menu.remove();
                             if (window.AssetManager) {
-                                window.AssetManager.showModal();
+                                await window.AssetManager.showModal();
                                 window.AssetManager.switchTab('models', window.AssetManager.modal.querySelector('.am-tabs').children[1]);
                                 
                                 // 查找组索引和条目索引

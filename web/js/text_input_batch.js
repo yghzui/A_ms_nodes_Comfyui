@@ -203,41 +203,28 @@ function updateTextareaStyles(node) {
     if (!node.__taEls) return;
     const currentIndex = getCurrentIndex(node);
     
-    node.__taEls.forEach((ta, index) => {
-        if (ta && ta.style) {
-            if (index === currentIndex) {
-                // 当前选中的内容框显示蓝色边框，保持下圆角
-                ta.style.border = '2px solid #4a9eff';
-                ta.style.borderTop = 'none'; // 保持与标题框的连接
-                ta.style.borderRadius = '0 0 6px 6px';
-                ta.style.boxShadow = '0 0 8px rgba(74, 158, 255, 0.3)';
-            } else {
-                // 其他内容框恢复默认样式
-                ta.style.border = '1px solid #666';
-                ta.style.borderTop = 'none';
-                ta.style.borderRadius = '0 0 6px 6px';
-                ta.style.boxShadow = 'none';
-            }
-        }
-    });
-    
-    // 同样更新标题输入框的样式，确保整体性
-    if (node.__titleEls) {
-        node.__titleEls.forEach((titleEl, index) => {
-            if (titleEl && titleEl.style) {
+    // 更新卡片容器样式
+    if (node.__cardEls) {
+        node.__cardEls.forEach((cardEl, index) => {
+            if (cardEl && cardEl.style) {
                 if (index === currentIndex) {
-                    // 当前选中的标题框显示蓝色边框，保持上圆角
-                    titleEl.style.border = '2px solid #4a9eff';
-                    titleEl.style.borderBottom = 'none'; // 保持与内容框的连接
-                    titleEl.style.borderRadius = '6px 6px 0 0';
-                    titleEl.style.boxShadow = '0 0 8px rgba(74, 158, 255, 0.3)';
+                    cardEl.style.border = '2px solid #4a9eff';
+                    cardEl.style.background = 'rgba(74, 158, 255, 0.1)';
+                    cardEl.style.boxShadow = '0 0 12px rgba(74, 158, 255, 0.4)';
                 } else {
-                    // 其他标题框恢复默认样式
-                    titleEl.style.border = '1px solid #666';
-                    titleEl.style.borderBottom = 'none';
-                    titleEl.style.borderRadius = '6px 6px 0 0';
-                    titleEl.style.boxShadow = 'none';
+                    cardEl.style.border = '1px solid #555';
+                    cardEl.style.background = 'rgba(45, 45, 45, 0.95)';
+                    cardEl.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
                 }
+            }
+        });
+    }
+    
+    // 更新Index标签样式
+    if (node.__suffixEls) {
+        node.__suffixEls.forEach((suffixEl, index) => {
+            if (suffixEl && suffixEl.style) {
+                suffixEl.style.background = index === currentIndex ? '#4a9eff' : '#555';
             }
         });
     }
@@ -268,6 +255,35 @@ function bindColumnsChange(node) {
         return true;
     };
     w.__columnsCbInstalled = true;
+}
+
+function bindMinHeightChange(node) {
+    const w = node.widgets?.find(w => w.name === "cell_min_height");
+    if (!w) return;
+    
+    // 确保值在有效范围内
+    const initialNum = Number(w.value);
+    if (!Number.isFinite(initialNum)) {
+        const parsed = parseInt(String(w.value), 10);
+        w.value = Number.isFinite(parsed) ? Math.max(72, Math.min(300, Math.floor(parsed))) : 120;
+    } else {
+        w.value = Math.max(72, Math.min(300, Math.floor(initialNum)));
+    }
+    if (w.__minHeightCbInstalled) return;
+    const orig = w.callback;
+    w.callback = (v) => {
+        const num = Number(v);
+        const base = Number.isFinite(num) ? num : parseInt(String(v), 10);
+        const val = Number.isFinite(base) ? Math.max(72, Math.min(300, Math.floor(base))) : 120;
+        w.value = val;
+        if (orig) { try { orig(val); } catch(e) {} }
+        const items = getItems(node);
+        const cells = layoutCells(node, items);
+        ensureTextareas(node, cells, items);
+        app.graph.setDirtyCanvas(true, true);
+        return true;
+    };
+    w.__minHeightCbInstalled = true;
 }
 
 function installSelectionTools(node) {
@@ -961,37 +977,17 @@ function handleTextareaWheel(e) {
     }
     
     edgeState.count += 1;
-    if (edgeState.count < 3) {
+    let belowThreshold = false;
+    const count = edgeState.count;
+    if (count === 1) {
+        belowThreshold = true;
+    }
+    if (belowThreshold) {
         e.stopPropagation(); // 还没达到阈值
         return;
     }
     
-    // 达到阈值，触发 Canvas 滚动
-    const canvasEl = app?.canvas?.canvas;
-    if (!canvasEl || typeof WheelEvent === 'undefined') {
-        return;
-    }
-    
-    // 构造新的事件转发给 canvas
-    const evt = new WheelEvent('wheel', {
-        deltaX: e.deltaX,
-        deltaY: e.deltaY,
-        deltaZ: e.deltaZ,
-        deltaMode: e.deltaMode,
-        clientX: e.clientX,
-        clientY: e.clientY,
-        ctrlKey: e.ctrlKey,
-        shiftKey: e.shiftKey,
-        altKey: e.altKey,
-        metaKey: e.metaKey,
-        buttons: e.buttons,
-        bubbles: true,
-        cancelable: true
-    });
-    
-    canvasEl.dispatchEvent(evt);
-    e.preventDefault();
-    e.stopPropagation();
+    // 达到阈值，不阻止事件冒泡，让 scrollContainer 处理
 }
 
 // {{ AURA-X: Add - 自定义下拉菜单，带搜索功能 }}
@@ -1257,6 +1253,7 @@ function ensureTextareas(node, layout, items) {
         if (node.__suffixEls) { node.__suffixEls.forEach(el => el && el.remove()); node.__suffixEls = []; }
         if (node.__toggleEls) { node.__toggleEls.forEach(el => el && el.remove()); node.__toggleEls = []; }
         if (node.__inputEls) { node.__inputEls.forEach(el => el && el.remove()); node.__inputEls = []; }
+        if (node.__gridScrollContainer) { node.__gridScrollContainer.remove(); node.__gridScrollContainer = null; }
     };
     
     const clearComboElements = () => {
@@ -1676,6 +1673,162 @@ function ensureTextareas(node, layout, items) {
     // --- Grid 模式 (清理 Combo 元素) ---
     clearComboElements();
 
+    const startY = 8 + getWidgetsBottom(node);
+    const useScrollMode = node.__useScrollMode;
+    const totalContentHeight = node.__totalContentHeight || 0;
+    const visibleContentHeight = node.__visibleContentHeight || 500;
+
+    let scrollContainer = node.__gridScrollContainer;
+    if (useScrollMode) {
+        if (!scrollContainer) {
+            scrollContainer = document.createElement('div');
+            scrollContainer.style.cssText = `
+                position: absolute;
+                z-index: 99;
+                overflow-y: auto;
+                overflow-x: hidden;
+                background: rgba(30, 30, 30, 0.95);
+                border-radius: 6px;
+                box-sizing: border-box;
+                scrollbar-width: thin;
+                scrollbar-color: #555 #333;
+                padding-right: 12px;
+            `;
+            scrollContainer.addEventListener('wheel', function(e) {
+                if (e.ctrlKey || e.shiftKey) {
+                    e.stopPropagation();
+                    return;
+                }
+                const el = scrollContainer;
+                const deltaY = e.deltaY || 0;
+                const scrollingDown = deltaY &gt; 0;
+                const scrollingUp = deltaY &lt; 0;
+                const maxScrollTop = el.scrollHeight - el.clientHeight;
+                const scrollTop = el.scrollTop;
+                
+                const canScrollDown = scrollTop &lt; maxScrollTop - 1;
+                const canScrollUp = scrollTop &gt; 1;
+                
+                const atBottom = !canScrollDown;
+                const atTop = !canScrollUp;
+                
+                let edgeState = el.__edgeScrollState;
+                if (!edgeState) {
+                    edgeState = { dir: 0, count: 0 };
+                    el.__edgeScrollState = edgeState;
+                }
+                
+                const dir = scrollingDown ? 1 : (scrollingUp ? -1 : 0);
+                if (dir === 0) {
+                    return;
+                }
+                
+                const notAtTop = !atTop;
+                const notAtBottom = !atBottom;
+                let bothNotAtEdge = false;
+                if (notAtTop) {
+                    if (notAtBottom) {
+                        bothNotAtEdge = true;
+                    }
+                }
+                if (bothNotAtEdge) {
+                    edgeState.dir = 0;
+                    edgeState.count = 0;
+                    e.stopPropagation();
+                    return;
+                }
+                
+                const isDown = dir &gt; 0;
+                const isUp = dir &lt; 0;
+                let isDownAndAtBottom = false;
+                if (isDown) {
+                    if (atBottom) {
+                        isDownAndAtBottom = true;
+                    }
+                }
+                let isUpAndAtTop = false;
+                if (isUp) {
+                    if (atTop) {
+                        isUpAndAtTop = true;
+                    }
+                }
+                const atEdgeInDir = isDownAndAtBottom || isUpAndAtTop;
+                if (!atEdgeInDir) {
+                    edgeState.dir = 0;
+                    edgeState.count = 0;
+                    e.stopPropagation();
+                    return;
+                }
+                
+                if (edgeState.dir !== dir) {
+                    edgeState.dir = dir;
+                    edgeState.count = 1;
+                    e.stopPropagation();
+                    return;
+                }
+                
+                edgeState.count += 1;
+                const belowThreshold = edgeState.count &lt; 2;
+                if (belowThreshold) {
+                    e.stopPropagation();
+                    return;
+                }
+                
+                const canvasEl = app?.canvas?.canvas;
+                if (!canvasEl || typeof WheelEvent === 'undefined') {
+                    return;
+                }
+                
+                const evt = new WheelEvent('wheel', {
+                    deltaX: e.deltaX,
+                    deltaY: e.deltaY,
+                    deltaZ: e.deltaZ,
+                    deltaMode: e.deltaMode,
+                    clientX: e.clientX,
+                    clientY: e.clientY,
+                    ctrlKey: e.ctrlKey,
+                    shiftKey: e.shiftKey,
+                    altKey: e.altKey,
+                    metaKey: e.metaKey,
+                    buttons: e.buttons,
+                    bubbles: true,
+                    cancelable: true
+                });
+                
+                canvasEl.dispatchEvent(evt);
+                e.preventDefault();
+                e.stopPropagation();
+            });
+            container.appendChild(scrollContainer);
+            node.__gridScrollContainer = scrollContainer;
+        }
+        
+        const scrollSx = (node.pos[0] + 8 + ds.offset[0]) * ds.scale + rect.left - parentRect.left;
+        const scrollSy = (node.pos[1] + startY + ds.offset[1]) * ds.scale + rect.top - parentRect.top;
+        const scrollSw = Math.max(0, (node.size[0] - 16)) * ds.scale;
+        const scrollSh = visibleContentHeight * ds.scale;
+        
+        scrollContainer.style.left = `${scrollSx}px`;
+        scrollContainer.style.top = `${scrollSy}px`;
+        scrollContainer.style.width = `${scrollSw / ds.scale}px`;
+        scrollContainer.style.height = `${scrollSh / ds.scale}px`;
+        scrollContainer.style.transform = `scale(${ds.scale})`;
+        scrollContainer.style.transformOrigin = '0 0';
+        
+        const nodeVisibleX = scrollSx + scrollSw > 0 && scrollSx < (parentRect.width || rect.width);
+        const nodeVisibleY = scrollSy + scrollSh > 0 && scrollSy < (parentRect.height || rect.height);
+        const shouldShow = node.flags?.collapsed !== true && nodeVisibleX && nodeVisibleY;
+        const hand = isHandMode();
+        
+        scrollContainer.style.visibility = shouldShow ? 'visible' : 'hidden';
+        scrollContainer.style.pointerEvents = shouldShow && !hand ? 'auto' : 'none';
+    } else {
+        if (scrollContainer) {
+            scrollContainer.remove();
+            node.__gridScrollContainer = null;
+        }
+    }
+
     // 初始化元素数组
     if (!node.__taEls) node.__taEls = [];
     if (!node.__titleEls) node.__titleEls = [];
@@ -1685,14 +1838,33 @@ function ensureTextareas(node, layout, items) {
 
     // const currentIndex = getCurrentIndex(node); // 已在上面定义
 
+    // 初始化卡片容器数组
+    if (!node.__cardEls) node.__cardEls = [];
+
     for (let i = 0; i < items.length; i++) {
         const cell = layout[i];
         if (!cell) continue;
         
         const item = items[i];
         const isSelected = i === currentIndex;
-        const baseTitle = getBaseTitle(item.title); // 获取不带后缀的标题
-        const suffixText = `${i}`; // 只显示数字，不带下划线
+        const baseTitle = getBaseTitle(item.title);
+        const suffixText = `${i}`;
+        
+        // 创建或更新卡片容器
+        let cardEl = node.__cardEls[i];
+        if (!cardEl) {
+            cardEl = document.createElement('div');
+            cardEl.style.cssText = `
+                position: absolute;
+                z-index: 99;
+                border-radius: 8px;
+                box-sizing: border-box;
+                overflow: hidden;
+                transition: box-shadow 0.2s, border-color 0.2s;
+            `;
+            container.appendChild(cardEl);
+            node.__cardEls[i] = cardEl;
+        }
         
         // 创建或更新开关 (Checkbox)
         let toggleEl = node.__toggleEls[i];
@@ -1824,7 +1996,7 @@ function ensureTextareas(node, layout, items) {
             titleEl.type = 'text';
             titleEl.placeholder = `标题`;
             titleEl.value = baseTitle; // 显示不带后缀的标题
-            titleEl.style.cssText = `position: absolute; z-index: 100; padding: 4px 6px; border-radius: 6px 6px 0 0; border: 1px solid #666; border-bottom: none; background: #3a3a3a; color: #eee; font-size: 11px; line-height: 1.2; font-family: "Microsoft YaHei", "SimHei", Arial, monospace; box-sizing: border-box; transform-origin: 0 0;`;
+            titleEl.style.cssText = `position: absolute; z-index: 100; padding: 4px 6px; border-radius: 4px; border: none; background: transparent; color: #eee; font-size: 15px; line-height: 1.2; font-family: "Microsoft YaHei", "SimHei", Arial, monospace; box-sizing: border-box; transform-origin: 0 0;`;
             
             // 标题输入框事件处理
             titleEl.addEventListener('input', () => {
@@ -1898,7 +2070,7 @@ function ensureTextareas(node, layout, items) {
             ta.spellcheck = false;
             ta.wrap = 'soft';
             ta.value = item.content || "";
-            ta.style.cssText = `position: absolute; z-index: 100; resize: none; padding: 6px; border-radius: 0 0 6px 6px; border: 1px solid #666; border-top: none; background: #222; color: #eee; font-size: 12px; line-height: 1.4; font-family: "Microsoft YaHei", "SimHei", Arial, monospace; box-sizing: border-box; overflow: auto; transform-origin: 0 0;`;
+            ta.style.cssText = `position: absolute; z-index: 100; resize: none; padding: 6px; border-radius: 4px; border: none; background: transparent; color: #eee; font-size: 12px; line-height: 1.4; font-family: "Microsoft YaHei", "SimHei", Arial, monospace; box-sizing: border-box; overflow: auto; transform-origin: 0 0;`;
             
             // 内容文本框事件处理
             ta.addEventListener('input', () => {
@@ -1953,100 +2125,249 @@ function ensureTextareas(node, layout, items) {
         }
 
         // 计算位置和大小
-        const sx = (node.pos[0] + cell.x + ds.offset[0]) * ds.scale + rect.left - parentRect.left;
-        const sy = (node.pos[1] + cell.y + ds.offset[1]) * ds.scale + rect.top - parentRect.top;
-        const sw = cell.w * ds.scale;
-        const sh = cell.h * ds.scale;
+        let sx, sy, sw, sh;
+        const GAP = 6;
         
-        // 标题输入框位置（在内容框上方）
-        const titleHeight = 24;
-        const toggleWidth = 20; // 开关宽度
-        const inputBtnWidth = 16; // 输入连接点开关宽度
-        
-        // 计算后缀标签宽度
-        // 简单估算：每个字符约 7px + padding
-        const suffixWidth = Math.max(16, Math.ceil(suffixText.length * 7) + 4);
-
-        // 设置开关位置和大小
-        toggleEl.style.left = `${sx + sw - toggleWidth * ds.scale - 2}px`; // 靠右
-        toggleEl.style.top = `${sy + 4 * ds.scale}px`; // 垂直居中微调
-        toggleEl.style.width = `${16 * ds.scale}px`;
-        toggleEl.style.height = `${16 * ds.scale}px`;
-        toggleEl.style.transform = `scale(${1})`; 
-
-        // 设置输入连接点开关位置
-        if (inputEl) {
-            inputEl.style.left = `${sx + sw - (toggleWidth + inputBtnWidth) * ds.scale - 4}px`; // 开关左侧
-            inputEl.style.top = `${sy + 4 * ds.scale}px`;
-            inputEl.style.width = `${16 * ds.scale}px`;
-            inputEl.style.height = `${16 * ds.scale}px`;
-            inputEl.style.fontSize = `${12 * ds.scale}px`;
-            inputEl.style.lineHeight = `${16 * ds.scale}px`;
-            inputEl.style.display = 'block'; // 强制显示
+        if (useScrollMode && scrollContainer) {
+            sx = cell.x;
+            sy = cell.scrollY;
+            sw = cell.w;
+            sh = cell.h;
+        } else {
+            sx = (node.pos[0] + cell.x + ds.offset[0]) * ds.scale + rect.left - parentRect.left;
+            sy = (node.pos[1] + startY + cell.scrollY + ds.offset[1]) * ds.scale + rect.top - parentRect.top;
+            sw = cell.w * ds.scale;
+            sh = cell.h * ds.scale;
         }
         
-        // 设置标题输入框位置和大小（使用CSS缩放保持与节点比例一致）
-        // 标题宽度减少，为开关和后缀留出空间
-        titleEl.style.left = `${sx}px`;
-        titleEl.style.top = `${sy}px`;
-        const titleAvailableW = Math.max(20, Math.round(cell.w - toggleWidth - inputBtnWidth - suffixWidth - 8));
-        titleEl.style.width = `${titleAvailableW}px`; // 减去开关宽度、后缀宽度和间距
-        titleEl.style.height = `${Math.round(titleHeight)}px`;
-        titleEl.style.transform = `scale(${ds.scale})`;
+        const titleHeight = 26;
+        const toggleWidth = 18;
+        const inputBtnWidth = 18;
+        const cardPadding = 4;
         
-        // 设置后缀标签位置
-        // 紧跟在标题输入框右侧
-        // 注意：titleEl 已经缩放，left 是物理坐标，但 transform-origin 是 0 0
-        // titleEl 占据的物理宽度是 titleAvailableW * ds.scale
-        suffixEl.style.left = `${sx + titleAvailableW * ds.scale}px`;
-        suffixEl.style.top = `${sy}px`;
-        suffixEl.style.width = `${suffixWidth * ds.scale}px`;
-        suffixEl.style.height = `${titleHeight * ds.scale}px`;
-        suffixEl.style.transform = `scale(${ds.scale})`;
-        suffixEl.style.transformOrigin = "0 0"; // 确保缩放原点正确
-        
-        // 设置内容文本框位置和大小（使用CSS缩放保持与节点比例一致）
-        ta.style.left = `${sx}px`;
-        ta.style.top = `${sy + titleHeight * ds.scale}px`;
-        ta.style.width = `${Math.max(40, Math.round(cell.w))}px`;
-        ta.style.height = `${Math.max(32, Math.round(cell.h - titleHeight))}px`;
-        ta.style.transform = `scale(${ds.scale})`;
-        
-        const fontPx = 12;
-        const titleFontPx = 11;
-        titleEl.style.fontSize = `${titleFontPx}px`;
-        ta.style.fontSize = `${fontPx}px`;
+        const suffixWidth = Math.max(20, Math.ceil(suffixText.length * 8) + 8);
+
+        if (useScrollMode && scrollContainer) {
+            // 卡片容器
+            cardEl.style.left = `${sx}px`;
+            cardEl.style.top = `${sy}px`;
+            cardEl.style.width = `${sw}px`;
+            cardEl.style.height = `${sh}px`;
+            cardEl.style.border = isSelected ? '2px solid #4a9eff' : '1px solid #555';
+            cardEl.style.background = isSelected ? 'rgba(74, 158, 255, 0.1)' : 'rgba(45, 45, 45, 0.95)';
+            cardEl.style.boxShadow = isSelected ? '0 0 12px rgba(74, 158, 255, 0.4)' : '0 2px 8px rgba(0,0,0,0.3)';
+            
+            // Index标签
+            suffixEl.style.left = `${sx + cardPadding}px`;
+            suffixEl.style.top = `${sy + cardPadding}px`;
+            suffixEl.style.width = `${suffixWidth}px`;
+            suffixEl.style.height = `${titleHeight - 4}px`;
+            suffixEl.style.background = isSelected ? '#4a9eff' : '#555';
+            suffixEl.style.borderRadius = '4px';
+            suffixEl.style.display = 'flex';
+            suffixEl.style.alignItems = 'center';
+            suffixEl.style.justifyContent = 'center';
+            suffixEl.style.color = '#fff';
+            suffixEl.style.fontWeight = 'bold';
+            suffixEl.style.transform = `scale(1)`;
+            
+            // 标题输入框
+            const titleAvailableW = Math.max(40, Math.round(sw - suffixWidth - toggleWidth - inputBtnWidth - cardPadding * 5));
+            titleEl.style.left = `${sx + suffixWidth + cardPadding * 2}px`;
+            titleEl.style.top = `${sy + cardPadding}px`;
+            titleEl.style.width = `${titleAvailableW}px`;
+            titleEl.style.height = `${titleHeight - 4}px`;
+            titleEl.style.borderRadius = '4px';
+            titleEl.style.border = 'none';
+            titleEl.style.background = 'transparent';
+            titleEl.style.transform = `scale(1)`;
+            
+            // 连接点按钮
+            if (inputEl) {
+                inputEl.style.left = `${sx + sw - toggleWidth - inputBtnWidth - cardPadding * 2}px`;
+                inputEl.style.top = `${sy + cardPadding + 2}px`;
+                inputEl.style.width = `${inputBtnWidth}px`;
+                inputEl.style.height = `${inputBtnWidth}px`;
+                inputEl.style.fontSize = `12px`;
+                inputEl.style.lineHeight = `${inputBtnWidth}px`;
+                inputEl.style.display = 'flex';
+                inputEl.style.alignItems = 'center';
+                inputEl.style.justifyContent = 'center';
+                inputEl.style.borderRadius = '4px';
+                inputEl.style.background = hasInput ? '#4a9eff' : '#444';
+            }
+            
+            // 复选框
+            toggleEl.style.left = `${sx + sw - toggleWidth - cardPadding}px`;
+            toggleEl.style.top = `${sy + cardPadding + 2}px`;
+            toggleEl.style.width = `14px`;
+            toggleEl.style.height = `14px`;
+            toggleEl.style.transform = `scale(1)`;
+            
+            // 内容区域
+            ta.style.left = `${sx + cardPadding}px`;
+            ta.style.top = `${sy + titleHeight + cardPadding}px`;
+            ta.style.width = `${Math.max(40, Math.round(sw - cardPadding * 2))}px`;
+            ta.style.height = `${Math.max(32, Math.round(sh - titleHeight - cardPadding * 2))}px`;
+            ta.style.borderRadius = '4px';
+            ta.style.border = 'none';
+            ta.style.background = 'transparent';
+            ta.style.transform = `scale(1)`;
+            
+            titleEl.style.fontSize = `15px`;
+            ta.style.fontSize = `12px`;
+            
+            // 添加到滚动容器
+            if (cardEl.parentElement !== scrollContainer) {
+                scrollContainer.appendChild(cardEl);
+            }
+            if (suffixEl.parentElement !== scrollContainer) {
+                scrollContainer.appendChild(suffixEl);
+            }
+            if (titleEl.parentElement !== scrollContainer) {
+                scrollContainer.appendChild(titleEl);
+            }
+            if (inputEl && inputEl.parentElement !== scrollContainer) {
+                scrollContainer.appendChild(inputEl);
+            }
+            if (toggleEl.parentElement !== scrollContainer) {
+                scrollContainer.appendChild(toggleEl);
+            }
+            if (ta.parentElement !== scrollContainer) {
+                scrollContainer.appendChild(ta);
+            }
+        } else {
+            // 非滚动模式
+            const scale = ds.scale;
+            
+            // 卡片容器
+            cardEl.style.left = `${sx}px`;
+            cardEl.style.top = `${sy}px`;
+            cardEl.style.width = `${sw}px`;
+            cardEl.style.height = `${sh}px`;
+            cardEl.style.border = isSelected ? '2px solid #4a9eff' : '1px solid #555';
+            cardEl.style.background = isSelected ? 'rgba(74, 158, 255, 0.1)' : 'rgba(45, 45, 45, 0.95)';
+            cardEl.style.boxShadow = isSelected ? '0 0 12px rgba(74, 158, 255, 0.4)' : '0 2px 8px rgba(0,0,0,0.3)';
+            
+            // Index标签
+            suffixEl.style.left = `${sx + cardPadding * scale}px`;
+            suffixEl.style.top = `${sy + cardPadding * scale}px`;
+            suffixEl.style.width = `${suffixWidth * scale}px`;
+            suffixEl.style.height = `${(titleHeight - 4) * scale}px`;
+            suffixEl.style.background = isSelected ? '#4a9eff' : '#555';
+            suffixEl.style.borderRadius = '4px';
+            suffixEl.style.display = 'flex';
+            suffixEl.style.alignItems = 'center';
+            suffixEl.style.justifyContent = 'center';
+            suffixEl.style.color = '#fff';
+            suffixEl.style.fontWeight = 'bold';
+            suffixEl.style.transform = `scale(${scale})`;
+            suffixEl.style.transformOrigin = '0 0';
+            
+            // 标题输入框
+            const titleAvailableW = Math.max(40, Math.round(sw / scale - suffixWidth - toggleWidth - inputBtnWidth - cardPadding * 5));
+            titleEl.style.left = `${sx + (suffixWidth + cardPadding * 2) * scale}px`;
+            titleEl.style.top = `${sy + cardPadding * scale}px`;
+            titleEl.style.width = `${titleAvailableW}px`;
+            titleEl.style.height = `${titleHeight - 4}px`;
+            titleEl.style.borderRadius = '4px';
+            titleEl.style.border = 'none';
+            titleEl.style.background = 'transparent';
+            titleEl.style.transform = `scale(${scale})`;
+            titleEl.style.transformOrigin = '0 0';
+            
+            // 连接点按钮
+            if (inputEl) {
+                inputEl.style.left = `${sx + (sw / scale - toggleWidth - inputBtnWidth - cardPadding * 2) * scale}px`;
+                inputEl.style.top = `${sy + (cardPadding + 2) * scale}px`;
+                inputEl.style.width = `${inputBtnWidth * scale}px`;
+                inputEl.style.height = `${inputBtnWidth * scale}px`;
+                inputEl.style.fontSize = `${12 * scale}px`;
+                inputEl.style.lineHeight = `${inputBtnWidth * scale}px`;
+                inputEl.style.display = 'flex';
+                inputEl.style.alignItems = 'center';
+                inputEl.style.justifyContent = 'center';
+                inputEl.style.borderRadius = '4px';
+                inputEl.style.background = hasInput ? '#4a9eff' : '#444';
+            }
+            
+            // 复选框
+            toggleEl.style.left = `${sx + (sw / scale - toggleWidth - cardPadding) * scale}px`;
+            toggleEl.style.top = `${sy + (cardPadding + 2) * scale}px`;
+            toggleEl.style.width = `${14 * scale}px`;
+            toggleEl.style.height = `${14 * scale}px`;
+            toggleEl.style.transform = `scale(1)`;
+            
+            // 内容区域
+            ta.style.left = `${sx + cardPadding * scale}px`;
+            ta.style.top = `${sy + (titleHeight + cardPadding) * scale}px`;
+            ta.style.width = `${Math.max(40, Math.round(sw - cardPadding * 2 * scale))}px`;
+            ta.style.height = `${Math.max(32, Math.round(sh - (titleHeight + cardPadding * 2) * scale))}px`;
+            ta.style.borderRadius = '4px';
+            ta.style.border = 'none';
+            ta.style.background = 'transparent';
+            ta.style.transform = `scale(${scale})`;
+            ta.style.transformOrigin = '0 0';
+            
+            titleEl.style.fontSize = `15px`;
+            ta.style.fontSize = `12px`;
+            
+            // 添加到容器
+            if (cardEl.parentElement !== container) {
+                container.appendChild(cardEl);
+            }
+            if (suffixEl.parentElement !== container) {
+                container.appendChild(suffixEl);
+            }
+            if (titleEl.parentElement !== container) {
+                container.appendChild(titleEl);
+            }
+            if (inputEl && inputEl.parentElement !== container) {
+                container.appendChild(inputEl);
+            }
+            if (toggleEl.parentElement !== container) {
+                container.appendChild(toggleEl);
+            }
+            if (ta.parentElement !== container) {
+                container.appendChild(ta);
+            }
+        }
         
         // 视觉反馈：如果未启用，降低不透明度
         if (item.enabled === false && !isSelected) {
-            titleEl.style.opacity = '0.5';
-            ta.style.opacity = '0.5';
+            cardEl.style.opacity = '0.5';
             titleEl.style.color = '#888';
             ta.style.color = '#888';
         } else {
-            titleEl.style.opacity = '1';
-            ta.style.opacity = '1';
+            cardEl.style.opacity = '1';
             titleEl.style.color = '#eee';
             ta.style.color = '#eee';
         }
 
-        // 设置可见性 - 节点未折叠且在容器可视范围内才显示
-        const nodeVisibleX = sx + sw > 0 && sx < (parentRect.width || rect.width);
-        const nodeVisibleY = sy + sh > 0 && sy < (parentRect.height || rect.height);
-        const shouldShow = node.flags?.collapsed !== true && nodeVisibleX && nodeVisibleY;
+        // 设置可见性
+        let shouldShow;
         const hand = isHandMode();
+        const hidePrompts = !!node.__hidePrompts;
         
+        if (useScrollMode && scrollContainer) {
+            shouldShow = node.flags?.collapsed !== true;
+        } else {
+            const nodeVisibleX = sx + sw > 0 && sx < (parentRect.width || rect.width);
+            const nodeVisibleY = sy + sh > 0 && sy < (parentRect.height || rect.height);
+            shouldShow = node.flags?.collapsed !== true && nodeVisibleX && nodeVisibleY;
+        }
+        
+        cardEl.style.visibility = shouldShow ? 'visible' : 'hidden';
         titleEl.style.visibility = shouldShow ? 'visible' : 'hidden';
-        ta.style.visibility = shouldShow ? 'visible' : 'hidden';
+        ta.style.visibility = shouldShow && !hidePrompts ? 'visible' : 'hidden';
         toggleEl.style.visibility = shouldShow ? 'visible' : 'hidden';
         if (inputEl) inputEl.style.visibility = shouldShow ? 'visible' : 'hidden';
         if (suffixEl) suffixEl.style.visibility = shouldShow ? 'visible' : 'hidden';
         
         titleEl.style.pointerEvents = shouldShow && !hand ? 'auto' : 'none';
-        ta.style.pointerEvents = shouldShow && !hand ? 'auto' : 'none';
+        ta.style.pointerEvents = shouldShow && !hand && !hidePrompts ? 'auto' : 'none';
         toggleEl.style.pointerEvents = shouldShow && !hand ? 'auto' : 'none';
         if (inputEl) inputEl.style.pointerEvents = shouldShow && !hand ? 'auto' : 'none';
-        // suffixEl 不需要 pointerEvents，它是 none
     }
 
     // 清理多余的元素
@@ -2070,41 +2391,56 @@ function ensureTextareas(node, layout, items) {
         const el = node.__inputEls[j];
         if (el && el.remove) el.remove();
     }
+    for (let j = items.length; j < (node.__cardEls?.length || 0); j++) {
+        const el = node.__cardEls[j];
+        if (el && el.remove) el.remove();
+    }
     
     node.__taEls.length = items.length;
     node.__titleEls.length = items.length;
     node.__suffixEls.length = items.length;
     node.__toggleEls.length = items.length;
     node.__inputEls.length = items.length;
+    node.__cardEls.length = items.length;
+    
+    // 清理滚动容器（如果不再需要）
+    if (!useScrollMode && node.__gridScrollContainer) {
+        node.__gridScrollContainer.remove();
+        node.__gridScrollContainer = null;
+    }
     
     // 更新样式以反映当前选中的索引
     updateTextareaStyles(node);
 }
 
 // {{ AURA-X: Add - 计算布局单元格位置，为标题+内容预留更多垂直空间. }}
+// {{ AURA-X: Modify - 增大最小高度，添加滚动条支持，限制最大内容区域高度. }}
+// {{ AURA-X: Modify - 添加滑条控制最小高度，添加左右边距避免滚动条遮挡. }}
 function layoutCells(node, items) {
     const PADDING = 8;
     const GAP = 6;
-    const MIN_H = 72;
+    const SCROLL_PADDING = 16; // 左右边距
     const n = items.length;
     if (n === 0) return [];
 
-    // 获取视图模式
     const viewMode = node.properties?._viewMode || "grid";
+    
+    // 从widget获取最小高度，默认120
+    const minHeightWidget = node.widgets?.find(w => w.name === "cell_min_height");
+    const MIN_H = minHeightWidget ? Math.max(72, Math.min(300, Number(minHeightWidget.value))) : 120;
+    const HIDE_PROMPT_H = 36; // 隐藏提示词时只显示标题行的高度
+    const MAX_CONTENT_H = 500;
 
-    // 预留底部按钮区域高度
-    // 如果分两行，每行 25px + 5px 间距，约 60px。如果三行更多。
-    // 我们动态预留足够空间，这里给 70px 应该够两行。
     const BUTTON_AREA_H = 70;
     const startY = PADDING + getWidgetsBottom(node);
+    
+    const hidePrompts = !!node.__hidePrompts;
+    const cellH = hidePrompts ? HIDE_PROMPT_H : MIN_H;
 
-    // 如果节点折叠，跳过高度调整
     if (node.flags?.collapsed) {
-        // 返回基于当前尺寸的虚拟布局，防止报错
         if (viewMode === "combo") {
              return [{ x: PADDING, y: startY, w: Math.max(0, node.size[0] - PADDING * 2), h: MIN_H }];
         }
-        // Grid 模式简单计算
         const cells = [];
         for (let i = 0; i < n; i++) {
              cells.push({ x: PADDING, y: startY, w: 10, h: 10 });
@@ -2113,8 +2449,6 @@ function layoutCells(node, items) {
     }
 
     if (viewMode === "combo") {
-        // Combo 模式布局：一个全宽单元格用于显示当前内容
-        // 高度自动适应剩余空间，但至少要有 MIN_H
         const minTotalH = startY + MIN_H + PADDING + BUTTON_AREA_H;
         if (node.size[1] < minTotalH) {
              if (typeof node.setSize === 'function') {
@@ -2128,7 +2462,6 @@ function layoutCells(node, items) {
         const availH = Math.max(MIN_H, node.size[1] - startY - PADDING - BUTTON_AREA_H);
         const availW = node.size[0] - PADDING * 2;
         
-        // 返回一个单元格，代表当前显示区域
         return [{ x: PADDING, y: startY, w: availW, h: availH }];
     }
 
@@ -2146,11 +2479,17 @@ function layoutCells(node, items) {
     }
     cols = Math.floor(Math.max(1, Math.min(8, cols)));
     const rows = Math.ceil(n / cols);
-    const availW = node.size[0] - PADDING * 2;
+    const SCROLL_CONTAINER_PADDING = 12; // 滚动容器内部右边距
+    const availW = node.size[0] - PADDING * 2 - SCROLL_PADDING - SCROLL_CONTAINER_PADDING; // 减去边距和滚动条区域
     const cellW = Math.floor((availW - GAP * (cols - 1)) / cols);
     
-    const requiredH = rows * MIN_H + GAP * Math.max(0, rows - 1);
-    const minTotalH = startY + requiredH + PADDING + BUTTON_AREA_H;
+    const requiredH = rows * cellH + GAP * Math.max(0, rows - 1);
+    const useScrollMode = requiredH > MAX_CONTENT_H;
+    
+    const contentH = useScrollMode ? MAX_CONTENT_H : requiredH;
+    const minTotalH = startY + contentH + PADDING + BUTTON_AREA_H;
+    
+    // 只在高度不足时自动扩展，不强制固定高度，允许用户手动调整
     if (node.size[1] < minTotalH) {
         if (typeof node.setSize === 'function') {
             node.setSize([node.size[0], minTotalH]);
@@ -2160,17 +2499,25 @@ function layoutCells(node, items) {
         app.graph.setDirtyCanvas(true, true);
     }
 
-    const availH = Math.max(0, node.size[1] - startY - PADDING - BUTTON_AREA_H);
-    const cellH = Math.max(MIN_H, Math.floor((availH - GAP * (rows - 1)) / rows));
+    const totalContentHeight = rows * cellH + GAP * Math.max(0, rows - 1);
+    
+    // 计算实际可见高度（基于用户调整后的节点高度）
+    const actualContentH = Math.max(contentH, node.size[1] - startY - PADDING - BUTTON_AREA_H);
 
     const cells = [];
     for (let i = 0; i < n; i++) {
         const r = Math.floor(i / cols);
         const c = i % cols;
-        const x = PADDING + c * (cellW + GAP);
-        const y = startY + r * (cellH + GAP);
-        cells.push({ x, y, w: cellW, h: cellH });
+        const x = PADDING + SCROLL_PADDING / 2 + c * (cellW + GAP); // 添加边距偏移
+        const y = r * (cellH + GAP);
+        cells.push({ x, y, w: cellW, h: cellH, scrollY: y });
     }
+    
+    node.__useScrollMode = useScrollMode;
+    node.__totalContentHeight = totalContentHeight;
+    node.__visibleContentHeight = actualContentH;
+    node.__scrollPadding = SCROLL_PADDING;
+    
     return cells;
 }
 
@@ -2269,6 +2616,17 @@ function installDrawingHandlers(node) {
                 text: '🗑️ 删除选中', 
                 width: 90,
                 callback: () => handleBatchDelete(this)
+            },
+            { 
+                text: this.__hidePrompts ? '📝 显示提示词' : '📋 隐藏提示词', 
+                width: 100,
+                callback: () => {
+                    this.__hidePrompts = !this.__hidePrompts;
+                    const items = getItems(this);
+                    const layout = layoutCells(this, items);
+                    ensureTextareas(this, layout, items);
+                    app.graph.setDirtyCanvas(true, true);
+                }
             }
         ];
 
@@ -2395,6 +2753,15 @@ function installDrawingHandlers(node) {
         if (this.__comboSuffixEl) { this.__comboSuffixEl.remove(); this.__comboSuffixEl = null; }
         if (this.__comboMenuBtn) { this.__comboMenuBtn.remove(); this.__comboMenuBtn = null; }
         if (this.__comboToggleEl) { this.__comboToggleEl.remove(); this.__comboToggleEl = null; }
+        
+        // 清理卡片容器
+        if (this.__cardEls) {
+            this.__cardEls.forEach(el => el && el.remove());
+            this.__cardEls = null;
+        }
+        
+        // 清理滚动容器
+        if (this.__gridScrollContainer) { this.__gridScrollContainer.remove(); this.__gridScrollContainer = null; }
         
         // 隐藏 Tooltip
         Tooltip.hide();
@@ -2587,20 +2954,29 @@ app.registerExtension({
         // {{ AURA-X: Add - 强制重置 DOM 引用的清理函数 }}
         function clearDomRefs(node) {
             const propsToClear = [
-                "__taEls", "__titleEls", "__suffixEls", "__toggleEls", "__inputEls",
+                "__taEls", "__titleEls", "__suffixEls", "__toggleEls", "__inputEls", "__cardEls",
                 "__comboSelect", "__comboTextarea", "__comboInputEl",
                 "__comboTitleInput", "__comboSuffixEl", "__comboMenuBtn", "__comboToggleEl",
-                "__customDropdown", // Add this
+                "__customDropdown", "__gridScrollContainer",
                 "__viewportSyncInstalled", "__indexListenerInstalled", "__addButtonInstalled",
                 "__drawingInstalled", "__rafId", "__onWheel", "__onMouseDown", "__indexCheckInterval",
                 "_customSelectAllButtonRect", "_customDeselectAllButtonRect", 
                 "_customInvertSelectionButtonRect", "_customViewModeButtonRect",
                 "_customButtons",
-                "_customMouseX", "_customMouseY"
+                "_customMouseX", "_customMouseY",
+                "__useScrollMode", "__totalContentHeight", "__visibleContentHeight", "__scrollPadding",
+                "__hidePrompts"
             ];
             propsToClear.forEach(p => {
                 if (node.hasOwnProperty(p)) {
-                    // 重要：直接切断引用，不要调用 remove()，因为那可能是旧节点的 DOM
+                    const el = node[p];
+                    if (el) {
+                        if (Array.isArray(el)) {
+                            el.forEach(e => { if (e && e.remove) e.remove(); });
+                        } else if (el.remove) {
+                            el.remove();
+                        }
+                    }
                     node[p] = undefined;
                 }
             });
@@ -2620,6 +2996,7 @@ app.registerExtension({
             installViewportSync(newNode);
             installIndexChangeListener(newNode);
             bindColumnsChange(newNode);
+            bindMinHeightChange(newNode);
             setItems(newNode, getItems(newNode));
             
             return newNode;
@@ -2630,6 +3007,13 @@ app.registerExtension({
             if (origOnNodeCreated) origOnNodeCreated.apply(this, arguments);
             initDomRefs(this);
             ensureStringsJsonWidget(this);
+            
+            // 添加提示词最小高度控制滑条
+            if (!this.widgets?.find(w => w.name === "cell_min_height")) {
+                const minHeightWidget = this.addWidget("number", "cell_min_height", 120, () => {}, { min: 72, max: 300, step: 8 });
+                minHeightWidget.options.serialize = true;
+            }
+            
             // installSelectionTools(this); // Removed in favor of canvas buttons
             installAddButton(this);
             // installExtraButtons(this);
@@ -2637,6 +3021,7 @@ app.registerExtension({
             installViewportSync(this);
             installIndexChangeListener(this);
             bindColumnsChange(this);
+            bindMinHeightChange(this);
             
             // 重要：推迟 DOM 创建！
             // 不要在这里调用 setItems(this, getItems(this));
@@ -2704,12 +3089,14 @@ function cleanupNodeDom(node) {
         "__comboMenuBtn",
         "__comboToggleEl",
         "__comboInputEl",
-        "__customDropdown", // Add this
+        "__customDropdown",
+        "__gridScrollContainer",
         "__taEls",
         "__titleEls",
         "__suffixEls",
         "__toggleEls",
-        "__inputEls"
+        "__inputEls",
+        "__cardEls"
     ];
 
     keys.forEach(k => {
@@ -2738,13 +3125,16 @@ function resetNodeDomRefs(node) {
     node.__comboMenuBtn = null;
     node.__comboToggleEl = null;
     node.__comboInputEl = null;
-    node.__customDropdown = null; // Add this
+    node.__customDropdown = null;
+    node.__gridScrollContainer = null;
+    node.__hidePrompts = undefined;
 
     node.__taEls = [];
     node.__titleEls = [];
     node.__suffixEls = [];
     node.__toggleEls = [];
     node.__inputEls = [];
+    node.__cardEls = [];
 }
 
 

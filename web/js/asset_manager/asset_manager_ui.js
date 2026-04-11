@@ -335,6 +335,13 @@ class AssetManagerUI {
         this.selectedIndices.clear();
         this.lastClickedIndex = -1;
         
+        // 清空搜索框
+        this.searchKeyword = "";
+        const searchInput = document.getElementById("am-search-input");
+        if (searchInput) searchInput.value = "";
+        const clearBtn = document.getElementById("am-search-clear-btn");
+        if (clearBtn) clearBtn.style.display = "none";
+        
         // Update active class on tabs
         const tabs = this.modal.querySelectorAll('.am-tab');
         tabs.forEach(t => t.classList.remove('active'));
@@ -889,7 +896,7 @@ class AssetManagerUI {
 
         // 点击外部取消编辑逻辑
         const outsideClickListener = (e) => {
-            if (e.target.closest('.litegraph.litecontextmenu')) return;
+            if (e.target.closest && e.target.closest('.litegraph.litecontextmenu')) return;
             
             if (!editWrapper.contains(e.target)) {
                 const originalItem = JSON.parse(originalItemStr);
@@ -1292,8 +1299,8 @@ class AssetManagerUI {
     importData() { DataHandler.importData(this); }
     exportData() { DataHandler.exportData(this); }
 
-    showModal() {
-        this.loadData(); // 每次打开时重新加载最新数据
+    async showModal() {
+        await this.loadData(); // 每次打开时重新加载最新数据
         this.modal.style.display = "flex";
     }
 
