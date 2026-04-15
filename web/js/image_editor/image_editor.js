@@ -269,17 +269,44 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     const updateCursorPos = (e = lastMouseE) => {
         if (!e) return;
         lastMouseE = e;
-        if (state.tool === 'pan') {
+        
+        const rect = tempCanvas.getBoundingClientRect();
+        const x = (e.clientX - rect.left) / state.scale;
+        const y = (e.clientY - rect.top) / state.scale;
+        
+        // Check if mouse is within the actual image bounds
+        const isWithinImage = (x >= 0 && x <= canvasW && y >= 0 && y <= canvasH);
+
+        if (state.tool === 'pan' || !isWithinImage) {
             cursor.style.display = 'none';
+            // Only show crosshair for eyedropper if within image
+            if (state.tool === 'eyedropper' && isWithinImage) {
+                workArea.style.cursor = 'crosshair';
+            } else if (state.tool === 'pan') {
+                workArea.style.cursor = isPanning ? 'grabbing' : 'grab';
+            } else {
+                workArea.style.cursor = 'default';
+            }
             return;
         }
+
+        if (state.tool === 'eyedropper') {
+            cursor.style.display = 'none';
+            workArea.style.cursor = 'crosshair';
+            return;
+        }
+
+        workArea.style.cursor = 'none';
         cursor.style.display = 'block';
+        const displaySize = state.size * state.scale;
+        
+        cursor.style.width = displaySize + 'px';
+        cursor.style.height = displaySize + 'px';
         cursor.style.left = e.clientX + 'px';
         cursor.style.top = e.clientY + 'px';
-        const visualSize = state.size * state.scale;
-        cursor.style.width = visualSize + 'px';
-        cursor.style.height = visualSize + 'px';
         cursor.style.borderRadius = state.shape === 'round' ? '50%' : '0';
+        
+        cursorInner.style.borderRadius = state.shape === 'round' ? '50%' : '0';
     };
 
     // --- State Management ---
@@ -304,8 +331,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
             toolBtns[tool].style.border = '1px solid #66bb6a';
         }
         
-        workArea.style.cursor = tool === 'pan' ? 'grab' : 'none';
-        updateCursorPos();
+        updateCursorPos(lastMouseE);
     };
 
     const setLayer = (layer) => {
@@ -513,15 +539,16 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
                 tmp.width = 1; tmp.height = 1;
                 const ctx = tmp.getContext('2d', { willReadFrequently: true });
                 ctx.drawImage(baseImg, 0, 0, canvasW, canvasH, -pos.x, -pos.y, canvasW, canvasH);
-                ctx.drawImage(paintCanvas, -pos.x, -pos.y);
+                
                 const data = ctx.getImageData(0, 0, 1, 1).data;
                 if (data[3] > 0) {
                     const hex = "#" + (1 << 24 | data[0] << 16 | data[1] << 8 | data[2]).toString(16).padStart(6, '0').slice(1);
                     colorInput.value = hex;
                     state.color = hex;
+                    
+                    // Only update color, do NOT automatically switch tool
+                    // so user can keep picking colors
                 }
-                setTool('brush');
-                setLayer('paint');
                 return;
             }
 
