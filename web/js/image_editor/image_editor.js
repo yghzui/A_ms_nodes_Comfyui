@@ -12,20 +12,38 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     const existing = document.getElementById("my-nodes-image-editor");
     if (existing) existing.remove();
 
+    let savedConfig = {};
+    try {
+        const stored = localStorage.getItem("myNodesImageEditorConfig");
+        if (stored) savedConfig = JSON.parse(stored);
+    } catch(e) { console.warn("Failed to load editor config", e); }
+
     let state = {
         tool: 'brush', // Default to brush
         layer: 'mask', // Default to mask
-        shape: 'round', // round, square
-        size: 60,
-        opacity: 1.0,
-        maskPreviewOpacity: 0.65, // 遮罩层整体预览透明度
-        color: '#ff0000', // 画笔默认红色
+        shape: savedConfig.shape || 'round', // round, square
+        size: savedConfig.size || 60,
+        opacity: savedConfig.opacity !== undefined ? savedConfig.opacity : 1.0,
+        maskPreviewOpacity: savedConfig.maskPreviewOpacity !== undefined ? savedConfig.maskPreviewOpacity : 0.65, // 遮罩层整体预览透明度
+        color: savedConfig.color || '#ff0000', // 画笔默认红色
         maskColor: 'rgba(0, 0, 0, 1)', // 遮罩固定使用黑色绘制
         scale: 1,
         panX: 0,
         panY: 0,
         history: [],
         historyIndex: -1
+    };
+
+    const saveConfigToStorage = () => {
+        try {
+            localStorage.setItem("myNodesImageEditorConfig", JSON.stringify({
+                shape: state.shape,
+                size: state.size,
+                opacity: state.opacity,
+                maskPreviewOpacity: state.maskPreviewOpacity,
+                color: state.color
+            }));
+        } catch(e) { console.warn("Failed to save editor config", e); }
     };
 
     let origW = 0, origH = 0, canvasW = 0, canvasH = 0;
@@ -242,27 +260,27 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         square: createBtn("⬛ 方形", "transparent")
     };
     shapeBtns.round.style.flex = "1"; shapeBtns.square.style.flex = "1";
-    shapeBtns.round.onclick = () => setShape('round');
-    shapeBtns.square.onclick = () => setShape('square');
+    shapeBtns.round.onclick = () => { setShape('round'); saveConfigToStorage(); };
+    shapeBtns.square.onclick = () => { setShape('square'); saveConfigToStorage(); };
     shapeDiv.append(shapeBtns.round, shapeBtns.square);
     rightBar.appendChild(createSection("笔刷形状", shapeDiv));
 
     // Color
     const colorInput = document.createElement("input");
-    colorInput.type = "color"; colorInput.value = "#ff0000";
+    colorInput.type = "color"; colorInput.value = state.color;
     colorInput.style.width = "100%"; colorInput.style.height = "40px";
     colorInput.style.cursor = "pointer"; colorInput.style.border = "none";
     colorInput.style.padding = "0"; colorInput.style.background = "transparent";
-    colorInput.oninput = (e) => state.color = e.target.value;
+    colorInput.oninput = (e) => { state.color = e.target.value; saveConfigToStorage(); };
     rightBar.appendChild(createSection("色彩获取 (仅绘制层有效)", colorInput));
 
     // Size
     const sizeDiv = document.createElement("div");
-    const sizeVal = document.createElement("span"); sizeVal.textContent = "60";
+    const sizeVal = document.createElement("span"); sizeVal.textContent = state.size;
     const sizeSlider = document.createElement("input");
-    sizeSlider.type = "range"; sizeSlider.min = "1"; sizeSlider.max = "500"; sizeSlider.value = "60";
+    sizeSlider.type = "range"; sizeSlider.min = "1"; sizeSlider.max = "500"; sizeSlider.value = state.size;
     sizeSlider.style.width = "100%";
-    sizeSlider.oninput = (e) => { state.size = parseInt(e.target.value); sizeVal.textContent = state.size; updateCursorPos(); };
+    sizeSlider.oninput = (e) => { state.size = parseInt(e.target.value); sizeVal.textContent = state.size; updateCursorPos(); saveConfigToStorage(); };
     sizeDiv.append(sizeSlider);
     const sizeSec = createSection("笔刷大小: ", sizeDiv);
     sizeSec.children[0].appendChild(sizeVal);
@@ -270,11 +288,11 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
 
     // Opacity
     const opDiv = document.createElement("div");
-    const opVal = document.createElement("span"); opVal.textContent = "1.00";
+    const opVal = document.createElement("span"); opVal.textContent = state.opacity.toFixed(2);
     const opSlider = document.createElement("input");
-    opSlider.type = "range"; opSlider.min = "0.01"; opSlider.max = "1"; opSlider.step = "0.01"; opSlider.value = "1";
+    opSlider.type = "range"; opSlider.min = "0.01"; opSlider.max = "1"; opSlider.step = "0.01"; opSlider.value = state.opacity;
     opSlider.style.width = "100%";
-    opSlider.oninput = (e) => { state.opacity = parseFloat(e.target.value); opVal.textContent = state.opacity.toFixed(2); };
+    opSlider.oninput = (e) => { state.opacity = parseFloat(e.target.value); opVal.textContent = state.opacity.toFixed(2); saveConfigToStorage(); };
     opDiv.append(opSlider);
     const opSec = createSection("绘制不透明度: ", opDiv);
     opSec.children[0].appendChild(opVal);
@@ -282,9 +300,9 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
 
     // Mask Preview Opacity
     const maskPreviewOpDiv = document.createElement("div");
-    const maskPreviewOpVal = document.createElement("span"); maskPreviewOpVal.textContent = "0.65";
+    const maskPreviewOpVal = document.createElement("span"); maskPreviewOpVal.textContent = state.maskPreviewOpacity.toFixed(2);
     const maskPreviewOpSlider = document.createElement("input");
-    maskPreviewOpSlider.type = "range"; maskPreviewOpSlider.min = "0.0"; maskPreviewOpSlider.max = "1"; maskPreviewOpSlider.step = "0.01"; maskPreviewOpSlider.value = "0.65";
+    maskPreviewOpSlider.type = "range"; maskPreviewOpSlider.min = "0.0"; maskPreviewOpSlider.max = "1"; maskPreviewOpSlider.step = "0.01"; maskPreviewOpSlider.value = state.maskPreviewOpacity;
     maskPreviewOpSlider.style.width = "100%";
     maskPreviewOpSlider.oninput = (e) => { 
         state.maskPreviewOpacity = parseFloat(e.target.value); 
@@ -295,6 +313,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         } else {
             maskCanvas.style.opacity = state.maskPreviewOpacity * 0.5; // Dimmer when not active
         }
+        saveConfigToStorage();
     };
     maskPreviewOpDiv.append(maskPreviewOpSlider);
     const maskPreviewOpSec = createSection("遮罩预览透明度: ", maskPreviewOpDiv);
@@ -413,7 +432,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
 
     // Initialize UI state completely before doing anything else
     setTool('brushMask');
-    setShape('round');
+    setShape(state.shape);
 
     // Update Layer Visibility Toggles
     setTimeout(() => {
@@ -808,7 +827,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
 
             // Initialize UI state completely before doing anything else
             setTool('brushMask');
-            setShape('round');
+            setShape(state.shape);
             
             // Force the layer UI update explicitly for the first time
             setLayer('mask');
