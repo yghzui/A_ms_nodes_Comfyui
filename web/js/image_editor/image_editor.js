@@ -88,19 +88,23 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
 
     const undoBtn = createBtn("↩️ 撤销");
     const redoBtn = createBtn("↪️ 重做");
+    const invertBtn = createBtn("◐ 反转遮罩");
     const clearBtn = createBtn("🗑️ 一键清除");
-    const saveBtn = createBtn("💾 保存", "#4CAF50");
-    const cancelBtn = createBtn("✖️ 取消", "#f44336");
+    const saveBtn = createBtn("√ 保存", "#4CAF50");
+    const cancelBtn = createBtn("取消", "#f44336");
 
     const spacer = document.createElement("div");
     spacer.style.flex = "1";
 
-    const infoLabel = document.createElement("div");
-    infoLabel.style.fontSize = "12px";
-    infoLabel.style.color = "#aaa";
-    infoLabel.style.marginRight = "20px";
+    const closeBtn = createBtn("✖");
+    closeBtn.style.background = "transparent";
+    closeBtn.style.padding = "4px 8px";
+    closeBtn.style.fontSize = "18px";
+    closeBtn.style.marginLeft = "10px";
+    closeBtn.onmouseenter = () => closeBtn.style.color = "#f44336";
+    closeBtn.onmouseleave = () => closeBtn.style.color = "#fff";
 
-    topBar.append(title, undoBtn, redoBtn, clearBtn, spacer, infoLabel, saveBtn, cancelBtn);
+    topBar.append(title, undoBtn, redoBtn, invertBtn, clearBtn, saveBtn, cancelBtn, spacer, closeBtn);
     editor.appendChild(topBar);
 
     // Main Area
@@ -112,9 +116,18 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     const leftBar = document.createElement("div");
     Object.assign(leftBar.style, {
         width: "60px", background: "#2a2a2a", borderRight: "1px solid #444",
-        display: "flex", flexDirection: "column", alignItems: "center", paddingTop: "15px", gap: "15px"
+        display: "flex", flexDirection: "column", alignItems: "center", paddingTop: "15px", gap: "15px",
+        position: "relative"
     });
     mainArea.appendChild(leftBar);
+
+    const infoLabel = document.createElement("div");
+    Object.assign(infoLabel.style, {
+        position: "absolute", bottom: "10px", width: "100%",
+        textAlign: "center", fontSize: "11px", color: "#aaa",
+        pointerEvents: "none", lineHeight: "1.4"
+    });
+    leftBar.appendChild(infoLabel);
 
     const tools = [
         { id: 'pan', icon: '🖐️', title: '平移/缩放' },
@@ -463,6 +476,23 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         saveState();
     };
 
+    invertBtn.onclick = () => {
+        const mData = mCtx.getImageData(0, 0, canvasW, canvasH);
+        for (let i = 0; i < mData.data.length; i += 4) {
+            // Invert the alpha channel (0 becomes 255, >0 becomes 0)
+            // We use 255 for solid mask, 0 for transparent
+            mData.data[i+3] = mData.data[i+3] > 0 ? 0 : 255;
+            // Set color to black for the newly masked areas
+            if (mData.data[i+3] > 0) {
+                mData.data[i] = 0;
+                mData.data[i+1] = 0;
+                mData.data[i+2] = 0;
+            }
+        }
+        mCtx.putImageData(mData, 0, 0);
+        saveState();
+    };
+
     // --- Drawing ---
     window.addEventListener('mousemove', updateCursorPos);
 
@@ -717,7 +747,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
                 thumbDiv.style.backgroundImage = `url("${baseImg.src}")`;
             }
             
-            infoLabel.textContent = `原图: ${origW}x${origH} | 比例: ${Math.round((canvasW/origW)*100)}%`;
+            infoLabel.innerHTML = `${Math.round((canvasW/origW)*100)}%<br/>${origW}x${origH}`;
             
             // Center view
             const availableW = workArea.clientWidth;
@@ -888,6 +918,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     };
     window.addEventListener("keydown", handleKey);
     cancelBtn.onclick = cleanup;
+    closeBtn.onclick = cleanup;
 
     document.body.appendChild(editor);
     loadMedia(index);
