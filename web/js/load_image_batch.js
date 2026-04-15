@@ -782,6 +782,44 @@ function drawNodeImages(node, ctx) {
                 ctx.textBaseline = 'middle';
                 ctx.fillText('×', clearButtonX + buttonSize/2, clearButtonY + buttonSize/2);
                 
+                // --- 绘制全屏编辑图标按钮 (⛶) 开始 ---
+                const editButtonX = rect.x + rect.width - buttonMargin - buttonSize;
+                const editButtonY = rect.y + rect.height - buttonMargin - buttonSize;
+                
+                // 检查鼠标是否悬浮在编辑按钮上
+                const mouseInEditButton = node._customMouseX >= editButtonX && node._customMouseX <= editButtonX + buttonSize &&
+                    node._customMouseY >= editButtonY && node._customMouseY <= editButtonY + buttonSize;
+                
+                // 绘制编辑按钮背景（悬浮效果）
+                ctx.fillStyle = mouseInEditButton ? 'rgba(76, 175, 80, 0.9)' : 'rgba(76, 175, 80, 0.7)'; // 绿色背景
+                ctx.beginPath();
+                ctx.arc(editButtonX + buttonSize/2, editButtonY + buttonSize/2, buttonSize/2, 0, 2 * Math.PI);
+                ctx.fill();
+                
+                // 绘制编辑按钮边框
+                ctx.strokeStyle = mouseInEditButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+                ctx.lineWidth = mouseInEditButton ? 2 : 1;
+                ctx.stroke();
+                
+                // 绘制全屏编辑图标 (⛶)
+                ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+                ctx.font = `${buttonSize - 6}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('⛶', editButtonX + buttonSize/2, editButtonY + buttonSize/2);
+                
+                // 保存编辑按钮区域信息
+                if (!node._customEditButtonRects) {
+                    node._customEditButtonRects = [];
+                }
+                node._customEditButtonRects[i] = {
+                    x: editButtonX,
+                    y: editButtonY,
+                    width: buttonSize,
+                    height: buttonSize
+                };
+                // --- 绘制全屏编辑图标按钮 (⛶) 结束 ---
+
                 // 保存清除按钮区域信息
                 if (!node._customClearButtonRects) {
                     node._customClearButtonRects = [];
@@ -810,6 +848,12 @@ function drawNodeImages(node, ctx) {
                 }
                 node._customClearButtonRects[i] = null;
                 
+                // 鼠标不在图片上时，编辑按钮区域为空
+                if (!node._customEditButtonRects) {
+                    node._customEditButtonRects = [];
+                }
+                node._customEditButtonRects[i] = null;
+                
                 // 保存文件名区域信息
                 if (!node._customFileNameRects) {
                     node._customFileNameRects = [];
@@ -822,6 +866,12 @@ function drawNodeImages(node, ctx) {
                 node._customClearButtonRects = [];
             }
             node._customClearButtonRects[i] = null;
+            
+            // 单图片模式下，编辑按钮区域为空
+            if (!node._customEditButtonRects) {
+                node._customEditButtonRects = [];
+            }
+            node._customEditButtonRects[i] = null;
             
             // 单图片模式下，文件名区域为空（将在底部绘制）
             if (!node._customFileNameRects) {
@@ -1957,6 +2007,65 @@ function populate(imagePaths) {
                 }
             }
         }
+        
+        // 检查是否点击直接进入全屏编辑按钮（多图片网格模式）
+        if (this._customEditButtonRects && this._customEditButtonRects.length > 0) {
+            for (let i = 0; i < this._customEditButtonRects.length; i++) {
+                const editRect = this._customEditButtonRects[i];
+
+                // 检查编辑按钮是否存在（只在悬浮时存在）
+                if (!editRect) continue;
+
+                // 检查图片是否可见
+                if (this._customImageRects && this._customImageRects[i] && this._customImageRects[i].visible === false) {
+                    continue;
+                }
+                        
+                // 计算编辑按钮在Canvas中的绝对坐标
+                const absEditButtonX = nodePos[0] + editRect.x;
+                const absEditButtonY = nodePos[1] + editRect.y;
+                const absEditButtonWidth = editRect.width;
+                const absEditButtonHeight = editRect.height;
+                
+                if (e.canvasX >= absEditButtonX && e.canvasX <= absEditButtonX + absEditButtonWidth &&
+                    e.canvasY >= absEditButtonY && e.canvasY <= absEditButtonY + absEditButtonHeight) {
+                    
+                    console.log(`多图模式下点击编辑按钮，直接进入全屏编辑，图片索引: ${i}`);
+                    
+                    // 阻止事件冒泡
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // 执行全屏编辑
+                    if (this._customImagePaths && this._customImagePaths.length > 0) {
+                        showImageEditor(this._customImagePaths, i, this, (newPaths) => {
+                            this._customImagePaths = [...newPaths];
+                            
+                            // 更新文件名
+                            for(let j = 0; j < this._customImagePaths.length; j++) {
+                                const pathParts = this._customImagePaths[j].split(/[\\\/]/);
+                                if (this._customImageFileNames) {
+                                    this._customImageFileNames[j] = pathParts[pathParts.length - 1];
+                                }
+                            }
+
+                            // 更新 widget
+                            const imagePathsWidget = this.widgets.find(w => w.name === "image_paths");
+                            if (imagePathsWidget) {
+                                imagePathsWidget.value = this._customImagePaths.join(',');
+                            }
+                            updateWidgetValue(this);
+                            
+                            // 刷新显示
+                            showImages(this, this._customImagePaths);
+                            app.graph.setDirtyCanvas(true, false);
+                        });
+                    }
+                    
+                    return true;
+                }
+            }
+        }
                 
         // 检查鼠标是否在图片框内
         if (this._customImageRects && this._customImageRects.length > 0) {
@@ -2872,7 +2981,36 @@ app.registerExtension({
 
                     if (clickedImageIndex !== -1) {
                          options.unshift({
-                    content: "编辑图片 (MaskEditor)",
+                            content: "编辑图片 (全屏)",
+                            callback: () => {
+                                if (self._customImagePaths && self._customImagePaths.length > 0) {
+                                    showImageEditor(self._customImagePaths, clickedImageIndex, self, (newPaths) => {
+                                        self._customImagePaths = [...newPaths];
+                                        
+                                        // 更新文件名
+                                        for(let j = 0; j < self._customImagePaths.length; j++) {
+                                            const pathParts = self._customImagePaths[j].split(/[\\\/]/);
+                                            if (self._customImageFileNames) {
+                                                self._customImageFileNames[j] = pathParts[pathParts.length - 1];
+                                            }
+                                        }
+                                        
+                                        // 更新 widget
+                                        const imagePathsWidget = self.widgets.find(w => w.name === "image_paths");
+                                        if (imagePathsWidget) {
+                                            imagePathsWidget.value = self._customImagePaths.join(',');
+                                        }
+                                        updateWidgetValue(self);
+                                        
+                                        // 刷新显示
+                                        showImages(self, self._customImagePaths);
+                                        app.graph.setDirtyCanvas(true, false);
+                                    });
+                                }
+                            }
+                         });
+                         options.unshift({
+                    content: "编辑图片 (官方MaskEditor)",
                     callback: () => {
                         // 保存原始路径，防止官方编辑器覆盖后丢失原图引用
                         if (!self.properties) self.properties = {};
