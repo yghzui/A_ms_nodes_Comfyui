@@ -211,7 +211,8 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         <div id="A_layer_base" style="display:flex; align-items:center; justify-content:space-between; padding:8px; background:#333; border-radius:5px; border:1px solid transparent;">
             <div style="display:flex; align-items:center; gap:8px;">
                 <input type="checkbox" id="A_chk_base" checked title="显示/隐藏" style="cursor:pointer;" />
-                <span style="font-size:14px;">🖼️ 基础图像层</span>
+                <div id="A_base_thumb" style="width:20px; height:20px; border-radius:2px; background-size:cover; background-position:center; border:1px solid #555;"></div>
+                <span style="font-size:14px;">基础图像层</span>
             </div>
         </div>
     `;
@@ -374,9 +375,8 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         updateCursorPos();
     };
 
-    // Initialize UI state
+    // Initialize UI state completely before doing anything else
     setTool('brushMask');
-    setLayer('mask');
     setShape('round');
 
     // Update Layer Visibility Toggles
@@ -535,20 +535,55 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
             const pos = getPos(e);
             
             if (state.tool === 'eyedropper') {
-                const tmp = document.createElement('canvas');
-                tmp.width = 1; tmp.height = 1;
-                const ctx = tmp.getContext('2d', { willReadFrequently: true });
-                ctx.drawImage(baseImg, 0, 0, canvasW, canvasH, -pos.x, -pos.y, canvasW, canvasH);
+                const x = Math.floor(pos.x);
+                const y = Math.floor(pos.y);
                 
-                const data = ctx.getImageData(0, 0, 1, 1).data;
-                if (data[3] > 0) {
-                    const hex = "#" + (1 << 24 | data[0] << 16 | data[1] << 8 | data[2]).toString(16).padStart(6, '0').slice(1);
-                    colorInput.value = hex;
-                    state.color = hex;
+                if (x < 0 || y < 0 || x >= canvasW || y >= canvasH) return;
+                
+                const tmp = document.createElement('canvas');
+                tmp.width = canvasW; tmp.height = canvasH;
+                const ctx = tmp.getContext('2d', { willReadFrequently: true });
+                ctx.drawImage(baseImg, 0, 0, canvasW, canvasH);
+                const bgData = ctx.getImageData(0, 0, canvasW, canvasH);
+                
+                const targetIdx = (y * canvasW + x) * 4;
+                const targetR = bgData.data[targetIdx];
+                const targetG = bgData.data[targetIdx+1];
+                const targetB = bgData.data[targetIdx+2];
+                const targetA = bgData.data[targetIdx+3];
+                
+                if (targetA === 0) return; // Ignore transparent background clicks
+
+                // If in mask layer, perform "Magic Wand" style color selection and fill
+                if (state.layer === 'mask') {
+                    const tolerance = 30; // Color distance tolerance
+                    const mData = mCtx.getImageData(0, 0, canvasW, canvasH);
                     
-                    // Only update color, do NOT automatically switch tool
-                    // so user can keep picking colors
+                    for (let i = 0; i < bgData.data.length; i += 4) {
+                        const r = bgData.data[i];
+                        const g = bgData.data[i+1];
+                        const b = bgData.data[i+2];
+                        const a = bgData.data[i+3];
+                        
+                        if (a > 0) {
+                            const dist = Math.abs(r - targetR) + Math.abs(g - targetG) + Math.abs(b - targetB);
+                            if (dist <= tolerance) {
+                                mData.data[i] = 0;   // R
+                                mData.data[i+1] = 0; // G
+                                mData.data[i+2] = 0; // B
+                                mData.data[i+3] = 255; // A (Fully opaque mask)
+                            }
+                        }
+                    }
+                    mCtx.putImageData(mData, 0, 0);
+                    saveState();
+                    return;
                 }
+
+                // If in paint layer, just pick the color
+                const hex = "#" + (1 << 24 | targetR << 16 | targetG << 8 | targetB).toString(16).padStart(6, '0').slice(1);
+                colorInput.value = hex;
+                state.color = hex;
                 return;
             }
 
@@ -668,6 +703,19 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
             paintCanvas.width = canvasW; paintCanvas.height = canvasH;
             maskCanvas.width = canvasW; maskCanvas.height = canvasH;
             tempCanvas.width = canvasW; tempCanvas.height = canvasH;
+
+            // Initialize UI state completely before doing anything else
+            setTool('brushMask');
+            setShape('round');
+            
+            // Force the layer UI update explicitly for the first time
+            setLayer('mask');
+
+            // Setup base image thumbnail
+            const thumbDiv = document.getElementById("A_base_thumb");
+            if (thumbDiv) {
+                thumbDiv.style.backgroundImage = `url("${baseImg.src}")`;
+            }
             
             infoLabel.textContent = `原图: ${origW}x${origH} | 比例: ${Math.round((canvasW/origW)*100)}%`;
             
