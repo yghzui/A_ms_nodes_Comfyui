@@ -3,7 +3,7 @@ console.log("Loading custom node: A_my_nodes/web/js/load_image_batch.js");
 
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
-import { showImageLightbox } from "./utils/lightbox_preview.js";
+import { showImageEditor } from "./image_editor/image_editor.js";
 
 /**
  * 从 VideoHelperSuite 示例中借鉴的健壮的回调链函数。
@@ -1889,9 +1889,30 @@ function populate(imagePaths) {
                     e.preventDefault();
                     e.stopPropagation();
                     
-                    // 执行全屏预览
+                    // 执行全屏预览/编辑
                     if (this._customImagePaths && this._customImagePaths.length > 0) {
-                        showImageLightbox(this._customImagePaths, this._customFocusedImageIndex);
+                        showImageEditor(this._customImagePaths, this._customFocusedImageIndex, this, (newPaths) => {
+                            this._customImagePaths = [...newPaths];
+                            
+                            // 更新文件名
+                            for(let i = 0; i < this._customImagePaths.length; i++) {
+                                const pathParts = this._customImagePaths[i].split(/[\\\/]/);
+                                if (this._customImageFileNames) {
+                                    this._customImageFileNames[i] = pathParts[pathParts.length - 1];
+                                }
+                            }
+
+                            // 更新 widget
+                            const imagePathsWidget = this.widgets.find(w => w.name === "image_paths");
+                            if (imagePathsWidget) {
+                                imagePathsWidget.value = this._customImagePaths.join(',');
+                            }
+                            updateWidgetValue(this);
+                            
+                            // 刷新显示
+                            showImages(this, this._customImagePaths);
+                            app.graph.setDirtyCanvas(true, false);
+                        });
                     }
                     
                     return true;
@@ -2043,9 +2064,30 @@ function populate(imagePaths) {
                     e.preventDefault();
                     e.stopPropagation();
                     
-                    // 执行全屏预览
+                    // 执行全屏预览/编辑
                     if (this._customImagePaths && this._customImagePaths.length > 0) {
-                        showImageLightbox(this._customImagePaths, this._customFocusedImageIndex);
+                        showImageEditor(this._customImagePaths, this._customFocusedImageIndex, this, (newPaths) => {
+                            this._customImagePaths = [...newPaths];
+                            
+                            // 更新文件名
+                            for(let i = 0; i < this._customImagePaths.length; i++) {
+                                const pathParts = this._customImagePaths[i].split(/[\\\/]/);
+                                if (this._customImageFileNames) {
+                                    this._customImageFileNames[i] = pathParts[pathParts.length - 1];
+                                }
+                            }
+
+                            // 更新 widget
+                            const imagePathsWidget = this.widgets.find(w => w.name === "image_paths");
+                            if (imagePathsWidget) {
+                                imagePathsWidget.value = this._customImagePaths.join(',');
+                            }
+                            updateWidgetValue(this);
+                            
+                            // 刷新显示
+                            showImages(this, this._customImagePaths);
+                            app.graph.setDirtyCanvas(true, false);
+                        });
                     }
                     
                     return true;
@@ -2830,9 +2872,15 @@ app.registerExtension({
 
                     if (clickedImageIndex !== -1) {
                          options.unshift({
-                            content: "编辑图片 (MaskEditor)",
-                            callback: () => {
-                                let imagePath = self._customImagePaths[clickedImageIndex];
+                    content: "编辑图片 (MaskEditor)",
+                    callback: () => {
+                        // 保存原始路径，防止官方编辑器覆盖后丢失原图引用
+                        if (!self.properties) self.properties = {};
+                        if (!self.properties.original_image_paths || self.properties.original_image_paths.length !== self._customImagePaths.length) {
+                            self.properties.original_image_paths = [...self._customImagePaths];
+                        }
+
+                        let imagePath = self._customImagePaths[clickedImageIndex];
                                 let isInput = false;
                                 // 处理 [input] 后缀：如果有该后缀，先去除以便正确加载图片，但在保存时需要恢复
                                 if (imagePath && imagePath.endsWith(" [input]")) {

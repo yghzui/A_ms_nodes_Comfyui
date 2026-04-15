@@ -576,6 +576,12 @@ def register_routes():
             else:
                 print("⚠️ 路由 /a_my_nodes/resolution_presets 已经存在，跳过注册")
 
+            if "/a_my_nodes/upload_custom_edited_image" not in existing_routes:
+                PromptServer.instance.routes.post("/a_my_nodes/upload_custom_edited_image")(upload_custom_edited_image)
+                print("✅ 自定义大图编辑上传路由 /a_my_nodes/upload_custom_edited_image 注册成功！")
+            else:
+                print("⚠️ 路由 /a_my_nodes/upload_custom_edited_image 已经存在，跳过注册")
+
             # 注册资产管理系统 (Asset Manager) API
             if "/a_my_nodes/assets/prompts" not in existing_routes:
                 PromptServer.instance.routes.get("/a_my_nodes/assets/prompts")(get_asset_prompts)
@@ -629,3 +635,90 @@ def delayed_register_routes():
 
 # 导出注册函数，供其他模块调用
 # __all__ = ['register_routes', 'static_output_file']
+
+async def upload_custom_edited_image(request):
+    try:
+        import time
+        import base64
+        from io import BytesIO
+        from PIL import Image, ImageOps, ImageChops
+        import folder_paths
+        import os
+        
+        data = await request.json()
+        image_path_str = data.get("image_path")
+        mask_b64 = data.get("mask_data")
+        paint_b64 = data.get("paint_data")
+        
+        if not image_path_str:
+            return web.Response(status=400, text="Missing image_path")
+            
+        if image_path_str.endswith(" [input]"):
+            image_path_str = image_path_str[:-8]
+            
+        input_dir = folder_paths.get_input_directory()
+        full_image_path = os.path.normpath(os.path.join(input_dir, image_path_str))
+        
+        if not full_image_path.startswith(os.path.normpath(input_dir)):
+            return web.Response(status=403, text="Forbidden")
+            
+        if not os.path.isfile(full_image_path):
+            return web.Response(status=404, text="Original image not found")
+            
+        orig_img = Image.open(full_image_path).convert("RGBA")
+        orig_w, orig_h = orig_img.size
+        
+        mask_alpha = None
+        if mask_b64 and mask_b64.startswith("data:image"):
+            mask_bytes = base64.b64decode(mask_b64.split(",")[1])
+            mask_rgba = Image.open(BytesIO(mask_bytes)).convert("RGBA")
+            mask_rgba = mask_rgba.resize((orig_w, orig_h), Image.Resampling.LANCZOS)
+            mask_alpha = mask_rgba.split()[3] # Alpha channel: 255 where drawn, 0 where empty
+            
+        paint_img = None
+        if paint_b64 and paint_b64.startswith("data:image"):
+            paint_bytes = base64.b64decode(paint_b64.split(",")[1])
+            paint_img = Image.open(BytesIO(paint_bytes)).convert("RGBA")
+            paint_img = paint_img.resize((orig_w, orig_h), Image.Resampling.LANCZOS)
+            
+        ts = int(time.time() * 1000)
+        clipspace_dir = os.path.join(input_dir, "clipspace")
+        os.makedirs(clipspace_dir, exist_ok=True)
+        
+        # 1. clipspace-mask: 原图底 + 反转的 Alpha 遮罩
+        # 这样未涂抹区域Alpha为255(显示原图)，涂抹区域Alpha透明(在白底查看器中显示为白色遮罩)
+        inv_mask_alpha = ImageOps.invert(mask_alpha) if mask_alpha else Image.new("L", (orig_w, orig_h), 255)
+        mask_out = orig_img.copy()
+        mask_out.putalpha(inv_mask_alpha)
+        mask_out.save(os.path.join(clipspace_dir, f"clipspace-mask-{ts}.png"))
+            
+        # 2. clipspace-paint: 完全透明底的彩色笔触，保留100%精确透明度
+        paint_path = os.path.join(clipspace_dir, f"clipspace-paint-{ts}.png")
+        if paint_img:
+            paint_img.save(paint_path)
+        else:
+            Image.new("RGBA", (orig_w, orig_h), (0,0,0,0)).save(paint_path)
+            
+        # 3. clipspace-painted: 原图底叠加精确的透明笔触
+        painted_img = orig_img.copy()
+        if paint_img:
+            painted_img.alpha_composite(paint_img)
+        painted_path = os.path.join(clipspace_dir, f"clipspace-painted-{ts}.png")
+        painted_img.save(painted_path)
+        
+        # 4. clipspace-painted-masked: 带有笔触的原图 + 反转的 Alpha 遮罩
+        final_img = painted_img.copy()
+        final_img.putalpha(inv_mask_alpha)
+        final_path = os.path.join(clipspace_dir, f"clipspace-painted-masked-{ts}.png")
+        final_img.save(final_path)
+        
+        return web.json_response({
+            "success": True,
+            "filepath": f"clipspace/clipspace-painted-masked-{ts}.png"
+        })
+    except Exception as e:
+        print(f"❌ [ImageEditor] Error saving edited image: {e}")
+        import traceback
+        traceback.print_exc()
+        return web.Response(status=500, text=str(e))
+
