@@ -730,6 +730,51 @@ function drawNodeImages(node, ctx) {
 
         // 在多图片模式下，只在悬浮时显示文件名和清除按钮
         if (!node._customSingleImageMode) {
+            // --- 绘制全屏编辑图标按钮 (⛶) 始终显示且扩大点击区域 开始 ---
+            const editClickW = rect.width / 3;
+            const editClickH = rect.height / 3;
+            const editClickX = rect.x + rect.width - editClickW;
+            const editClickY = rect.y + rect.height - editClickH;
+            
+            const mouseInEditArea = node._customMouseX !== undefined && node._customMouseY !== undefined &&
+                node._customMouseX >= editClickX && node._customMouseX <= editClickX + editClickW &&
+                node._customMouseY >= editClickY && node._customMouseY <= editClickY + editClickH;
+                
+            const buttonSize = 16;
+            const buttonMargin = 5;
+            const editButtonX = rect.x + rect.width - buttonMargin - buttonSize;
+            const editButtonY = rect.y + rect.height - buttonMargin - buttonSize;
+            
+            // 绘制编辑按钮背景（悬浮效果）
+            ctx.fillStyle = mouseInEditArea ? 'rgba(76, 175, 80, 0.9)' : 'rgba(76, 175, 80, 0.7)'; // 绿色背景
+            ctx.beginPath();
+            ctx.arc(editButtonX + buttonSize/2, editButtonY + buttonSize/2, buttonSize/2, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // 绘制编辑按钮边框
+            ctx.strokeStyle = mouseInEditArea ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
+            ctx.lineWidth = mouseInEditArea ? 2 : 1;
+            ctx.stroke();
+            
+            // 绘制全屏编辑图标 (⛶)
+            ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+            ctx.font = `${buttonSize - 6}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('⛶', editButtonX + buttonSize/2, editButtonY + buttonSize/2);
+            
+            // 保存扩大的编辑按钮区域信息
+            if (!node._customEditButtonRects) {
+                node._customEditButtonRects = [];
+            }
+            node._customEditButtonRects[i] = {
+                x: editClickX,
+                y: editClickY,
+                width: editClickW,
+                height: editClickH
+            };
+            // --- 绘制全屏编辑图标按钮 (⛶) 结束 ---
+
             const mouseInImage = node._customMouseX !== undefined && node._customMouseY !== undefined &&
                 node._customMouseX >= rect.x && node._customMouseX <= rect.x + rect.width &&
                 node._customMouseY >= rect.y && node._customMouseY <= rect.y + rect.height;
@@ -755,8 +800,6 @@ function drawNodeImages(node, ctx) {
                 ctx.fillText(fileName, rect.x + rect.width / 2, rect.y + 20);
                 
                 // 绘制右上角清除按钮
-                const buttonSize = 16;
-                const buttonMargin = 5;
                 const clearButtonX = rect.x + rect.width - buttonMargin - buttonSize;
                 const clearButtonY = rect.y + buttonMargin;
                 
@@ -781,44 +824,6 @@ function drawNodeImages(node, ctx) {
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText('×', clearButtonX + buttonSize/2, clearButtonY + buttonSize/2);
-                
-                // --- 绘制全屏编辑图标按钮 (⛶) 开始 ---
-                const editButtonX = rect.x + rect.width - buttonMargin - buttonSize;
-                const editButtonY = rect.y + rect.height - buttonMargin - buttonSize;
-                
-                // 检查鼠标是否悬浮在编辑按钮上
-                const mouseInEditButton = node._customMouseX >= editButtonX && node._customMouseX <= editButtonX + buttonSize &&
-                    node._customMouseY >= editButtonY && node._customMouseY <= editButtonY + buttonSize;
-                
-                // 绘制编辑按钮背景（悬浮效果）
-                ctx.fillStyle = mouseInEditButton ? 'rgba(76, 175, 80, 0.9)' : 'rgba(76, 175, 80, 0.7)'; // 绿色背景
-                ctx.beginPath();
-                ctx.arc(editButtonX + buttonSize/2, editButtonY + buttonSize/2, buttonSize/2, 0, 2 * Math.PI);
-                ctx.fill();
-                
-                // 绘制编辑按钮边框
-                ctx.strokeStyle = mouseInEditButton ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
-                ctx.lineWidth = mouseInEditButton ? 2 : 1;
-                ctx.stroke();
-                
-                // 绘制全屏编辑图标 (⛶)
-                ctx.fillStyle = 'rgba(255, 255, 255, 1)';
-                ctx.font = `${buttonSize - 6}px Arial`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('⛶', editButtonX + buttonSize/2, editButtonY + buttonSize/2);
-                
-                // 保存编辑按钮区域信息
-                if (!node._customEditButtonRects) {
-                    node._customEditButtonRects = [];
-                }
-                node._customEditButtonRects[i] = {
-                    x: editButtonX,
-                    y: editButtonY,
-                    width: buttonSize,
-                    height: buttonSize
-                };
-                // --- 绘制全屏编辑图标按钮 (⛶) 结束 ---
 
                 // 保存清除按钮区域信息
                 if (!node._customClearButtonRects) {
@@ -847,12 +852,6 @@ function drawNodeImages(node, ctx) {
                     node._customClearButtonRects = [];
                 }
                 node._customClearButtonRects[i] = null;
-                
-                // 鼠标不在图片上时，编辑按钮区域为空
-                if (!node._customEditButtonRects) {
-                    node._customEditButtonRects = [];
-                }
-                node._customEditButtonRects[i] = null;
                 
                 // 保存文件名区域信息
                 if (!node._customFileNameRects) {

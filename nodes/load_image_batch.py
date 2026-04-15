@@ -62,6 +62,7 @@ class LoadImageBatchAdvanced:
         return {
             "required": {
                 # 这个隐藏的输入字段将由前端的JS代码填充
+                "image_paths": ("STRING", {"default": "", "multiline": False, "widget": "hidden"}),
                 "image_path_use": ("STRING", {"default": "", "multiline": False}),
                 "reuse_mask": ("BOOLEAN", {"default": False, "label": "遮罩复用(同尺寸复用首个[input])"}),
 
@@ -70,7 +71,7 @@ class LoadImageBatchAdvanced:
                 "batch_manager": ("MY_BATCH_MANAGER",),
             },
             "hidden": {
-                "image_paths": ("STRING", {"default": "", "multiline": False, "widget": "hidden"}),
+               
                 # 添加遮罩归一化选项
                 "normalize_mask": ("BOOLEAN", {"default": True, "label": "归一化遮罩"}),
                 # 新增：是否将透明通道应用到图像（将alpha乘到RGB）
