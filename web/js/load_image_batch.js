@@ -551,8 +551,13 @@ function showImages(node, paths) {
             subfolder: subfolder
         });
         
-        // 通过API获取图片URL
-        img.src = api.apiURL(`/view?${params.toString()}`);
+        // 通过自定义 API 获取图片 URL，使用 FileResponse 避免 PIL 崩溃
+        if (type === 'input') {
+            img.src = api.apiURL(`/a_my_nodes/view_input?${params.toString()}`);
+        } else {
+            // 对于非 input 类型（output/temp），沿用原生 view，或根据需要扩展 view_input
+            img.src = api.apiURL(`/view?${params.toString()}`);
+        }
     });
     
     // 计算图片布局
@@ -629,6 +634,20 @@ function drawNodeImages(node, ctx) {
             } catch (e) {
                 console.warn(`绘制图片失败: ${e.message}`);
             }
+        } else if (img.complete) {
+            // 图片加载完成但 naturalWidth 为 0，说明加载失败（可能是损坏的文件）
+            ctx.fillStyle = '#3a1a1a'; // 暗红色背景
+            ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+            
+            ctx.fillStyle = '#ff6666';
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('Load Error', rect.x + rect.width / 2, rect.y + rect.height / 2);
+            
+            // 绘制错误图标
+            ctx.font = '24px Arial';
+            ctx.fillText('⚠️', rect.x + rect.width / 2, rect.y + rect.height / 2 - 20);
         }
         
         const clickW = rect.width / 3;
@@ -2651,45 +2670,70 @@ app.registerExtension({
                     }
                 };
 
-                // 跟踪悬浮（用于粘贴时判断目标）
-                chainCallback(nodeType.prototype, "onMouseMove", function(e) {
-                    this._customIsHovered = true;
-                });
-                chainCallback(nodeType.prototype, "onMouseLeave", function(e) {
-                    this._customIsHovered = false;
-                });
-
                 // 文档级粘贴：若节点被选中或悬浮，并且剪贴板有图片，则拦截为本节点上传
                 if (!window.__A_MY_NODES_LOAD_IMAGE_BATCH_PASTE_INSTALLED__) {
                     window.__A_MY_NODES_LOAD_IMAGE_BATCH_PASTE_INSTALLED__ = true;
                     document.addEventListener('paste', async (evt) => {
                         try {
-                            // 当前活跃的 LiteGraph 节点集合里，优先找到"选中或悬浮且类型匹配"的节点
-                            const graph = app?.graph;
-                            if (!graph || !graph._nodes) return; // 兜底
-                            const candidates = graph._nodes.filter(n => n && n.type === 'LoadImageBatchAdvanced');
-                            if (!candidates.length) return;
+                            const target = evt.target;
+                            if (!target) return;
+                            const clsList = target.classList || { contains: () => false };
+                            const isCanvasZone = clsList.contains('litegraph') || clsList.contains('graph-canvas-container');
+                            if (!isCanvasZone) return;
 
-                            // 优先处理选中的节点（支持多选），否则处理悬浮节点
-                            const selectedNodes = candidates.filter(n => n.selected);
+                            const canvas = app?.canvas;
+                            if (!canvas) return;
+
                             let targets = [];
-                            if (selectedNodes.length > 0) {
-                                targets = selectedNodes;
-                            } else {
-                                const hovered = candidates.find(n => n._customIsHovered);
-                                if (hovered) targets = [hovered];
+
+                            const sel = canvas.selected_nodes;
+                            if (sel && typeof sel === 'object') {
+                                for (const k in sel) {
+                                    const n = sel[k];
+                                    if (n && n.type === 'LoadImageBatchAdvanced') {
+                                        targets.push(n);
+                                    }
+                                }
+                            }
+
+                            if (!targets.length) {
+                                const over = canvas.over_node;
+                                if (over && over.type === 'LoadImageBatchAdvanced') {
+                                    targets = [over];
+                                }
                             }
                             
                             if (!targets.length) return;
 
-                            const files = getImageFilesFromClipboard(evt.clipboardData);
+                            let files = getImageFilesFromClipboard(evt.clipboardData);
+
+                            if (!files || files.length === 0) {
+                                if (navigator.clipboard && navigator.clipboard.read) {
+                                    try {
+                                        const items = await navigator.clipboard.read();
+                                        const out = [];
+                                        for (const item of items) {
+                                            for (const type of item.types) {
+                                                if (type && type.startsWith('image/')) {
+                                                    const blob = await item.getType(type);
+                                                    const ext = (type.split('/')[1] || 'png').toLowerCase();
+                                                    const file = new File([blob], `pasted-${Date.now()}.${ext}`, { type });
+                                                    out.push(file);
+                                                }
+                                            }
+                                        }
+                                        files = out;
+                                    } catch (clipErr) {
+                                        // 权限不足或不支持，忽略
+                                    }
+                                }
+                            }
+
                             if (!files || files.length === 0) return;
 
-                            // 拦截默认粘贴
                             evt.preventDefault();
                             evt.stopPropagation();
 
-                            // 对所有目标节点执行粘贴
                             await Promise.all(targets.map(t => {
                                 if (t._customHandleIncomingFiles) {
                                     return t._customHandleIncomingFiles(files);
@@ -2699,7 +2743,7 @@ app.registerExtension({
                         } catch (err) {
                             console.warn('paste 处理异常:', err);
                         }
-                    }, true); // 捕获阶段，优先于全局处理
+                    }, true);
                 }
 
                 // 将内部处理方法暴露到实例，供右键菜单调用

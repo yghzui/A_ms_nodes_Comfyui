@@ -4,6 +4,49 @@ import numpy as np
 from PIL import Image
 import folder_paths
 
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+
+def load_image_with_fallback(image_path):
+    """尝试使用 PIL 加载图片，如果失败则尝试使用 OpenCV"""
+    try:
+        img = Image.open(image_path)
+        return img, False
+    except Exception as pil_error:
+        if cv2 is not None:
+            try:
+                # OpenCV 读取的是 BGR 格式
+                cv_img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+                if cv_img is not None:
+                    # 检查通道数
+                    if len(cv_img.shape) == 3:
+                        if cv_img.shape[2] == 4:
+                            # BGRA -> RGBA
+                            cv_img = cv2.cvtColor(cv_img, cv2.COLOR_BGRA2RGBA)
+                            img = Image.fromarray(cv_img, 'RGBA')
+                        else:
+                            # BGR -> RGB
+                            cv_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
+                            img = Image.fromarray(cv_img, 'RGB')
+                    else:
+                        # 灰度图
+                        img = Image.fromarray(cv_img)
+                    print(f"ℹ️ [LoadImageBatch] PIL 加载失败，已通过 OpenCV 成功重试: {image_path}")
+                    return img, True
+            except Exception as cv_error:
+                print(f"❌ [LoadImageBatch] PIL 和 OpenCV 加载均失败: {image_path}, PIL: {pil_error}, CV: {cv_error}")
+        else:
+            print(f"❌ [LoadImageBatch] PIL 加载失败且 OpenCV 未安装: {image_path}, 原因: {pil_error}")
+        raise pil_error
+
 class LoadImageBatchAdvanced:
     """
     一个高级的图像批量加载节点，功能如下：
@@ -78,7 +121,7 @@ class LoadImageBatchAdvanced:
                     continue
 
                 try:
-                    img = Image.open(image_path)
+                    img, _ = load_image_with_fallback(image_path)
                     if img.mode == 'I':
                         img = img.point(lambda i: i * (1 / 255))
 
@@ -122,8 +165,12 @@ class LoadImageBatchAdvanced:
                 continue
             
             try:
-                img = Image.open(image_path)
+                img, _ = load_image_with_fallback(image_path)
+            except Exception as e:
+                # 已经在 load_image_with_fallback 中打印了详细错误
+                continue
 
+            try:
                 # 处理特殊模式（参考原始实现）
                 if img.mode == 'I':
                     # 将 32-bit 整型图近似归一化到 0..1
@@ -249,8 +296,14 @@ class LoadImageByIndex:
             return (empty_image, empty_mask, target_path)
         
         try:
-            img = Image.open(target_path)
+            img, _ = load_image_with_fallback(target_path)
+        except Exception as e:
+            # 返回空张量，防止下游节点崩溃
+            empty_image = torch.zeros((1, 64, 64, 3), dtype=torch.float32)
+            empty_mask = torch.zeros((1, 64, 64), dtype=torch.float32)
+            return (empty_image, empty_mask, target_path)
 
+        try:
             # 处理特殊模式（与LoadImageBatchAdvanced保持一致）
             if img.mode == 'I':
                 # 将 32-bit 整型图近似归一化到 0..1

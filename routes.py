@@ -1,7 +1,15 @@
 import os
 import json
+import io
 from aiohttp import web
+from PIL import Image
 from server import PromptServer
+
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass
 from folder_paths import get_output_directory
 from .nodes.resolutionpreset import get_resolution_presets_file_path
 
@@ -76,6 +84,61 @@ async def serve_output_file(request):
         return web.Response(status=404, text="File not found")
 
     return web.FileResponse(full_path)
+
+async def view_input_file(request):
+    """安全地查看输入文件，处理 HEIC 转换以供浏览器显示"""
+    filename = request.query.get("filename")
+    subfolder = request.query.get("subfolder", "")
+    print(f"🔍 [view_input_file] 请求预览: {filename}, 子文件夹: {subfolder}")
+
+    if not filename:
+        return web.Response(status=400, text="Missing filename")
+    
+    input_dir = folder_paths.get_input_directory()
+    
+    # 构建完整路径
+    if subfolder:
+        full_path = os.path.join(input_dir, subfolder, filename)
+    else:
+        full_path = os.path.join(input_dir, filename)
+    
+    full_path = os.path.normpath(full_path)
+    print(f"🔍 [view_input_file] 完整物理路径: {full_path}")
+    
+    # 安全检查
+    if not full_path.startswith(os.path.normpath(input_dir)):
+        print(f"❌ [view_input_file] 安全检查失败，禁止访问: {full_path}")
+        return web.Response(status=403, text="Forbidden")
+        
+    if not os.path.isfile(full_path):
+        print(f"❌ [view_input_file] 文件不存在: {full_path}")
+        return web.Response(status=404, text="File not found")
+    
+    # 检测是否是 HEIC (即使后缀是 .png)
+    is_heic = False
+    try:
+        with open(full_path, 'rb') as f:
+            header = f.read(16)
+            if b'ftypheic' in header or b'ftypmif1' in header:
+                is_heic = True
+                print(f"ℹ️ [view_input_file] 检测到 HEIC 格式头: {filename}")
+    except Exception as e:
+        print(f"⚠️ [view_input_file] 读取文件头失败: {e}")
+
+    if is_heic:
+        try:
+            # 浏览器通常不支持 HEIC，所以我们在服务端转成 PNG 发送
+            print(f"🔄 [view_input_file] 正在将 HEIC 转换为 PNG 以供浏览器预览...")
+            img = Image.open(full_path)
+            output = io.BytesIO()
+            img.save(output, format="PNG")
+            print(f"✅ [view_input_file] 转换成功: {filename}")
+            return web.Response(body=output.getvalue(), content_type="image/png")
+        except Exception as e:
+            print(f"❌ [view_input_file] HEIC 转换失败: {e}")
+            return web.FileResponse(full_path)
+    else:
+        return web.FileResponse(full_path)
 
 # 删除文件API处理函数
 async def delete_output_file(request):
@@ -493,6 +556,14 @@ def register_routes():
                 print("✅ 删除文件API路由 /delete_output_file 注册成功！")
             else:
                 print("⚠️ 路由 /delete_output_file 已经存在，跳过注册")
+
+            if "/a_my_nodes/view_input" not in existing_routes:
+                PromptServer.instance.routes.get("/a_my_nodes/view_input")(
+                    view_input_file
+                )
+                print("✅ 视图服务路由 /a_my_nodes/view_input 注册成功！")
+            else:
+                print("⚠️ 路由 /a_my_nodes/view_input 已经存在，跳过注册")
 
             if "/a_my_nodes/resolution_presets" not in existing_routes:
                 PromptServer.instance.routes.get("/a_my_nodes/resolution_presets")(
