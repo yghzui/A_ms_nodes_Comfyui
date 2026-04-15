@@ -18,6 +18,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         shape: 'round', // round, square
         size: 60,
         opacity: 1.0,
+        maskPreviewOpacity: 0.65, // 遮罩层整体预览透明度
         color: '#ff0000', // 画笔默认红色
         maskColor: 'rgba(0, 0, 0, 1)', // 遮罩固定使用黑色绘制
         scale: 1,
@@ -86,12 +87,13 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         return btn;
     };
 
-    const undoBtn = createBtn("↩️ 撤销");
-    const redoBtn = createBtn("↪️ 重做");
+    const undoBtn = createBtn("↺ 撤销");
+    const redoBtn = createBtn("↻ 重做");
     const invertBtn = createBtn("◐ 反转遮罩");
-    const clearBtn = createBtn("🗑️ 一键清除");
-    const saveBtn = createBtn("√ 保存", "#4CAF50");
-    const cancelBtn = createBtn("取消", "#f44336");
+    const resetViewBtn = createBtn("□ 缩放归位");
+    const clearBtn = createBtn("∅ 一键清除");
+    const saveBtn = createBtn("✓ 保存", "#4CAF50");
+    const cancelBtn = createBtn("⨯ 取消", "#f44336");
 
     const spacer = document.createElement("div");
     spacer.style.flex = "1";
@@ -104,7 +106,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     closeBtn.onmouseenter = () => closeBtn.style.color = "#f44336";
     closeBtn.onmouseleave = () => closeBtn.style.color = "#fff";
 
-    topBar.append(title, undoBtn, redoBtn, invertBtn, clearBtn, saveBtn, cancelBtn, spacer, closeBtn);
+    topBar.append(title, undoBtn, redoBtn, invertBtn, resetViewBtn, clearBtn, saveBtn, cancelBtn, spacer, closeBtn);
     editor.appendChild(topBar);
 
     // Main Area
@@ -274,9 +276,30 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     opSlider.style.width = "100%";
     opSlider.oninput = (e) => { state.opacity = parseFloat(e.target.value); opVal.textContent = state.opacity.toFixed(2); };
     opDiv.append(opSlider);
-    const opSec = createSection("不透明度: ", opDiv);
+    const opSec = createSection("绘制不透明度: ", opDiv);
     opSec.children[0].appendChild(opVal);
     rightBar.appendChild(opSec);
+
+    // Mask Preview Opacity
+    const maskPreviewOpDiv = document.createElement("div");
+    const maskPreviewOpVal = document.createElement("span"); maskPreviewOpVal.textContent = "0.65";
+    const maskPreviewOpSlider = document.createElement("input");
+    maskPreviewOpSlider.type = "range"; maskPreviewOpSlider.min = "0.0"; maskPreviewOpSlider.max = "1"; maskPreviewOpSlider.step = "0.01"; maskPreviewOpSlider.value = "0.65";
+    maskPreviewOpSlider.style.width = "100%";
+    maskPreviewOpSlider.oninput = (e) => { 
+        state.maskPreviewOpacity = parseFloat(e.target.value); 
+        maskPreviewOpVal.textContent = state.maskPreviewOpacity.toFixed(2);
+        // Only update real-time if we are currently looking at the mask layer or if it's visible
+        if (state.layer === 'mask') {
+            maskCanvas.style.opacity = state.maskPreviewOpacity;
+        } else {
+            maskCanvas.style.opacity = state.maskPreviewOpacity * 0.5; // Dimmer when not active
+        }
+    };
+    maskPreviewOpDiv.append(maskPreviewOpSlider);
+    const maskPreviewOpSec = createSection("遮罩预览透明度: ", maskPreviewOpDiv);
+    maskPreviewOpSec.children[0].appendChild(maskPreviewOpVal);
+    rightBar.appendChild(maskPreviewOpSec);
 
 
     let lastMouseE = null;
@@ -365,12 +388,12 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         
         // Visual feedback for layer
         if (layer === 'mask') {
-            maskCanvas.style.opacity = "1";
+            maskCanvas.style.opacity = state.maskPreviewOpacity;
             paintCanvas.style.opacity = "0.3";
             colorInput.disabled = true;
             colorInput.style.opacity = '0.3';
         } else {
-            maskCanvas.style.opacity = "0.5";
+            maskCanvas.style.opacity = state.maskPreviewOpacity * 0.5; // Dimmer when not active
             paintCanvas.style.opacity = "1";
             colorInput.disabled = false;
             colorInput.style.opacity = '1';
@@ -427,6 +450,17 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         canvasWrapper.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
         updateCursorPos();
     };
+
+    const resetView = () => {
+        if (!canvasW || !canvasH) return;
+        const availableW = workArea.clientWidth;
+        const availableH = workArea.clientHeight;
+        state.scale = Math.min(availableW / canvasW, availableH / canvasH, 1) * 0.9;
+        state.panX = (availableW - canvasW * state.scale) / 2;
+        state.panY = (availableH - canvasH * state.scale) / 2;
+        updateTransform();
+    };
+    resetViewBtn.onclick = resetView;
 
     // --- History ---
     const saveState = () => {
@@ -621,7 +655,11 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
             lastPos = pos;
             // Draw a single point (ensure square shape draws correctly on single click)
             tempCtx.clearRect(0, 0, canvasW, canvasH);
-            tempCanvas.style.opacity = state.tool === 'eraser' ? 0.5 : state.opacity;
+            if (state.tool === 'eraser') {
+                tempCanvas.style.opacity = 0.5;
+            } else {
+                tempCanvas.style.opacity = state.layer === 'mask' ? (state.opacity * state.maskPreviewOpacity) : state.opacity;
+            }
             drawLine(tempCtx, pos, { x: pos.x + 0.1, y: pos.y + 0.1 });
         }
     });
@@ -750,12 +788,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
             infoLabel.innerHTML = `${Math.round((canvasW/origW)*100)}%<br/>${origW}x${origH}`;
             
             // Center view
-            const availableW = workArea.clientWidth;
-            const availableH = workArea.clientHeight;
-            state.scale = Math.min(availableW / canvasW, availableH / canvasH, 1) * 0.9;
-            state.panX = (availableW - canvasW * state.scale) / 2;
-            state.panY = (availableH - canvasH * state.scale) / 2;
-            updateTransform();
+            resetView();
 
             let layersLoaded = 0;
             let layersToLoad = ts ? 2 : 0;
@@ -899,7 +932,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         } catch (err) {
             console.error(err);
             alert("保存失败: " + err.message);
-            saveBtn.textContent = "💾 保存";
+            saveBtn.textContent = "保存";
             saveBtn.disabled = false;
         }
     };
