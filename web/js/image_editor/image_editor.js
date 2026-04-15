@@ -539,34 +539,27 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     };
 
     const mergeTempCanvas = () => {
+        if (state.tool !== 'eraser') {
+            // Because we already drew the tempCanvas directly to targetCtx during the real-time preview loop in drawLine,
+            // we just need to clear the backup state and temp canvas.
+            tempCtx.isFirstPoint = true;
+            tempCtx.backupData = null;
+            tempCtx.clearRect(0, 0, canvasW, canvasH);
+            return;
+        }
+        
         const isMask = state.layer === 'mask';
         const targetCtx = isMask ? mCtx : pCtx;
-        const targetData = targetCtx.getImageData(0, 0, canvasW, canvasH);
-        const tempData = tempCtx.getImageData(0, 0, canvasW, canvasH);
         
-        let r = 0, g = 0, b = 0;
-        if (!isMask && state.color) {
-            const hex = state.color.replace('#', '');
-            r = parseInt(hex.substring(0, 2), 16);
-            g = parseInt(hex.substring(2, 4), 16);
-            b = parseInt(hex.substring(4, 6), 16);
-        } // mask uses black (0,0,0)
+        targetCtx.globalCompositeOperation = 'destination-out';
+        targetCtx.globalAlpha = state.opacity;
         
-        const targetAlpha = Math.round(state.opacity * 255);
+        targetCtx.drawImage(tempCanvas, 0, 0);
         
-        for (let i = 0; i < tempData.data.length; i += 4) {
-            if (tempData.data[i+3] > 0) { // If stroke touched this pixel
-                if (state.tool === 'eraser') {
-                    targetData.data[i+3] = 0; // erase completely
-                } else {
-                    targetData.data[i] = r;
-                    targetData.data[i+1] = g;
-                    targetData.data[i+2] = b;
-                    targetData.data[i+3] = targetAlpha; // exact replacement
-                }
-            }
-        }
-        targetCtx.putImageData(targetData, 0, 0);
+        // Reset
+        targetCtx.globalCompositeOperation = 'source-over';
+        targetCtx.globalAlpha = 1.0;
+        
         tempCtx.clearRect(0, 0, canvasW, canvasH);
     };
 
@@ -575,18 +568,52 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         ctx.globalAlpha = 1.0;
         
         if (state.tool === 'eraser') {
-            ctx.strokeStyle = 'rgba(255, 255, 255, 1)'; // 橡皮擦显示为白色
+            ctx.fillStyle = 'rgba(255, 255, 255, 1)'; // 橡皮擦在tempCanvas上绘制白色
         } else {
-            ctx.strokeStyle = state.layer === 'paint' ? state.color : state.maskColor;
+            ctx.fillStyle = state.layer === 'paint' ? state.color : state.maskColor;
         }
-        ctx.lineWidth = state.size;
-        ctx.lineCap = state.shape === 'round' ? 'round' : 'square';
-        ctx.lineJoin = state.shape === 'round' ? 'round' : 'miter';
 
-        ctx.beginPath();
-        ctx.moveTo(from.x, from.y);
-        ctx.lineTo(to.x, to.y);
-        ctx.stroke();
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        
+        // 根据画笔大小动态计算步长，保证连续印章没有缝隙
+        const step = Math.max(1, state.size / 15);
+        const steps = Math.ceil(dist / step);
+        
+        const halfSize = state.size / 2;
+
+        for (let i = 0; i <= steps; i++) {
+            const t = steps === 0 ? 1 : i / steps;
+            const cx = from.x + dx * t;
+            const cy = from.y + dy * t;
+
+            ctx.beginPath();
+            if (state.shape === 'round') {
+                ctx.arc(cx, cy, halfSize, 0, Math.PI * 2);
+                ctx.fill();
+            } else {
+                ctx.fillRect(cx - halfSize, cy - halfSize, state.size, state.size);
+            }
+        }
+        
+        // 实时渲染：将当前绘制的临时轨迹以目标不透明度实时预览到底层，并覆盖原有的 tempCanvas 显示
+        if (state.tool !== 'eraser') {
+            const isMask = state.layer === 'mask';
+            const targetCtx = isMask ? mCtx : pCtx;
+            
+            // 先清理掉之前已经预览过的历史内容，防止叠加越来越深
+            if (!ctx.isFirstPoint && ctx.backupData) {
+                targetCtx.putImageData(ctx.backupData, 0, 0);
+            }
+            ctx.isFirstPoint = false;
+            
+            // 把现在的 tempCanvas 合并到底层作为预览
+            targetCtx.globalCompositeOperation = 'source-over';
+            targetCtx.globalAlpha = state.opacity;
+            targetCtx.drawImage(tempCanvas, 0, 0);
+            targetCtx.globalAlpha = 1.0;
+        }
     };
 
     workArea.addEventListener("mousedown", (e) => {
@@ -653,14 +680,21 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
 
             isDrawing = true;
             lastPos = pos;
+            
             // Draw a single point (ensure square shape draws correctly on single click)
             tempCtx.clearRect(0, 0, canvasW, canvasH);
+            
+            // Set up real-time preview state for new stroke
+            tempCtx.isFirstPoint = true;
+            const isMask = state.layer === 'mask';
+            tempCtx.backupData = (isMask ? mCtx : pCtx).getImageData(0, 0, canvasW, canvasH);
+            
             if (state.tool === 'eraser') {
                 tempCanvas.style.opacity = 0.5;
             } else {
-                tempCanvas.style.opacity = state.layer === 'mask' ? (state.opacity * state.maskPreviewOpacity) : state.opacity;
+                tempCanvas.style.opacity = 0; // Hide the tempCanvas overlay itself, we do it in targetCtx now
             }
-            drawLine(tempCtx, pos, { x: pos.x + 0.1, y: pos.y + 0.1 });
+            drawLine(tempCtx, pos, pos);
         }
     });
 
