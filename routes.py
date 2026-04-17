@@ -13,6 +13,14 @@ except ImportError:
 from folder_paths import get_output_directory
 from .nodes.resolutionpreset import get_resolution_presets_file_path
 
+# 全局日志打印控制开关
+ENABLE_DEBUG_PRINT = False
+
+def printf(*args, force=False, **kwargs):
+    """统一管理的打印函数，受 ENABLE_DEBUG_PRINT 控制"""
+    if ENABLE_DEBUG_PRINT or force:
+        print(*args, **kwargs)
+
 # 全局标志，用于防止重复注册
 _routes_registered = False
 
@@ -26,14 +34,14 @@ async def get_resolution_presets(request):
                 raw = json.load(f)
             if isinstance(raw, dict):
                 data = raw
-                print(f"📖 [ResolutionPreset] 成功读取预设文件: {file_path}, 包含 {len(data)} 个预设")
+                printf(f"📖 [ResolutionPreset] 成功读取预设文件: {file_path}, 包含 {len(data)} 个预设")
             else:
-                print(f"⚠️ [ResolutionPreset] 预设文件格式错误 (非字典): {type(raw)}")
+                printf(f"⚠️ [ResolutionPreset] 预设文件格式错误 (非字典): {type(raw)}")
         except Exception as e:
             print(f"❌ [ResolutionPreset] 读取预设文件失败: {e}")
             data = {}
     else:
-        print(f"ℹ️ [ResolutionPreset] 预设文件不存在: {file_path}")
+        printf(f"ℹ️ [ResolutionPreset] 预设文件不存在: {file_path}")
     return web.json_response({"presets": data})
 
 
@@ -57,10 +65,10 @@ async def save_resolution_presets(request):
         )
     file_path = get_resolution_presets_file_path()
     try:
-        print(f"💾 [ResolutionPreset] 正在保存预设到: {file_path}")
+        printf(f"💾 [ResolutionPreset] 正在保存预设到: {file_path}")
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(presets, f, ensure_ascii=False, indent=2)
-        print(f"✅ [ResolutionPreset] 预设保存成功")
+        printf(f"✅ [ResolutionPreset] 预设保存成功")
     except Exception as e:
         print(f"❌ [ResolutionPreset] 保存文件失败: {e}")
         return web.Response(
@@ -89,7 +97,7 @@ async def view_input_file(request):
     """安全地查看输入文件，处理 HEIC 转换以供浏览器显示"""
     filename = request.query.get("filename")
     subfolder = request.query.get("subfolder", "")
-    print(f"🔍 [view_input_file] 请求预览: {filename}, 子文件夹: {subfolder}")
+    printf(f"🔍 [view_input_file] 请求预览: {filename}, 子文件夹: {subfolder}")
 
     if not filename:
         return web.Response(status=400, text="Missing filename")
@@ -103,7 +111,7 @@ async def view_input_file(request):
         full_path = os.path.join(input_dir, filename)
     
     full_path = os.path.normpath(full_path)
-    print(f"🔍 [view_input_file] 完整物理路径: {full_path}")
+    printf(f"🔍 [view_input_file] 完整物理路径: {full_path}")
     
     # 安全检查
     if not full_path.startswith(os.path.normpath(input_dir)):
@@ -121,18 +129,18 @@ async def view_input_file(request):
             header = f.read(16)
             if b'ftypheic' in header or b'ftypmif1' in header:
                 is_heic = True
-                print(f"ℹ️ [view_input_file] 检测到 HEIC 格式头: {filename}")
+                printf(f"ℹ️ [view_input_file] 检测到 HEIC 格式头: {filename}")
     except Exception as e:
-        print(f"⚠️ [view_input_file] 读取文件头失败: {e}")
+        printf(f"⚠️ [view_input_file] 读取文件头失败: {e}")
 
     if is_heic:
         try:
             # 浏览器通常不支持 HEIC，所以我们在服务端转成 PNG 发送
-            print(f"🔄 [view_input_file] 正在将 HEIC 转换为 PNG 以供浏览器预览...")
+            printf(f"🔄 [view_input_file] 正在将 HEIC 转换为 PNG 以供浏览器预览...")
             img = Image.open(full_path)
             output = io.BytesIO()
             img.save(output, format="PNG")
-            print(f"✅ [view_input_file] 转换成功: {filename}")
+            printf(f"✅ [view_input_file] 转换成功: {filename}")
             return web.Response(body=output.getvalue(), content_type="image/png")
         except Exception as e:
             print(f"❌ [view_input_file] HEIC 转换失败: {e}")
@@ -177,7 +185,7 @@ async def delete_output_file(request):
         # 删除文件
         os.remove(full_path)
         
-        print(f"✅ 成功删除文件: {relative_path}")
+        printf(f"✅ 成功删除文件: {relative_path}")
         
         return web.Response(
             status=200,
