@@ -52,7 +52,7 @@ export function calculateImageLayout(node, imageCount) {
     const PADDING = 8;
     
     // 为顶部输入控件和图片标题预留更多空间
-    const TOP_MARGIN = 185; // 再向下腾挪空间，容纳新增控件（如"应用透明到图像"开关）
+    const TOP_MARGIN = 210; // 再向下腾挪空间，容纳新增控件（如"应用透明到图像"开关）
     const TITLE_HEIGHT = 25; // 图片标题的高度
     
     // 计算底部控制按钮的高度

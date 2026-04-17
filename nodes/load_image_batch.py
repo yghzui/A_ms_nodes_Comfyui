@@ -64,6 +64,7 @@ class LoadImageBatchAdvanced:
                 # 这个隐藏的输入字段将由前端的JS代码填充
                 "image_paths": ("STRING", {"default": "", "multiline": False, "widget": "hidden"}),
                 "image_path_use": ("STRING", {"default": "", "multiline": False}),
+                "folder_path": ("STRING", {"default": "", "multiline": False, "label": "文件夹路径(可选)"}),
                 "reuse_mask": ("BOOLEAN", {"default": False, "label": "遮罩复用(同尺寸复用首个[input])"}),
 
             },
@@ -87,19 +88,51 @@ class LoadImageBatchAdvanced:
     FUNCTION = "load_images"
     CATEGORY = "A_my_nodes/Image"
 
-    def load_images(self, image_paths, image_path_use="", normalize_mask=True, apply_alpha_to_image=False, reuse_mask=False, batch_manager=None):
+    def load_images(self, image_paths, image_path_use="", folder_path="", normalize_mask=True, apply_alpha_to_image=False, reuse_mask=False, batch_manager=None):
         use_str = (image_path_use or '').strip() or (image_paths or '').strip()
-        if not use_str:
+        raw_paths = [p.strip() for p in use_str.split(',') if p.strip()]
+        
+        input_dir = folder_paths.get_input_directory()
+        
+        folder_images = []
+        if folder_path:
+            folder_path = folder_path.strip()
+            if not os.path.isabs(folder_path):
+                folder_path = os.path.join(input_dir, folder_path)
+            
+            if os.path.isdir(folder_path):
+                valid_extensions = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.tif', '.gif'}
+                
+                # 去重：如果上传的图片（raw_paths）和文件夹中的图片同名，则优先使用上传的图片
+                raw_paths_basenames = {os.path.basename(p.replace(" [input]", "")) for p in raw_paths}
+                
+                try:
+                    for f in sorted(os.listdir(folder_path)):
+                        if os.path.splitext(f)[1].lower() in valid_extensions:
+                            if f not in raw_paths_basenames:
+                                folder_images.append(os.path.join(folder_path, f))
+                except Exception as e:
+                    print(f"警告: 读取文件夹失败 {folder_path}, 原因: {e}")
+            else:
+                print(f"警告: 文件夹路径不存在或不是文件夹 {folder_path}")
+
+        all_paths = raw_paths + folder_images
+        
+        if not all_paths:
             return ([], [], [], 0, "")
 
-        raw_paths = [p.strip() for p in use_str.split(',') if p.strip()]
-        if batch_manager is not None and len(raw_paths) > 0:
-            batch_manager.total_count = len(raw_paths)
+        template_paths = []
+        if reuse_mask:
+            for p in raw_paths:
+                if p.endswith(" [input]"):
+                    template_paths.append(p)
+
+        if batch_manager is not None and len(all_paths) > 0:
+            batch_manager.total_count = len(all_paths)
             batch_idx = batch_manager.current_index
-            if batch_idx >= len(raw_paths):
-                batch_idx = batch_idx % len(raw_paths)
-            raw_paths = [raw_paths[batch_idx]]
-        input_dir = folder_paths.get_input_directory()
+            if batch_idx >= len(all_paths):
+                batch_idx = batch_idx % len(all_paths)
+            all_paths = [all_paths[batch_idx]]
         
         image_list = []
         mask_list = []
@@ -108,7 +141,7 @@ class LoadImageBatchAdvanced:
         size_to_edited_mask = {}
 
         if reuse_mask:
-            for raw_path in raw_paths:
+            for raw_path in template_paths:
                 path_no_suffix = raw_path
                 if path_no_suffix.endswith(" [input]"):
                     path_no_suffix = path_no_suffix[:-8]
@@ -153,7 +186,7 @@ class LoadImageBatchAdvanced:
                 except Exception as e:
                     print(f"错误: 预扫描遮罩失败 {image_path}, 原因: {e}")
 
-        for idx, raw_path in enumerate(raw_paths):
+        for idx, raw_path in enumerate(all_paths):
             path_no_suffix = raw_path
             if path_no_suffix.endswith(" [input]"):
                 path_no_suffix = path_no_suffix[:-8]

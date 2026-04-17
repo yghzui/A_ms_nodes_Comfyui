@@ -325,7 +325,7 @@ app.registerExtension({
 
             // 限制节点最小尺寸
             chainCallback(nodeType.prototype, "onResize", function(size) {
-                const TOP_MARGIN = 185;
+                const TOP_MARGIN = 210;
                 const minHeight = TOP_MARGIN + 200;
                 const buttonSpacing = 10;
                 const selectW = 60;
