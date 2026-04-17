@@ -228,6 +228,68 @@ export async function convertToArrayBuffer(source) {
     throw new Error(`Cannot convert source to ArrayBuffer: ${typeof source}`);
 }
 
+/**
+ * 替代 ComfyUI 废弃的 /scripts/ui.js 中的 $el 方法
+ * @param {string} tag 元素标签名，支持带 class (例如: "div.my-class.other-class")
+ * @param {object|Array|HTMLElement|string} propsOrChildren 属性对象或子节点
+ * @param {Array|HTMLElement|string} children 子节点
+ * @returns {HTMLElement} 创建的 DOM 元素
+ */
+export function $el(tag, propsOrChildren, children) {
+    const parts = tag.split(".");
+    const el = document.createElement(parts[0]);
+    const classes = parts.slice(1);
+    if (classes.length) {
+        el.classList.add(...classes);
+    }
+    
+    let props = propsOrChildren;
+    if (Array.isArray(propsOrChildren) || typeof propsOrChildren === "string" || propsOrChildren instanceof HTMLElement) {
+        children = propsOrChildren;
+        props = {};
+    }
+
+    if (props) {
+        for (const [key, value] of Object.entries(props)) {
+            if (key.startsWith("on") && typeof value === "function") {
+                el.addEventListener(key.substring(2).toLowerCase(), value);
+            } else if (key === "dataset") {
+                for (const [dKey, dValue] of Object.entries(value)) {
+                    el.dataset[dKey] = dValue;
+                }
+            } else if (key === "style" && typeof value === "object") {
+                for (const [sKey, sValue] of Object.entries(value)) {
+                    el.style[sKey] = sValue;
+                }
+            } else if (key === "className" || key === "class") {
+                el.className = value;
+            } else {
+                el[key] = value;
+            }
+        }
+    }
+
+    if (children) {
+        if (!Array.isArray(children)) {
+            children = [children];
+        }
+        for (let child of children) {
+            if (typeof child === "string" || typeof child === "number") {
+                child = document.createTextNode(child);
+            }
+            if (child) {
+                el.appendChild(child);
+            }
+        }
+    }
+    
+    if (props && props.parent) {
+        props.parent.appendChild(el);
+    }
+
+    return el;
+}
+
 export async function loadImage(source) {
     return new Promise((resolve, reject) => {
         const img = new Image();

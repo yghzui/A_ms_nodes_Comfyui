@@ -1,6 +1,6 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
-import { $el } from "../../../scripts/ui.js";
+import { $el } from "../utils/shared_utils.js";
 import { AMDialog } from "./am_dialog.js";
 import { cssStyles } from "./asset_manager_style.js";
 import { PreviewHandler } from "./asset_manager_preview_handler.js";

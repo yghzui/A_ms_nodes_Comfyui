@@ -1,4 +1,4 @@
-import { $el } from "../../../scripts/ui.js";
+import { $el } from "../utils/shared_utils.js";
 
 export class DataHandler {
     static importData(manager) {
