@@ -7,6 +7,11 @@ import { PreviewHandler } from "./asset_manager_preview_handler.js";
 import { DataHandler } from "./asset_manager_data_handler.js";
 import { DragSelectHandler } from "./asset_manager_drag_select.js";
 
+import { AssetManagerFAB } from "./asset_manager_fab.js";
+import { AssetManagerQuickMenu } from "./asset_manager_quick_menu.js";
+
+import { tooltipManager } from "./asset_manager_tooltip.js";
+
 // ================= CSS 注入 =================
 const style = document.createElement("style");
 style.textContent = cssStyles;
@@ -63,102 +68,8 @@ class AssetManagerUI {
     }
 
     createDOM() {
-        // 1. 创建悬浮球 (FAB)
-        this.fab = $el("div", {
-            id: "asset-manager-fab",
-            textContent: "📦",
-            title: "资产管理 (拖拽移动, 点击打开)"
-        });
-        document.body.appendChild(this.fab);
-        
-        // 恢复悬浮球保存的位置
-        const savedPos = localStorage.getItem("am_fab_position");
-        if (savedPos) {
-            try {
-                const pos = JSON.parse(savedPos);
-                
-                // 将保存的字符串值 (例如 "150px") 转换为数字
-                const rightVal = parseFloat(pos.right);
-                const bottomVal = parseFloat(pos.bottom);
-                
-                // 进行安全校验，确保位置不会超出当前窗口的边界，导致悬浮球不可见
-                if (!isNaN(rightVal) && !isNaN(bottomVal)) {
-                    // 如果因为浏览器窗口缩小导致 right 或 bottom 值过大，我们把它限制在安全范围内
-                    const safeRight = Math.max(10, Math.min(rightVal, window.innerWidth - 60));
-                    const safeBottom = Math.max(10, Math.min(bottomVal, window.innerHeight - 60));
-                    
-                    this.fab.style.right = `${safeRight}px`;
-                    this.fab.style.bottom = `${safeBottom}px`;
-                }
-            } catch(e) {
-                console.error("[AssetManager] Failed to restore FAB position:", e);
-                // 出错时清除失效的缓存
-                localStorage.removeItem("am_fab_position");
-                this.fab.style.right = "30px";
-                this.fab.style.bottom = "30px";
-            }
-        }
-        
-        // 绑定拖拽和点击逻辑
-        let isDragging = false;
-        let startX, startY, initialX, initialY;
-        let moved = false;
-
-        this.fab.addEventListener("mousedown", (e) => {
-            isDragging = true;
-            moved = false;
-            startX = e.clientX;
-            startY = e.clientY;
-            
-            const rect = this.fab.getBoundingClientRect();
-            // 改为使用 right 和 bottom 计算，避免与初始 CSS 冲突
-            initialX = window.innerWidth - rect.right;
-            initialY = window.innerHeight - rect.bottom;
-            
-            this.fab.style.transition = "none"; // 拖拽时取消动画
-            e.preventDefault(); // 阻止默认选中文本
-        });
-
-        document.addEventListener("mousemove", (e) => {
-            if (!isDragging) return;
-            
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
-            
-            if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
-                moved = true; // 标记为已移动，非单纯点击
-            }
-            
-            if (moved) {
-                // 更新位置 (使用 right 和 bottom 保持与 CSS 一致)
-                let newRight = initialX - dx;
-                let newBottom = initialY - dy;
-                
-                // 边界限制
-                newRight = Math.max(0, Math.min(newRight, window.innerWidth - 50));
-                newBottom = Math.max(0, Math.min(newBottom, window.innerHeight - 50));
-                
-                this.fab.style.right = `${newRight}px`;
-                this.fab.style.bottom = `${newBottom}px`;
-            }
-        });
-
-        document.addEventListener("mouseup", (e) => {
-            if (!isDragging) return;
-            isDragging = false;
-            this.fab.style.transition = "transform 0.2s"; // 恢复动画
-            
-            if (moved) {
-                // 拖拽结束，保存位置到 localStorage
-                localStorage.setItem("am_fab_position", JSON.stringify({
-                    right: this.fab.style.right,
-                    bottom: this.fab.style.bottom
-                }));
-            } else {
-                // 如果没有发生明显移动，视为点击
-                this.showModal();
-            }
-        });
+        // 1. 创建悬浮球 (FAB) 转移到单独模块管理
+        this.fabManager = new AssetManagerFAB(this);
 
         // 2. 创建模态框
         this.modal = $el("div", { id: "asset-manager-modal" }, [
@@ -1515,67 +1426,13 @@ class AssetManagerUI {
         return selected;
     }
 
-    // 悬浮预览图 (Tooltip)
+    // 悬浮预览图 (Tooltip) 交给 tooltipManager
     showTooltip(e, item, type) {
-        if (!this.tooltip) {
-            this.tooltip = $el("div", {
-                style: {
-                    position: "fixed",
-                    background: "rgba(20,20,20,0.95)",
-                    border: "1px solid var(--am-accent)",
-                    color: "white",
-                    padding: "10px",
-                    borderRadius: "6px",
-                    zIndex: 3000,
-                    pointerEvents: "none",
-                    maxWidth: "250px",
-                    boxShadow: "0 5px 15px rgba(0,0,0,0.5)"
-                }
-            });
-            document.body.appendChild(this.tooltip);
-        }
-        
-        this.tooltip.innerHTML = "";
-        
-        let imgSrc = "";
-        if (item.preview_image) {
-            imgSrc = `/a_my_nodes/assets/view_preview?path=${encodeURIComponent(item.preview_image)}`;
-        } else if (type === 'models') {
-            let firstLora = "";
-            if (item.high_loras && item.high_loras.length > 0 && item.high_loras[0].lora) {
-                firstLora = item.high_loras[0].lora;
-            } else if (item.low_loras && item.low_loras.length > 0 && item.low_loras[0].lora) {
-                firstLora = item.low_loras[0].lora;
-            }
-            
-            if (firstLora && firstLora !== "None") {
-                imgSrc = `/a_my_nodes/assets/view_preview?fallback_lora=${encodeURIComponent(firstLora)}`;
-            }
-        }
-        
-        if (imgSrc) {
-            const imgEl = $el("img", { 
-                src: imgSrc, 
-                style: { width: "100%", borderRadius: "4px", marginBottom: "5px", background: "black" }
-            });
-            imgEl.onerror = () => { imgEl.style.display = "none"; };
-            this.tooltip.appendChild(imgEl);
-        }
-        
-        if (type === 'prompts') {
-            this.tooltip.appendChild($el("div", { style: { fontSize: "12px", whiteSpace: "pre-wrap" }, textContent: item.content }));
-        } else {
-            this.tooltip.appendChild($el("div", { style: { fontSize: "12px" }, textContent: `强度: ${item.strength}` }));
-        }
-        
-        const rect = e.target.getBoundingClientRect();
-        this.tooltip.style.left = `${rect.right + 10}px`;
-        this.tooltip.style.top = `${rect.top}px`;
-        this.tooltip.style.display = "block";
+        tooltipManager.show(e, item, type);
     }
 
     hideTooltip() {
-        if (this.tooltip) this.tooltip.style.display = "none";
+        tooltipManager.hide();
     }
 }
 
@@ -1587,6 +1444,9 @@ app.registerExtension({
         setTimeout(() => {
             if (!window.AssetManager) {
                 window.AssetManager = new AssetManagerUI();
+            }
+            if (!window.AssetManagerQuickMenu) {
+                window.AssetManagerQuickMenu = new AssetManagerQuickMenu();
             }
         }, 1000); // 延迟1秒注入，避开 ComfyUI 初始化的 DOM 重绘风暴
         

@@ -342,32 +342,6 @@ function installAddButton(node) {
     });
     addBtn.options.serialize = false;
 
-    // {{ AURA-X: Add - 资产管理选择按钮 }}
-    const assetBtn = node.addWidget("button", "✨ 从资产库插入模板", null, () => {
-        if (window.AssetManager) {
-            window.AssetManager.showDrawer(node, 'prompts', (content) => {
-                const currentIndex = getCurrentIndex(node);
-                const items = getItems(node);
-                if (items[currentIndex]) {
-                    // 追加到当前选中的内容中
-                    const oldContent = items[currentIndex].content;
-                    items[currentIndex].content = oldContent ? oldContent + "\n" + content : content;
-                    setItems(node, items);
-                    const layout = layoutCells(node, items);
-                    ensureTextareas(node, layout, items);
-                    app.graph.setDirtyCanvas(true, true);
-                }
-            });
-        } else {
-            if (window.AMDialog) {
-                window.AMDialog.alert("资产管理系统未就绪！");
-            } else {
-                alert("资产管理系统未就绪！");
-            }
-        }
-    });
-    assetBtn.options.serialize = false;
-
     node.__addButtonInstalled = true;
 }
 
@@ -2252,8 +2226,8 @@ function ensureTextareas(node, layout, items) {
             // Index标签
             suffixEl.style.left = `${sx + cardPadding * scale}px`;
             suffixEl.style.top = `${sy + cardPadding * scale}px`;
-            suffixEl.style.width = `${suffixWidth * scale}px`;
-            suffixEl.style.height = `${(titleHeight - 4) * scale}px`;
+            suffixEl.style.width = `${suffixWidth}px`;
+            suffixEl.style.height = `${titleHeight - 4}px`;
             suffixEl.style.background = isSelected ? '#4a9eff' : '#555';
             suffixEl.style.borderRadius = '4px';
             suffixEl.style.display = 'flex';
@@ -2301,8 +2275,8 @@ function ensureTextareas(node, layout, items) {
             // 内容区域
             ta.style.left = `${sx + cardPadding * scale}px`;
             ta.style.top = `${sy + (titleHeight + cardPadding) * scale}px`;
-            ta.style.width = `${Math.max(40, Math.round(sw - cardPadding * 2 * scale))}px`;
-            ta.style.height = `${Math.max(32, Math.round(sh - (titleHeight + cardPadding * 2) * scale))}px`;
+            ta.style.width = `${Math.max(40, Math.round(sw / scale - cardPadding * 2))}px`;
+            ta.style.height = `${Math.max(32, Math.round(sh / scale - (titleHeight + cardPadding * 2)))}px`;
             ta.style.borderRadius = '4px';
             ta.style.border = 'none';
             ta.style.background = 'transparent';
