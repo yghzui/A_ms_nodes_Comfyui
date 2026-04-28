@@ -58,6 +58,7 @@ export class AssetManagerFAB {
                 zIndex: 9998, // 比大球高一层
                 transition: "transform 0.2s"
             },
+            onmousedown: (e) => e.preventDefault(), // 防止抢夺输入框焦点
             onclick: (e) => {
                 e.stopPropagation();
                 // 触发快捷菜单的切换

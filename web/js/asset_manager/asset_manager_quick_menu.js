@@ -78,6 +78,7 @@ export class AssetManagerQuickMenu {
                 fontSize: "12px",
                 zIndex: 10000
             },
+            onmousedown: (e) => e.preventDefault(),
             onmouseenter: (e) => e.target.style.color = "#fff",
             onmouseleave: (e) => e.target.style.color = "#aaa",
             onclick: (e) => {
@@ -101,12 +102,14 @@ export class AssetManagerQuickMenu {
                 id: "am-qm-tab-prompts",
                 textContent: "📝 提示词",
                 style: { flex: 1, padding: "4px", background: "var(--am-accent, #555)", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" },
+                onmousedown: (e) => e.preventDefault(),
                 onclick: () => { this.activeTab = 'prompts'; this.updateTabStyles(); this.renderList(); }
             }),
             $el("button", {
                 id: "am-qm-tab-models",
                 textContent: "🧩 模型组",
                 style: { flex: 1, padding: "4px", background: "transparent", color: "#fff", border: "1px solid #555", borderRadius: "4px", cursor: "pointer" },
+                onmousedown: (e) => e.preventDefault(),
                 onclick: () => { this.activeTab = 'models'; this.updateTabStyles(); this.renderList(); }
             })
         ]);
@@ -146,6 +149,7 @@ export class AssetManagerQuickMenu {
                 fontSize: "12px",
                 display: "none" // 默认隐藏
             },
+            onmousedown: (e) => e.preventDefault(),
             onmouseenter: (e) => e.target.style.color = "#fff",
             onmouseleave: (e) => e.target.style.color = "#aaa",
             onclick: (e) => {
@@ -163,7 +167,7 @@ export class AssetManagerQuickMenu {
         // 列表容器
         this.listContainer = $el("div", {
             style: { 
-                maxHeight: "200px", overflowY: "auto", display: "flex", 
+                maxHeight: "350px", overflowY: "auto", display: "flex", 
                 flexDirection: "column", gap: "4px", marginTop: "5px" 
             }
         });
@@ -246,13 +250,78 @@ export class AssetManagerQuickMenu {
             const target = e.target;
             if (target && (target.tagName === 'TEXTAREA' || (target.tagName === 'INPUT' && target.type === 'text'))) {
                 // 如果焦点在我们的面板内，则不处理
-                if (this.menuPanel.contains(target) || this.triggerBtn.contains(target)) return;
+                if (this.menuPanel.contains(target) || (this.triggerBtn && this.triggerBtn.contains(target))) return;
+                // 也要判断是不是在 FAB 的容器里
+                const fab = document.getElementById("asset-manager-fab");
+                if (fab && fab.contains(target)) return;
+                
                 // 如果焦点在全局管理器的搜索框里，也不处理
                 if (target.id === 'am-search-input') return;
 
                 this.lastFocusedInput = target;
+                
+                // 给输入框绑定失焦和输入事件，以便在插入时准确知道光标位置和内容
+                if (!target._am_bound) {
+                    target._am_bound = true;
+                    
+                    // 我们还监听 mousedown 和 keyup 以实时更新光标
+                    const updateCursor = () => {
+                        if (target === this.lastFocusedInput) {
+                            this.lastInputState = {
+                                value: target.value,
+                                selectionStart: target.selectionStart,
+                                selectionEnd: target.selectionEnd,
+                                element: target,
+                                timestamp: Date.now() // 记录时间戳
+                            };
+                        }
+                    };
+                    target.addEventListener('mouseup', updateCursor);
+                    target.addEventListener('keyup', updateCursor);
+                    
+                    // 标记失焦状态，如果在一定时间内没有其他点击操作，我们认为它彻底失焦了
+        target.addEventListener('blur', (blurEvent) => {
+            // 当文本框失去焦点时，我们保存它最后的状态（内容和光标位置）
+            updateCursor();
+            
+            // 为了防止用户点击空白处（导致输入框销毁），但在短时间内又点击了插入按钮
+            // 我们延迟 100ms 检查，如果 100ms 后焦点仍然没有回到输入框，且没有点击面板，
+            // 则认为它是真正的失焦，此时清空记录。
+            setTimeout(() => {
+                if (document.activeElement !== target && (!this.lastInputState || Date.now() - this.lastInputState.timestamp > 300)) {
+                    // 如果超过 300 毫秒没有针对该输入框的新操作（因为键盘、鼠标都会刷新 timestamp）
+                    // 那说明它是真的彻底失焦（比如点去了其他节点），就清理掉，杜绝幽灵插入
+                    if (this.lastFocusedInput === target) {
+                        this.lastFocusedInput = null;
+                        this.lastInputState = null;
+                    }
+                }
+            }, 300);
+        });
+                }
             }
         });
+
+        // 监听全局点击事件，用于判断用户是否点击了空白处或其他不相关的元素
+        document.addEventListener("mousedown", (e) => {
+            // 如果点击的是我们的面板，不要清空记录（用户准备点击插入）
+            if (this.menuPanel.contains(e.target)) return;
+            
+            // 如果点击的是 FAB (触发按钮)，也不要清空
+            const fab = document.getElementById("asset-manager-fab");
+            if (fab && fab.contains(e.target)) return;
+
+            // 如果点击的是提示词工具提示面板(Tooltip)，也不要清空
+            const tooltip = document.getElementById("am-tooltip");
+            if (tooltip && tooltip.contains(e.target)) return;
+
+            // 如果点击的是输入框本身，也不清空（用户在编辑）
+            if (e.target && (e.target.tagName === 'TEXTAREA' || (e.target.tagName === 'INPUT' && e.target.type === 'text'))) return;
+            
+            // 只要不是点击面板、FAB、或者输入框，我们就把之前的焦点记录清空，避免“幽灵插入”
+            this.lastFocusedInput = null;
+            this.lastInputState = null;
+        }, true); // 使用捕获阶段，确保比面板内的事件更早触发或者平行判断
 
         // 移除点击外部隐藏整个面板和按钮的逻辑，改为仅点击外部隐藏菜单面板（按钮保留）
         document.addEventListener("mousedown", (e) => {
@@ -340,8 +409,14 @@ export class AssetManagerQuickMenu {
             }
 
             this.menuPanel.style.display = "flex";
-            // 聚焦搜索框
-            setTimeout(() => this.searchInput.focus(), 50);
+            // 聚焦搜索框（仅当当前没有聚焦其他输入框时，避免抢夺节点文本框焦点导致其被销毁）
+            setTimeout(() => {
+                if (document.activeElement && (document.activeElement.tagName === 'TEXTAREA' || (document.activeElement.tagName === 'INPUT' && document.activeElement.type === 'text'))) {
+                    // 保持原焦点，不聚焦搜索框
+                } else {
+                    this.searchInput.focus();
+                }
+            }, 50);
         }
     }
 
@@ -464,13 +539,15 @@ export class AssetManagerQuickMenu {
                 style: { 
                     display: "flex", justifyContent: "space-between", alignItems: "center",
                     background: "#1a1a1a", padding: "4px 8px", borderRadius: "4px", border: "1px solid #333"
-                }
+                },
+                onmousedown: (e) => e.preventDefault() // 防止点击行空白处抢夺焦点
             });
 
             // 标题 (鼠标悬浮预览图)
             const titleEl = $el("span", {
                 textContent: isPrompts ? item.title : (item.keyword || "未命名"),
                 style: { flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "12px", cursor: "pointer" },
+                onmousedown: (e) => e.preventDefault(), // 防止抢夺焦点
                 onmouseenter: (e) => window.AssetManager.showTooltip(e, item, this.activeTab),
                 onmouseleave: () => window.AssetManager.hideTooltip(),
                 onclick: () => {
@@ -486,6 +563,7 @@ export class AssetManagerQuickMenu {
                     marginLeft: "5px", padding: "2px 6px", fontSize: "10px", 
                     background: "var(--am-accent, #555)", color: "#fff", border: "none", borderRadius: "3px", cursor: "pointer" 
                 },
+                onmousedown: (e) => e.preventDefault(), // 防止抢夺焦点
                 onmouseenter: (e) => {
                     if (isPrompts) {
                         window.AssetManager.showTooltip(e, item, this.activeTab); // 悬浮按钮也显示完整提示词
@@ -528,29 +606,108 @@ export class AssetManagerQuickMenu {
         else if (!toInsert.endsWith('; ')) toInsert += ' ';
 
         let success = false;
-        if (this.lastFocusedInput && document.body.contains(this.lastFocusedInput)) {
+        
+        // 1. 最高优先级：尝试直接从页面上找当前正在编辑的、属于节点的文本框
+        let targetElement = null;
+        if (document.activeElement && (document.activeElement.tagName === 'TEXTAREA' || (document.activeElement.tagName === 'INPUT' && document.activeElement.type === 'text'))) {
+            // 排除掉我们自己面板的搜索框
+            if (document.activeElement.id !== 'am-search-input') {
+                targetElement = document.activeElement;
+            }
+        }
+        
+        // 1.5 强检查：如果目标元素在 DOM 树里，但它不属于当前 LiteGraph 画布（比如隐藏的游离节点）
+        // ComfyUI 中正在编辑的节点文本框一般是挂载在 document.body 下的临时元素，而不是隐藏的元素
+        if (targetElement && (!document.body.contains(targetElement) || targetElement.style.display === 'none')) {
+            targetElement = null;
+        }
+
+        // 如果没有找到正在编辑的（可能因为点击了面板导致它暂时失焦，但因为 preventDefault 它没有被销毁）
+        if (!targetElement && this.lastFocusedInput && document.body.contains(this.lastFocusedInput) && this.lastFocusedInput.style.display !== 'none') {
+            targetElement = this.lastFocusedInput;
+        }
+
+        let selectionStart, selectionEnd, val;
+
+        // 如果找到了存活的元素
+        if (targetElement) {
             try {
-                // 仅当该元素支持 selection 时才处理
-                if (typeof this.lastFocusedInput.selectionStart === 'number') {
-                    const start = this.lastFocusedInput.selectionStart;
-                    const end = this.lastFocusedInput.selectionEnd;
-                    const val = this.lastFocusedInput.value || "";
-                    
-                    const before = val.substring(0, start);
-                    const after = val.substring(end);
-                    
-                    this.lastFocusedInput.value = before + toInsert + after;
-                    
-                    // 触发事件通知框架
-                    this.lastFocusedInput.dispatchEvent(new Event('input', { bubbles: true }));
-                    this.lastFocusedInput.dispatchEvent(new Event('change', { bubbles: true }));
-                    
-                    // 更新光标
-                    const newPos = start + toInsert.length;
-                    this.lastFocusedInput.setSelectionRange(newPos, newPos);
-                    this.lastFocusedInput.focus();
-                    success = true;
+                if (typeof targetElement.selectionStart === 'number') {
+                    selectionStart = targetElement.selectionStart;
+                    selectionEnd = targetElement.selectionEnd;
+                    val = targetElement.value || "";
                 }
+            } catch (e) {
+                console.warn("[AssetManager] Failed to read selection from active element", e);
+            }
+        } else if (this.lastInputState && this.lastInputState.element) {
+            // 2. 只有在真的没有存活的输入框时，才考虑使用历史记录（且要经过严格校验）
+            const timeSinceLastFocus = Date.now() - (this.lastInputState.timestamp || 0);
+            
+            // 非常严格的条件：
+            // A. 必须在非常短的时间内（比如 2 秒内），因为可能是点击按钮瞬间输入框被 LiteGraph 销毁
+            // B. 如果时间超过 2 秒，直接放弃
+            if (timeSinceLastFocus < 1000 * 2) { 
+                targetElement = this.lastInputState.element;
+                selectionStart = this.lastInputState.selectionStart;
+                selectionEnd = this.lastInputState.selectionEnd;
+                val = this.lastInputState.value || "";
+            } else {
+                // 超时，不信任该记录，清空
+                this.lastInputState = null;
+                targetElement = null;
+            }
+        }
+
+        // 3. 最后防线，如果此时找到的 targetElement 不是当前 document.activeElement
+        // 且它也不在屏幕上，或者我们仅仅通过 lastInputState 找到了一个离线的元素
+        // 尝试判断一下它是不是真的离线且有效
+        if (targetElement && !document.body.contains(targetElement)) {
+             // 对于离线的，只有距离它上次活跃在 1 秒以内，我们才敢写，否则视为“以前被销毁的幽灵”
+             const t = (this.lastInputState && this.lastInputState.timestamp) ? this.lastInputState.timestamp : 0;
+             if (Date.now() - t > 1000) {
+                 targetElement = null;
+                 this.lastInputState = null;
+             }
+        }
+
+        if (targetElement && typeof selectionStart === 'number') {
+            try {
+                // 如果发现该元素被销毁（不在DOM里），LiteGraph 可能已经把它原有的 value 同步回了节点
+                // 为了防止它将文本塞入未知的节点末尾（幽灵插入），我们必须定位到它的真实宿主节点。
+                // 但由于通过 JS 修改游离 input 比较危险，如果有 lastInputState，最好是通过它找节点
+                
+                const before = val.substring(0, selectionStart);
+                const after = val.substring(selectionEnd);
+                const newValue = before + toInsert + after;
+                
+                // 强制写回该对象并触发事件
+                targetElement.value = newValue;
+                
+                // 更新我们自己保存的光标位置以便连续插入
+                const newPos = selectionStart + toInsert.length;
+                if (this.lastInputState) {
+                    this.lastInputState.value = newValue;
+                    this.lastInputState.selectionStart = newPos;
+                    this.lastInputState.selectionEnd = newPos;
+                }
+
+                // 强制焦点回到它身上，如果它还在 DOM 树里
+                if (document.body.contains(targetElement)) {
+                    targetElement.focus();
+                    targetElement.setSelectionRange(newPos, newPos);
+                }
+
+                targetElement.dispatchEvent(new Event('input', { bubbles: true }));
+                targetElement.dispatchEvent(new Event('change', { bubbles: true }));
+
+                // ComfyUI 特有的节点 widget 更新通知
+                if (!document.body.contains(targetElement)) {
+                    // 节点如果不在 DOM 里，修改其值往往会无效或者插错地方
+                    console.warn("[AssetManager] Target element is no longer in DOM.");
+                }
+                
+                success = true;
             } catch (e) {
                 console.warn("[AssetManager] Failed to insert text directly", e);
             }
@@ -563,6 +720,8 @@ export class AssetManagerQuickMenu {
             } catch (err) {
                 this.showToast("写入剪贴板失败，请手动复制");
             }
+        } else {
+            this.showToast("插入成功: " + toInsert);
         }
         
         // 插入完毕后不再隐藏面板，由用户完全手动控制开启和关闭

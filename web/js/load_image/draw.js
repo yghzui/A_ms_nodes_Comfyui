@@ -150,7 +150,7 @@ export function drawNodeImages(node, ctx) {
             const editButtonX = rect.x + rect.width - buttonMargin - buttonSize;
             const editButtonY = rect.y + rect.height - buttonMargin - buttonSize;
             
-            ctx.fillStyle = mouseInEditArea ? 'rgba(76, 175, 80, 0.9)' : 'rgba(76, 175, 80, 0.7)';
+            ctx.fillStyle = mouseInEditArea ? 'rgba(0, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.5)';
             ctx.beginPath();
             ctx.arc(editButtonX + buttonSize/2, editButtonY + buttonSize/2, buttonSize/2, 0, 2 * Math.PI);
             ctx.fill();
