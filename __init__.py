@@ -20,7 +20,7 @@ from .nodes.load_lora_merge import LoadLoraMerge
 from .nodes.index_selector import IndexSelector
 from .nodes.my_batch_manager import MyBatchManager
 from .nodes.image_batch_accumulator import ImageBatchAccumulator
-from .nodes.any_batch_accumulator import AnyBatchAccumulator,AnyBatchListConverter,AnyStopOnNone#,AnyDataAnalyzer
+from .nodes.any_batch_accumulator import AnyBatchAccumulator,AnyBatchListConverter,AnyStopOnNone,AnyValidityChecker,AnyRecover#,AnyDataAnalyzer
 from .nodes.show_result_last import ShowResultLast
 from .nodes.manual_video_input import ManualVideoInput
 from .nodes.load_video import LoadVideoFromFolder
@@ -148,6 +148,8 @@ NODE_CLASS_MAPPINGS = {
     "AnyBatchAccumulator": AnyBatchAccumulator,
     "AnyBatchListConverter": AnyBatchListConverter,
     "AnyStopOnNone": AnyStopOnNone,
+    "AnyValidityChecker": AnyValidityChecker,
+    "AnyRecover": AnyRecover,
     # "AnyDataAnalyzer": AnyDataAnalyzer,
     "GetNodeInputValue": GetNodeInputValue,
     "WanVideoDoubleStream": WanVideoDoubleStream,
@@ -217,6 +219,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "AnyBatchAccumulator": "Any Batch Accumulator by ms",
     "AnyBatchListConverter": "Any Batch List Converter by ms",
     "AnyStopOnNone": "Any Stop On None by ms",
+    "AnyValidityChecker": "Any Validity Checker by ms",
+    "AnyRecover": "Any Recover by ms",
     "GetNodeInputValue": "Get Node Input Value by ms",
     "WanVideoDoubleStream": "Wan Video Double Stream by ms",
     "WanVideoDoubleStreamAsset": "Wan Video Double Stream Asset by ms",

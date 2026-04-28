@@ -354,7 +354,8 @@ class AnyStopOnNone:
     @classmethod
     def INPUT_TYPES(cls):
         return {
-            "required": {
+            "required": {},
+            "optional": {
                 "any_data": (ANY_TYPE,),
             }
         }
@@ -364,10 +365,88 @@ class AnyStopOnNone:
     FUNCTION = "check_none"
     CATEGORY = "A_my_nodes/logic"
 
-    def check_none(self, any_data):
+    def check_none(self, any_data=None):
         if any_data is None:
             print("AnyStopOnNone: 收到 None 数据，停止该分支的后续执行。")
             return (ExecutionBlocker(None),)
+        return (any_data,)
+
+
+class AnyValidityChecker:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {},
+            "optional": {
+                "any_data": (ANY_TYPE,),
+            }
+        }
+
+    RETURN_TYPES = ("BOOLEAN", "INT")
+    RETURN_NAMES = ("is_valid_bool", "is_valid_int")
+    FUNCTION = "check_validity"
+    CATEGORY = "A_my_nodes/logic"
+
+    def check_validity(self, any_data=None):
+        is_valid = True
+        
+        # 1. 判断 None
+        if any_data is None:
+            is_valid = False
+            
+        # 2. 判断 Tensor (图像、遮罩、潜变量等)
+        elif isinstance(any_data, torch.Tensor):
+            if any_data.numel() == 0:
+                is_valid = False
+            # 检查是否为全0张量（常见于未找到目标的无效遮罩、或者生成失败的空图像）
+            elif not any_data.any():
+                is_valid = False
+            # 检查是否包含 NaN 或 Inf
+            elif torch.isnan(any_data).any() or torch.isinf(any_data).any():
+                is_valid = False
+                
+        # 3. 判断字符串、列表、字典、元组是否为空
+        elif isinstance(any_data, (list, dict, tuple, set, str)):
+            if len(any_data) == 0:
+                is_valid = False
+            if isinstance(any_data, str) and any_data.strip() == "":
+                is_valid = False
+
+        # 4. ComfyUI 常见的 dict 结构 (例如 latent 或 condition)
+        elif isinstance(any_data, dict):
+            # Latent通常有 'samples' 键
+            if 'samples' in any_data:
+                samples = any_data['samples']
+                if isinstance(samples, torch.Tensor):
+                    if samples.numel() == 0 or not samples.any() or torch.isnan(samples).any() or torch.isinf(samples).any():
+                        is_valid = False
+
+        if is_valid:
+            return (True, 1)
+        else:
+            return (False, 0)
+
+
+class AnyRecover:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {},
+            "optional": {
+                "any_data": (ANY_TYPE,),
+                "fallback_data": (ANY_TYPE,),
+            }
+        }
+
+    RETURN_TYPES = (ANY_TYPE,)
+    RETURN_NAMES = ("data",)
+    FUNCTION = "recover"
+    CATEGORY = "A_my_nodes/logic"
+
+    def recover(self, any_data=None, fallback_data=None):
+        if any_data is None:
+            print("AnyRecover: 检测到上游数据为空或被静默，使用 fallback_data 恢复后续执行。")
+            return (fallback_data,)
         return (any_data,)
 
 
