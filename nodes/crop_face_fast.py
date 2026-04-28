@@ -239,6 +239,7 @@ class CropFaceFast:
 
         return {
             "required": {
+                "enabled": ("BOOLEAN", {"default": True, "tooltip": "是否启用裁剪，如果关闭则原样返回整张图作为裁剪区域"}),
                 "image": ("IMAGE",),
                 "model_name": (model_files,),
                 "threshold": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01}),
@@ -265,8 +266,28 @@ class CropFaceFast:
         self.scrfd_model = None
         self.current_model_path = None
 
-    def crop_face(self, image, model_name, threshold, scale_factor, square_crop, use_output_size, output_width, output_height, face_indices, only_max_score, input_mask=None, empty_mask_mode="original"):
+    def crop_face(self, enabled, image, model_name, threshold, scale_factor, square_crop, use_output_size, output_width, output_height, face_indices, only_max_score, input_mask=None, empty_mask_mode="original"):
         
+        # 0. 检查开关
+        if not enabled:
+            batch_size = image.shape[0]
+            orig_h = image.shape[1]
+            orig_w = image.shape[2]
+            
+            # 没裁剪，框是整个图片尺寸，所以 bbox_mask 是全白 (1.0)
+            out_bbox_mask = torch.ones((batch_size, orig_h, orig_w), dtype=torch.float32)
+            
+            # cropped_input_mask 传入什么就是什么
+            if input_mask is not None:
+                out_cropped_mask = input_mask
+            else:
+                out_cropped_mask = torch.zeros((batch_size, orig_h, orig_w), dtype=torch.float32)
+            
+            # crop_info 显示全图坐标
+            out_crop_info = "; ".join([f"[0,0,{orig_w},{orig_h}]" for _ in range(batch_size)])
+            
+            return (image, out_bbox_mask, out_cropped_mask, out_crop_info)
+
         # 1. Load Model
         model_path = os.path.join(folder_paths.models_dir, "detection", "face", model_name)
         if model_name == "None":

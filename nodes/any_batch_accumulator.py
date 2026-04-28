@@ -349,6 +349,28 @@ class AnyBatchListConverter:
 
         return tuple(flatten(item) for item in inputs)
 
+
+class AnyStopOnNone:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "any_data": (ANY_TYPE,),
+            }
+        }
+
+    RETURN_TYPES = (ANY_TYPE,)
+    RETURN_NAMES = ("any_data",)
+    FUNCTION = "check_none"
+    CATEGORY = "A_my_nodes/logic"
+
+    def check_none(self, any_data):
+        if any_data is None:
+            print("AnyStopOnNone: 收到 None 数据，停止该分支的后续执行。")
+            return (ExecutionBlocker(None),)
+        return (any_data,)
+
+
 #
 # import json
 #

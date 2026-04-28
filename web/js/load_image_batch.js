@@ -352,6 +352,11 @@ app.registerExtension({
             // 新增：为节点追加右键菜单"粘贴"项（与官方 Load Image 一致的入口）
             chainCallback(nodeType.prototype, "getExtraMenuOptions", function(_, options) {
                 const self = this;
+                
+                // 确保只处理目标节点
+                if (self.type !== "LoadImageBatchAdvanced") {
+                    return; // 重要：对于非目标节点，不应有任何返回值，以便 chainCallback 返回 originalReturn
+                }
 
                 // --- 新增：检查是否有图片被点击，如果有则添加编辑选项 ---
                 if (self._customImgs && self._customImageRects && self._customImagePaths) {
