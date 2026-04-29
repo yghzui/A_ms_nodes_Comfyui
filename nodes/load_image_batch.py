@@ -1,7 +1,7 @@
 import os
 import torch
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 import folder_paths
 
 try:
@@ -19,6 +19,7 @@ def load_image_with_fallback(image_path):
     """尝试使用 PIL 加载图片，如果失败则尝试使用 OpenCV"""
     try:
         img = Image.open(image_path)
+        img = ImageOps.exif_transpose(img)
         return img, False
     except Exception as pil_error:
         if cv2 is not None:

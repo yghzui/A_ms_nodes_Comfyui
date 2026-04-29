@@ -44,7 +44,7 @@ from .nodes.wan_video_double_stream import WanVideoDoubleStream
 from .nodes.wan_video_double_stream_asset import WanVideoDoubleStreamAsset
 from .nodes.crop_face_fast import CropFaceFast
 from .nodes.save_image_toggle import SaveImageWithToggle
-from .nodes.auto_vae_encode import AutoVAEEncode
+from .nodes.auto_vae_encode import AutoVAEEncode, FluxLatentMaskBinder
 
 
 # 延迟注册路由 - 确保在ComfyUI完全初始化后注册
@@ -156,6 +156,7 @@ NODE_CLASS_MAPPINGS = {
     "WanVideoDoubleStreamAsset": WanVideoDoubleStreamAsset,
     "SaveImageWithToggle": SaveImageWithToggle,
     "AutoVAEEncode": AutoVAEEncode,
+    "FluxLatentMaskBinder": FluxLatentMaskBinder,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by ms",
@@ -226,6 +227,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WanVideoDoubleStreamAsset": "Wan Video Double Stream Asset by ms",
     "SaveImageWithToggle": "Save Image With Toggle by ms",
     "AutoVAEEncode": "Auto VAE Encode (Switch) by ms",
+    "FluxLatentMaskBinder": "Flux Latent Mask Binder by ms",
 }
 
 WEB_DIRECTORY = "./web/js"

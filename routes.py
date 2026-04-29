@@ -673,7 +673,9 @@ async def upload_custom_edited_image(request):
         if not os.path.isfile(full_image_path):
             return web.Response(status=404, text="Original image not found")
             
-        orig_img = Image.open(full_image_path).convert("RGBA")
+        orig_img = Image.open(full_image_path)
+        orig_img = ImageOps.exif_transpose(orig_img)
+        orig_img = orig_img.convert("RGBA")
         orig_w, orig_h = orig_img.size
         
         mask_alpha = None
