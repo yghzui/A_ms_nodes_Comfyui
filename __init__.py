@@ -149,7 +149,7 @@ NODE_CLASS_MAPPINGS = {
     "AnyBatchListConverter": AnyBatchListConverter,
     "AnyStopOnNone": AnyStopOnNone,
     "AnyValidityChecker": AnyValidityChecker,
-    "AnyRecover": AnyRecover,
+    "AnyRecover": AnyRecover,# 不生效待完善
     # "AnyDataAnalyzer": AnyDataAnalyzer,
     "GetNodeInputValue": GetNodeInputValue,
     "WanVideoDoubleStream": WanVideoDoubleStream,
@@ -220,7 +220,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "AnyBatchListConverter": "Any Batch List Converter by ms",
     "AnyStopOnNone": "Any Stop On None by ms",
     "AnyValidityChecker": "Any Validity Checker by ms",
-    "AnyRecover": "Any Recover by ms",
+    "AnyRecover": "Any Recover by ms",# 不生效待完善
     "GetNodeInputValue": "Get Node Input Value by ms",
     "WanVideoDoubleStream": "Wan Video Double Stream by ms",
     "WanVideoDoubleStreamAsset": "Wan Video Double Stream Asset by ms",

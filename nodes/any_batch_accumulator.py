@@ -376,58 +376,114 @@ class AnyValidityChecker:
     @classmethod
     def INPUT_TYPES(cls):
         return {
-            "required": {},
+            "required": {
+                "math_expr": ("STRING", {"default": "+0", "tooltip": "输入如 +1, -2, *100, /2，对最终的判断结果(0或1)应用该数学运算。"}),
+            },
             "optional": {
-                "any_data": (ANY_TYPE,),
+                "any_data": (ANY_TYPE, {"tooltip": "需要检查有效性的任意数据(图像、遮罩、Latent等)。若无效则any_data输出端会停止后续执行。"}),
             }
         }
 
-    RETURN_TYPES = ("BOOLEAN", "INT")
-    RETURN_NAMES = ("is_valid_bool", "is_valid_int")
+    RETURN_TYPES = ("BOOLEAN", "INT", ANY_TYPE)
+    RETURN_NAMES = ("is_valid_bool", "is_valid_int", "any_data")
+    OUTPUT_IS_LIST = (True, True, True)
+    INPUT_IS_LIST = True
     FUNCTION = "check_validity"
     CATEGORY = "A_my_nodes/logic"
+    DESCRIPTION = "检查输入数据是否有效（非空、非零、非NaN等）。可以对检查结果(0或1)进行数学运算，并将无效数据自动拦截以阻止后续节点执行。"
 
-    def check_validity(self, any_data=None):
-        is_valid = True
-        
-        # 1. 判断 None
-        if any_data is None:
-            is_valid = False
+    def _parse_and_apply_math(self, base_val, expr):
+        if not expr or not isinstance(expr, str):
+            return base_val
+        expr = expr.strip()
+        if not expr:
+            return base_val
             
-        # 2. 判断 Tensor (图像、遮罩、潜变量等)
-        elif isinstance(any_data, torch.Tensor):
-            if any_data.numel() == 0:
-                is_valid = False
-            # 检查是否为全0张量（常见于未找到目标的无效遮罩、或者生成失败的空图像）
-            elif not any_data.any():
-                is_valid = False
-            # 检查是否包含 NaN 或 Inf
-            elif torch.isnan(any_data).any() or torch.isinf(any_data).any():
+        op = expr[0]
+        if op not in ['+', '-', '*', '/']:
+            return base_val
+            
+        try:
+            val = int(expr[1:].strip())
+        except ValueError:
+            return base_val
+            
+        if op == "+":
+            return base_val + val
+        elif op == "-":
+            return base_val - val
+        elif op == "*":
+            return base_val * val
+        elif op == "/":
+            return base_val // val if val != 0 else base_val # 避免除零错误，使用整除保持返回INT类型
+        return base_val
+
+    def check_validity(self, any_data=None, math_expr=None):
+        # 处理空输入情况（例如上游被Bypass且无有效数据）
+        if not any_data:
+            expr = math_expr[0] if (math_expr and len(math_expr) > 0) else "+0"
+            final_int = self._parse_and_apply_math(0, expr)
+            
+            print("AnyValidityChecker: 收到空数据，停止该分支的后续执行。")
+            return ([False], [final_int], [ExecutionBlocker(None)])
+            
+        out_bool = []
+        out_int = []
+        out_data = []
+        
+        for i, data in enumerate(any_data):
+            is_valid = True
+            
+            # 1. 判断 None
+            if data is None:
                 is_valid = False
                 
-        # 3. 判断字符串、列表、字典、元组是否为空
-        elif isinstance(any_data, (list, dict, tuple, set, str)):
-            if len(any_data) == 0:
-                is_valid = False
-            if isinstance(any_data, str) and any_data.strip() == "":
-                is_valid = False
+            # 2. 判断 Tensor (图像、遮罩、潜变量等)
+            elif isinstance(data, torch.Tensor):
+                if data.numel() == 0:
+                    is_valid = False
+                # 检查是否为全0张量（常见于未找到目标的无效遮罩、或者生成失败的空图像）
+                elif not data.any():
+                    is_valid = False
+                # 检查是否包含 NaN 或 Inf
+                elif torch.isnan(data).any() or torch.isinf(data).any():
+                    is_valid = False
+                    
+            # 3. 判断字符串、列表、字典、元组是否为空
+            elif isinstance(data, (list, dict, tuple, set, str)):
+                if len(data) == 0:
+                    is_valid = False
+                elif isinstance(data, str) and data.strip() == "":
+                    is_valid = False
+                # 4. ComfyUI 常见的 dict 结构 (例如 latent)
+                elif isinstance(data, dict):
+                    if 'samples' in data:
+                        samples = data['samples']
+                        if isinstance(samples, torch.Tensor):
+                            if samples.numel() == 0 or not samples.any() or torch.isnan(samples).any() or torch.isinf(samples).any():
+                                is_valid = False
 
-        # 4. ComfyUI 常见的 dict 结构 (例如 latent 或 condition)
-        elif isinstance(any_data, dict):
-            # Latent通常有 'samples' 键
-            if 'samples' in any_data:
-                samples = any_data['samples']
-                if isinstance(samples, torch.Tensor):
-                    if samples.numel() == 0 or not samples.any() or torch.isnan(samples).any() or torch.isinf(samples).any():
-                        is_valid = False
+            # 获取对应的 表达式
+            expr = "+0"
+            if math_expr:
+                expr = math_expr[i] if i < len(math_expr) else math_expr[-1]
+            
+            base_int = 1 if is_valid else 0
+            final_int = self._parse_and_apply_math(base_int, expr)
+            
+            out_bool.append(is_valid)
+            out_int.append(final_int)
+            
+            if is_valid:
+                out_data.append(data)
+            else:
+                print("AnyValidityChecker: 检测到无效数据，停止该分支的后续执行。")
+                out_data.append(ExecutionBlocker(None))
+                
+        return (out_bool, out_int, out_data)
 
-        if is_valid:
-            return (True, 1)
-        else:
-            return (False, 0)
 
-
-class AnyRecover:
+class AnyRecover:# 不生效待完善
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -440,14 +496,41 @@ class AnyRecover:
 
     RETURN_TYPES = (ANY_TYPE,)
     RETURN_NAMES = ("data",)
+    INPUT_IS_LIST = True
+    OUTPUT_IS_LIST = (True,)
     FUNCTION = "recover"
     CATEGORY = "A_my_nodes/logic"
 
     def recover(self, any_data=None, fallback_data=None):
-        if any_data is None:
-            print("AnyRecover: 检测到上游数据为空或被静默，使用 fallback_data 恢复后续执行。")
-            return (fallback_data,)
-        return (any_data,)
+        out_data = []
+        
+        # 确定循环的最大长度，处理可能出现的列表长度不一致
+        len_any = len(any_data) if any_data else 0
+        len_fallback = len(fallback_data) if fallback_data else 0
+        max_len = max(len_any, len_fallback)
+        
+        if max_len == 0:
+            # 两者都没输入数据
+            return ([],)
+            
+        for i in range(max_len):
+            # 安全获取当前批次的 any_data 和 fallback_data，超出长度取最后一个
+            current_any = None
+            if any_data:
+                current_any = any_data[i] if i < len_any else any_data[-1]
+                
+            current_fallback = None
+            if fallback_data:
+                current_fallback = fallback_data[i] if i < len_fallback else fallback_data[-1]
+                
+            # 核心判断逻辑：如果数据为空，或者是 ExecutionBlocker 对象，则进行恢复
+            if current_any is None or isinstance(current_any, ExecutionBlocker):
+                print(f"AnyRecover: 检测到第 {i} 批次数据为空或被静默，使用 fallback_data 恢复后续执行。")
+                out_data.append(current_fallback)
+            else:
+                out_data.append(current_any)
+                
+        return (out_data,)
 
 
 #
