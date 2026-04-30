@@ -30,6 +30,11 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         scale: 1,
         panX: 0,
         panY: 0,
+        cropPreset: savedConfig.cropPreset || 'free',
+        cropRect: null,
+        cropHover: null,
+        baseImagePath: '',
+        baseImageDirty: false,
         history: [],
         historyIndex: -1
     };
@@ -41,7 +46,8 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
                 size: state.size,
                 opacity: state.opacity,
                 maskPreviewOpacity: state.maskPreviewOpacity,
-                color: state.color
+                color: state.color,
+                cropPreset: state.cropPreset
             }));
         } catch(e) { console.warn("Failed to save editor config", e); }
     };
@@ -49,6 +55,8 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     let origW = 0, origH = 0, canvasW = 0, canvasH = 0;
     let currentLoadId = 0;
     let isPanning = false, isDrawing = false;
+    let cropAction = null;
+    let suppressBaseImageOnload = false;
     let panStart = { x: 0, y: 0 };
     let lastPos = { x: 0, y: 0 };
 
@@ -151,6 +159,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
 
     const tools = [
         { id: 'pan', icon: '🖐️', title: '平移/缩放' },
+        { id: 'crop', icon: '✂️', title: '裁剪 (支持自由/常见比例/原比例)' },
         { id: 'brushMask', icon: '⚫', title: '遮罩画笔 (绘制遮罩层)' },
         { id: 'brushPaint', icon: '🖌️', title: '绘画画笔 (绘制绘画层)' },
         { id: 'eraser', icon: '🧽', title: '橡皮擦 (擦除当前层)' },
@@ -252,6 +261,65 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     
     rightBar.appendChild(layerPanel);
 
+    const cropPanel = document.createElement("div");
+    cropPanel.style.display = "flex";
+    cropPanel.style.flexDirection = "column";
+    cropPanel.style.gap = "10px";
+
+    const cropHint = document.createElement("div");
+    cropHint.textContent = "拖拽创建裁剪框，框内拖动可移动，拖角点可缩放。";
+    cropHint.style.fontSize = "12px";
+    cropHint.style.color = "#9aa0a6";
+    cropHint.style.lineHeight = "1.5";
+
+    const cropPresetWrap = document.createElement("div");
+    Object.assign(cropPresetWrap.style, {
+        display: "grid",
+        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+        gap: "8px"
+    });
+
+    const cropPresets = [
+        { id: 'free', label: '自由' },
+        { id: 'original', label: '原比例' },
+        { id: '1:1', label: '1:1' },
+        { id: '4:3', label: '4:3' },
+        { id: '3:4', label: '3:4' },
+        { id: '16:9', label: '16:9' },
+        { id: '9:16', label: '9:16' }
+    ];
+    const cropPresetBtns = {};
+    cropPresets.forEach((preset) => {
+        const btn = createBtn(preset.label, "transparent");
+        btn.style.padding = "6px 8px";
+        btn.style.justifyContent = "center";
+        btn.onclick = () => {
+            setCropPreset(preset.id);
+            saveConfigToStorage();
+        };
+        cropPresetBtns[preset.id] = btn;
+        cropPresetWrap.appendChild(btn);
+    });
+
+    const cropActionWrap = document.createElement("div");
+    cropActionWrap.style.display = "flex";
+    cropActionWrap.style.gap = "10px";
+
+    const applyCropBtn = createBtn("应用裁剪", "#4CAF50");
+    applyCropBtn.style.flex = "1";
+    const resetCropBtn = createBtn("重置裁剪", "#555");
+    resetCropBtn.style.flex = "1";
+    cropActionWrap.append(applyCropBtn, resetCropBtn);
+
+    const cropMeta = document.createElement("div");
+    cropMeta.style.fontSize = "12px";
+    cropMeta.style.color = "#bdbdbd";
+    cropMeta.style.lineHeight = "1.5";
+    cropMeta.textContent = "裁剪工具未激活";
+
+    cropPanel.append(cropHint, cropPresetWrap, cropActionWrap, cropMeta);
+    rightBar.appendChild(createSection("图像裁剪", cropPanel));
+
     // Shape Toggle
     const shapeDiv = document.createElement("div");
     shapeDiv.style.display = "flex"; shapeDiv.style.gap = "10px";
@@ -322,6 +390,398 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
 
 
     let lastMouseE = null;
+    const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+    const cloneRect = (rect) => rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null;
+    const roundRect = (rect) => rect ? {
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height)
+    } : null;
+    const getCurrentCropAspectRatio = () => {
+        if (state.cropPreset === 'free') return null;
+        if (state.cropPreset === 'original') {
+            return canvasH ? canvasW / canvasH : null;
+        }
+        const parts = state.cropPreset.split(':').map(Number);
+        if (parts.length === 2 && parts[0] > 0 && parts[1] > 0) {
+            return parts[0] / parts[1];
+        }
+        return null;
+    };
+    const fitAspectRect = (aspectRatio) => {
+        const padding = 0.08;
+        const maxWidth = Math.max(1, canvasW * (1 - padding * 2));
+        const maxHeight = Math.max(1, canvasH * (1 - padding * 2));
+        if (!aspectRatio) {
+            return {
+                x: canvasW * padding,
+                y: canvasH * padding,
+                width: maxWidth,
+                height: maxHeight
+            };
+        }
+
+        let width = maxWidth;
+        let height = width / aspectRatio;
+        if (height > maxHeight) {
+            height = maxHeight;
+            width = height * aspectRatio;
+        }
+
+        return {
+            x: (canvasW - width) / 2,
+            y: (canvasH - height) / 2,
+            width,
+            height
+        };
+    };
+    const createDefaultCropRect = () => {
+        if (!canvasW || !canvasH) return null;
+        return fitAspectRect(getCurrentCropAspectRatio());
+    };
+    const normalizeRect = (rect) => {
+        let x = rect.x;
+        let y = rect.y;
+        let width = rect.width;
+        let height = rect.height;
+        if (width < 0) {
+            x += width;
+            width = Math.abs(width);
+        }
+        if (height < 0) {
+            y += height;
+            height = Math.abs(height);
+        }
+        return { x, y, width, height };
+    };
+    const clampRectToCanvas = (rect, minSize = 1) => {
+        const normalized = normalizeRect(rect);
+        const x = clamp(normalized.x, 0, canvasW - minSize);
+        const y = clamp(normalized.y, 0, canvasH - minSize);
+        const maxWidth = canvasW - x;
+        const maxHeight = canvasH - y;
+        return {
+            x,
+            y,
+            width: clamp(normalized.width, minSize, maxWidth),
+            height: clamp(normalized.height, minSize, maxHeight)
+        };
+    };
+    const getHandleSize = () => Math.max(10, 12 / Math.max(state.scale, 0.25));
+    const getCropHandleAt = (pos) => {
+        if (!state.cropRect) return 'new';
+        const rect = state.cropRect;
+        const handle = getHandleSize();
+        const half = handle / 2;
+        const corners = [
+            { id: 'nw', x: rect.x, y: rect.y },
+            { id: 'ne', x: rect.x + rect.width, y: rect.y },
+            { id: 'sw', x: rect.x, y: rect.y + rect.height },
+            { id: 'se', x: rect.x + rect.width, y: rect.y + rect.height }
+        ];
+        for (const corner of corners) {
+            if (
+                pos.x >= corner.x - half && pos.x <= corner.x + half &&
+                pos.y >= corner.y - half && pos.y <= corner.y + half
+            ) {
+                return corner.id;
+            }
+        }
+
+        const edgePadding = Math.max(6, 8 / Math.max(state.scale, 0.25));
+        const withinX = pos.x >= rect.x && pos.x <= rect.x + rect.width;
+        const withinY = pos.y >= rect.y && pos.y <= rect.y + rect.height;
+        if (withinX && Math.abs(pos.y - rect.y) <= edgePadding) return 'n';
+        if (withinX && Math.abs(pos.y - (rect.y + rect.height)) <= edgePadding) return 's';
+        if (withinY && Math.abs(pos.x - rect.x) <= edgePadding) return 'w';
+        if (withinY && Math.abs(pos.x - (rect.x + rect.width)) <= edgePadding) return 'e';
+        if (withinX && withinY) return 'move';
+        return 'new';
+    };
+    const getCropCursor = (handle) => {
+        const cursorMap = {
+            move: 'move',
+            nw: 'nwse-resize',
+            se: 'nwse-resize',
+            ne: 'nesw-resize',
+            sw: 'nesw-resize',
+            n: 'ns-resize',
+            s: 'ns-resize',
+            e: 'ew-resize',
+            w: 'ew-resize',
+            new: 'crosshair'
+        };
+        return cursorMap[handle] || 'crosshair';
+    };
+    const buildAspectRectFromAnchor = (anchor, point, aspectRatio) => {
+        if (!aspectRatio) {
+            return clampRectToCanvas({
+                x: anchor.x,
+                y: anchor.y,
+                width: point.x - anchor.x,
+                height: point.y - anchor.y
+            }, 10);
+        }
+
+        const dx = point.x - anchor.x;
+        const dy = point.y - anchor.y;
+        let width = Math.abs(dx);
+        let height = Math.abs(dy);
+        if (width === 0 && height === 0) {
+            width = 1;
+            height = 1 / aspectRatio;
+        } else if (height === 0) {
+            height = width / aspectRatio;
+        } else if (width / height > aspectRatio) {
+            height = width / aspectRatio;
+        } else {
+            width = height * aspectRatio;
+        }
+
+        let x = anchor.x;
+        let y = anchor.y;
+        if (dx < 0) x -= width;
+        if (dy < 0) y -= height;
+        let rect = { x, y, width, height };
+
+        const signX = dx >= 0 ? 1 : -1;
+        const signY = dy >= 0 ? 1 : -1;
+        const maxWidth = signX > 0 ? canvasW - anchor.x : anchor.x;
+        const maxHeight = signY > 0 ? canvasH - anchor.y : anchor.y;
+        if (rect.width > maxWidth) {
+            rect.width = maxWidth;
+            rect.height = rect.width / aspectRatio;
+        }
+        if (rect.height > maxHeight) {
+            rect.height = maxHeight;
+            rect.width = rect.height * aspectRatio;
+        }
+        if (signX < 0) rect.x = anchor.x - rect.width;
+        if (signY < 0) rect.y = anchor.y - rect.height;
+        return clampRectToCanvas(rect, 10);
+    };
+    const resizeCropRect = (startRect, handle, pos) => {
+        const aspectRatio = getCurrentCropAspectRatio();
+        const minSize = 10;
+        if (!aspectRatio) {
+            let nextRect = { ...startRect };
+            if (handle.includes('n')) {
+                nextRect.y = clamp(pos.y, 0, startRect.y + startRect.height - minSize);
+                nextRect.height = startRect.y + startRect.height - nextRect.y;
+            }
+            if (handle.includes('s')) {
+                nextRect.height = clamp(pos.y - startRect.y, minSize, canvasH - startRect.y);
+            }
+            if (handle.includes('w')) {
+                nextRect.x = clamp(pos.x, 0, startRect.x + startRect.width - minSize);
+                nextRect.width = startRect.x + startRect.width - nextRect.x;
+            }
+            if (handle.includes('e')) {
+                nextRect.width = clamp(pos.x - startRect.x, minSize, canvasW - startRect.x);
+            }
+            return clampRectToCanvas(nextRect, minSize);
+        }
+
+        if (['nw', 'ne', 'sw', 'se'].includes(handle)) {
+            const anchors = {
+                nw: { x: startRect.x + startRect.width, y: startRect.y + startRect.height },
+                ne: { x: startRect.x, y: startRect.y + startRect.height },
+                sw: { x: startRect.x + startRect.width, y: startRect.y },
+                se: { x: startRect.x, y: startRect.y }
+            };
+            return buildAspectRectFromAnchor(anchors[handle], pos, aspectRatio);
+        }
+
+        const centerX = startRect.x + startRect.width / 2;
+        const centerY = startRect.y + startRect.height / 2;
+        if (handle === 'e' || handle === 'w') {
+            const fixedX = handle === 'e' ? startRect.x : startRect.x + startRect.width;
+            const width = clamp(Math.abs(pos.x - fixedX), minSize, canvasW);
+            const height = width / aspectRatio;
+            const x = handle === 'e' ? fixedX : fixedX - width;
+            let y = centerY - height / 2;
+            y = clamp(y, 0, canvasH - height);
+            return clampRectToCanvas({ x, y, width, height }, minSize);
+        }
+        const fixedY = handle === 's' ? startRect.y : startRect.y + startRect.height;
+        const height = clamp(Math.abs(pos.y - fixedY), minSize, canvasH);
+        const width = height * aspectRatio;
+        const y = handle === 's' ? fixedY : fixedY - height;
+        let x = centerX - width / 2;
+        x = clamp(x, 0, canvasW - width);
+        return clampRectToCanvas({ x, y, width, height }, minSize);
+    };
+    const updateCropMeta = () => {
+        if (state.tool !== 'crop') {
+            cropMeta.textContent = "裁剪工具未激活";
+            return;
+        }
+        if (!state.cropRect) {
+            cropMeta.textContent = `当前比例: ${state.cropPreset === 'original' ? '原比例' : state.cropPreset === 'free' ? '自由' : state.cropPreset}`;
+            return;
+        }
+        const rect = roundRect(state.cropRect);
+        cropMeta.textContent = `当前比例: ${state.cropPreset === 'original' ? '原比例' : state.cropPreset === 'free' ? '自由' : state.cropPreset} | 区域 ${rect.width} x ${rect.height} @ (${rect.x}, ${rect.y})`;
+    };
+    const drawCropOverlay = () => {
+        tempCtx.clearRect(0, 0, canvasW, canvasH);
+        if (state.tool !== 'crop' || !state.cropRect) {
+            updateCropMeta();
+            return;
+        }
+
+        const rect = state.cropRect;
+        tempCanvas.style.opacity = 1;
+        tempCtx.save();
+        tempCtx.fillStyle = "rgba(0, 0, 0, 0.45)";
+        tempCtx.fillRect(0, 0, canvasW, canvasH);
+        tempCtx.clearRect(rect.x, rect.y, rect.width, rect.height);
+
+        tempCtx.strokeStyle = "#00d2ff";
+        tempCtx.lineWidth = Math.max(1, 2 / Math.max(state.scale, 0.25));
+        tempCtx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+
+        tempCtx.beginPath();
+        tempCtx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+        tempCtx.lineWidth = Math.max(1, 1 / Math.max(state.scale, 0.25));
+        tempCtx.moveTo(rect.x + rect.width / 3, rect.y);
+        tempCtx.lineTo(rect.x + rect.width / 3, rect.y + rect.height);
+        tempCtx.moveTo(rect.x + rect.width * 2 / 3, rect.y);
+        tempCtx.lineTo(rect.x + rect.width * 2 / 3, rect.y + rect.height);
+        tempCtx.moveTo(rect.x, rect.y + rect.height / 3);
+        tempCtx.lineTo(rect.x + rect.width, rect.y + rect.height / 3);
+        tempCtx.moveTo(rect.x, rect.y + rect.height * 2 / 3);
+        tempCtx.lineTo(rect.x + rect.width, rect.y + rect.height * 2 / 3);
+        tempCtx.stroke();
+
+        const handleSize = getHandleSize();
+        const half = handleSize / 2;
+        const handles = [
+            [rect.x, rect.y],
+            [rect.x + rect.width, rect.y],
+            [rect.x, rect.y + rect.height],
+            [rect.x + rect.width, rect.y + rect.height]
+        ];
+        tempCtx.fillStyle = "#00d2ff";
+        tempCtx.strokeStyle = "#ffffff";
+        tempCtx.lineWidth = Math.max(1, 1 / Math.max(state.scale, 0.25));
+        handles.forEach(([hx, hy]) => {
+            tempCtx.beginPath();
+            tempCtx.rect(hx - half, hy - half, handleSize, handleSize);
+            tempCtx.fill();
+            tempCtx.stroke();
+        });
+        tempCtx.restore();
+        updateCropMeta();
+    };
+    const setCanvasSize = (width, height) => {
+        canvasW = Math.max(1, Math.round(width));
+        canvasH = Math.max(1, Math.round(height));
+        canvasWrapper.style.width = `${canvasW}px`;
+        canvasWrapper.style.height = `${canvasH}px`;
+        paintCanvas.width = canvasW; paintCanvas.height = canvasH;
+        maskCanvas.width = canvasW; maskCanvas.height = canvasH;
+        tempCanvas.width = canvasW; tempCanvas.height = canvasH;
+    };
+    const updateInfoLabel = () => {
+        if (!origW || !origH || !canvasW || !canvasH) {
+            infoLabel.innerHTML = "";
+            return;
+        }
+        infoLabel.innerHTML = `${Math.round((canvasW / origW) * 100)}%<br/>${canvasW}x${canvasH}`;
+    };
+    const updateBaseThumbnail = (src = baseImg.src) => {
+        const thumbDiv = document.getElementById("A_base_thumb");
+        if (thumbDiv) {
+            thumbDiv.style.backgroundImage = src ? `url("${src}")` : "";
+        }
+    };
+    const setBaseImagePreview = (src) => {
+        suppressBaseImageOnload = true;
+        baseImg.src = src;
+        updateBaseThumbnail(src);
+    };
+    const rasterizeBaseImage = () => {
+        const raster = document.createElement("canvas");
+        raster.width = canvasW;
+        raster.height = canvasH;
+        raster.getContext("2d").drawImage(baseImg, 0, 0, canvasW, canvasH);
+        return raster;
+    };
+    const setCropPreset = (preset) => {
+        state.cropPreset = preset;
+        Object.entries(cropPresetBtns).forEach(([id, btn]) => {
+            btn.style.background = id === preset ? "#555" : "transparent";
+            btn.style.border = id === preset ? "1px solid #888" : "1px solid transparent";
+        });
+        if (canvasW && canvasH) {
+            state.cropRect = createDefaultCropRect();
+        }
+        drawCropOverlay();
+        updateCursorPos(lastMouseE);
+    };
+    const resetCropSelection = () => {
+        if (!canvasW || !canvasH) return;
+        state.cropRect = createDefaultCropRect();
+        cropAction = null;
+        drawCropOverlay();
+        updateCursorPos(lastMouseE);
+    };
+    const cropCurrentView = (rect) => {
+        const rounded = roundRect(clampRectToCanvas(rect, 10));
+
+        const cropCanvas = (source) => {
+            const out = document.createElement("canvas");
+            out.width = rounded.width;
+            out.height = rounded.height;
+            out.getContext("2d").drawImage(
+                source,
+                rounded.x,
+                rounded.y,
+                rounded.width,
+                rounded.height,
+                0,
+                0,
+                rounded.width,
+                rounded.height
+            );
+            return out;
+        };
+
+        const baseCropped = cropCanvas(rasterizeBaseImage());
+        const paintCropped = cropCanvas(paintCanvas);
+        const maskCropped = cropCanvas(maskCanvas);
+
+        setCanvasSize(rounded.width, rounded.height);
+        pCtx.clearRect(0, 0, canvasW, canvasH);
+        mCtx.clearRect(0, 0, canvasW, canvasH);
+        tempCtx.clearRect(0, 0, canvasW, canvasH);
+        pCtx.drawImage(paintCropped, 0, 0);
+        mCtx.drawImage(maskCropped, 0, 0);
+        setBaseImagePreview(baseCropped.toDataURL("image/png"));
+        state.baseImageDirty = true;
+        state.cropRect = null;
+        cropAction = null;
+        updateInfoLabel();
+        resetView();
+        drawCropOverlay();
+        saveState();
+    };
+    applyCropBtn.onclick = () => {
+        if (!state.cropRect) {
+            resetCropSelection();
+            return;
+        }
+        const rounded = roundRect(clampRectToCanvas(state.cropRect, 10));
+        if (rounded.width >= canvasW && rounded.height >= canvasH && rounded.x === 0 && rounded.y === 0) {
+            state.cropRect = null;
+            drawCropOverlay();
+            return;
+        }
+        cropCurrentView(rounded);
+    };
+    resetCropBtn.onclick = resetCropSelection;
     const updateCursorPos = (e = lastMouseE) => {
         if (!e) return;
         lastMouseE = e;
@@ -338,11 +798,20 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
             // Only show crosshair for eyedropper if within image
             if (state.tool === 'eyedropper' && isWithinImage) {
                 workArea.style.cursor = 'crosshair';
+            } else if (state.tool === 'crop' && isWithinImage) {
+                workArea.style.cursor = getCropCursor(state.cropHover || 'new');
             } else if (state.tool === 'pan') {
                 workArea.style.cursor = isPanning ? 'grabbing' : 'grab';
             } else {
                 workArea.style.cursor = 'default';
             }
+            return;
+        }
+
+        if (state.tool === 'crop') {
+            cursor.style.display = 'none';
+            state.cropHover = getCropHandleAt({ x, y });
+            workArea.style.cursor = cropAction ? getCropCursor(cropAction.handle || cropAction.type) : getCropCursor(state.cropHover);
             return;
         }
 
@@ -372,21 +841,37 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
             b.style.background = "transparent";
             b.style.border = "1px solid transparent";
         });
+        cropAction = null;
         
         // Handle tool selection
         if (tool === 'brushMask') {
             toolBtns.brushMask.style.background = '#4CAF50';
             toolBtns.brushMask.style.border = '1px solid #66bb6a';
             setLayer('mask'); // Automatically switch to mask layer
+            tempCanvas.style.opacity = 0;
         } else if (tool === 'brushPaint') {
             toolBtns.brushPaint.style.background = '#4CAF50';
             toolBtns.brushPaint.style.border = '1px solid #66bb6a';
             setLayer('paint'); // Automatically switch to paint layer
+            tempCanvas.style.opacity = 0;
+        } else if (tool === 'crop') {
+            toolBtns.crop.style.background = '#4CAF50';
+            toolBtns.crop.style.border = '1px solid #66bb6a';
+            tempCanvas.style.opacity = 1;
+            if (!state.cropRect && canvasW && canvasH) {
+                state.cropRect = createDefaultCropRect();
+            }
         } else if (toolBtns[tool]) {
             toolBtns[tool].style.background = '#4CAF50';
             toolBtns[tool].style.border = '1px solid #66bb6a';
+            tempCanvas.style.opacity = 0;
         }
-        
+        if (tool !== 'crop') {
+            tempCtx.clearRect(0, 0, canvasW, canvasH);
+        } else {
+            drawCropOverlay();
+        }
+        updateCropMeta();
         updateCursorPos(lastMouseE);
     };
 
@@ -485,6 +970,10 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     const saveState = () => {
         state.history = state.history.slice(0, state.historyIndex + 1);
         state.history.push({
+            base: baseImg.src,
+            width: canvasW,
+            height: canvasH,
+            baseDirty: state.baseImageDirty,
             paint: paintCanvas.toDataURL(),
             mask: maskCanvas.toDataURL()
         });
@@ -496,6 +985,12 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     };
 
     const restoreState = (hState) => {
+        setCanvasSize(hState.width || canvasW, hState.height || canvasH);
+        state.baseImageDirty = !!hState.baseDirty;
+        state.cropRect = null;
+        cropAction = null;
+        setBaseImagePreview(hState.base);
+
         const pImg = new Image();
         pImg.onload = () => { pCtx.clearRect(0, 0, canvasW, canvasH); pCtx.drawImage(pImg, 0, 0); };
         pImg.src = hState.paint;
@@ -503,6 +998,9 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         const mImg = new Image();
         mImg.onload = () => { mCtx.clearRect(0, 0, canvasW, canvasH); mCtx.drawImage(mImg, 0, 0); };
         mImg.src = hState.mask;
+        updateInfoLabel();
+        drawCropOverlay();
+        updateTransform();
     };
 
     undoBtn.onclick = () => {
@@ -643,6 +1141,36 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
             workArea.style.cursor = "grabbing";
         } else if (e.button === 0) {
             const pos = getPos(e);
+
+            if (state.tool === 'crop') {
+                const boundedPos = { x: clamp(pos.x, 0, canvasW), y: clamp(pos.y, 0, canvasH) };
+                const handle = getCropHandleAt(boundedPos);
+                if (handle === 'move' && state.cropRect) {
+                    cropAction = {
+                        type: 'move',
+                        handle,
+                        startPos: boundedPos,
+                        startRect: cloneRect(state.cropRect)
+                    };
+                } else if (handle !== 'new' && state.cropRect) {
+                    cropAction = {
+                        type: 'resize',
+                        handle,
+                        startPos: boundedPos,
+                        startRect: cloneRect(state.cropRect)
+                    };
+                } else {
+                    cropAction = {
+                        type: 'new',
+                        handle: 'new',
+                        startPos: boundedPos
+                    };
+                    state.cropRect = { x: boundedPos.x, y: boundedPos.y, width: 1, height: 1 };
+                }
+                drawCropOverlay();
+                updateCursorPos(e);
+                return;
+            }
             
             if (state.tool === 'eyedropper') {
                 const x = Math.floor(pos.x);
@@ -722,6 +1250,26 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
             state.panX = e.clientX - panStart.x;
             state.panY = e.clientY - panStart.y;
             updateTransform();
+        } else if (cropAction && state.tool === 'crop') {
+            const pos = getPos(e);
+            const boundedPos = { x: clamp(pos.x, 0, canvasW), y: clamp(pos.y, 0, canvasH) };
+            if (cropAction.type === 'move' && state.cropRect) {
+                const dx = boundedPos.x - cropAction.startPos.x;
+                const dy = boundedPos.y - cropAction.startPos.y;
+                const startRect = cropAction.startRect;
+                state.cropRect = {
+                    x: clamp(startRect.x + dx, 0, canvasW - startRect.width),
+                    y: clamp(startRect.y + dy, 0, canvasH - startRect.height),
+                    width: startRect.width,
+                    height: startRect.height
+                };
+            } else if (cropAction.type === 'resize' && state.cropRect) {
+                state.cropRect = resizeCropRect(cropAction.startRect, cropAction.handle, boundedPos);
+            } else if (cropAction.type === 'new') {
+                state.cropRect = buildAspectRectFromAnchor(cropAction.startPos, boundedPos, getCurrentCropAspectRatio());
+            }
+            drawCropOverlay();
+            updateCursorPos(e);
         } else if (isDrawing) {
             const pos = getPos(e);
             drawLine(tempCtx, lastPos, pos);
@@ -733,6 +1281,11 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         if (isPanning) {
             isPanning = false;
             workArea.style.cursor = state.tool === 'pan' ? "grab" : "none";
+        }
+        if (cropAction && state.tool === 'crop') {
+            cropAction = null;
+            drawCropOverlay();
+            updateCursorPos(e);
         }
         if (isDrawing) {
             isDrawing = false;
@@ -803,6 +1356,10 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         }
 
         baseImg.onload = () => {
+            if (suppressBaseImageOnload) {
+                suppressBaseImageOnload = false;
+                return;
+            }
             if (myLoadId !== currentLoadId) return;
             origW = baseImg.naturalWidth;
             origH = baseImg.naturalHeight;
@@ -813,32 +1370,28 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
                 w = Math.floor(w * ratio);
                 h = Math.floor(h * ratio);
             }
-            canvasW = w; canvasH = h;
-            
-            canvasWrapper.style.width = `${canvasW}px`;
-            canvasWrapper.style.height = `${canvasH}px`;
-            
+            setCanvasSize(w, h);
+            state.cropRect = null;
+            state.cropHover = null;
+            state.baseImagePath = origPath;
+            state.baseImageDirty = false;
+            cropAction = null;
             pCtx.clearRect(0, 0, canvasW, canvasH);
             mCtx.clearRect(0, 0, canvasW, canvasH);
             tempCtx.clearRect(0, 0, canvasW, canvasH);
-            paintCanvas.width = canvasW; paintCanvas.height = canvasH;
-            maskCanvas.width = canvasW; maskCanvas.height = canvasH;
-            tempCanvas.width = canvasW; tempCanvas.height = canvasH;
 
             // Initialize UI state completely before doing anything else
             setTool('brushMask');
             setShape(state.shape);
+            setCropPreset(state.cropPreset);
             
             // Force the layer UI update explicitly for the first time
             setLayer('mask');
 
             // Setup base image thumbnail
-            const thumbDiv = document.getElementById("A_base_thumb");
-            if (thumbDiv) {
-                thumbDiv.style.backgroundImage = `url("${baseImg.src}")`;
-            }
+            updateBaseThumbnail(baseImg.src);
             
-            infoLabel.innerHTML = `${Math.round((canvasW/origW)*100)}%<br/>${origW}x${origH}`;
+            updateInfoLabel();
             
             // Center view
             resetView();
@@ -913,6 +1466,30 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         saveBtn.disabled = true;
         
         try {
+            let saveBasePath = state.baseImagePath || ((node && node.properties && node.properties.original_image_paths) ? node.properties.original_image_paths[index] : imagePaths[index]);
+            if (state.baseImageDirty) {
+                let baseBlob = null;
+                if (baseImg.src && baseImg.src.startsWith("data:image/")) {
+                    baseBlob = await fetch(baseImg.src).then((resp) => resp.blob());
+                } else {
+                    const baseCanvas = rasterizeBaseImage();
+                    baseBlob = await new Promise((resolve, reject) => {
+                        baseCanvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("无法导出裁剪后的基础图")), "image/png");
+                    });
+                }
+                const formData = new FormData();
+                const uploadName = `image-editor-base-${Date.now()}.png`;
+                formData.append("image", new File([baseBlob], uploadName, { type: "image/png" }), uploadName);
+                formData.append("type", "input");
+                formData.append("subfolder", "clipspace");
+                const uploadResp = await api.fetchApi("/upload/image", { method: "POST", body: formData });
+                if (!uploadResp || (uploadResp.status !== 200 && uploadResp.status !== 201)) {
+                    throw new Error(uploadResp ? await uploadResp.text() : "上传裁剪后的基础图失败");
+                }
+                const uploadData = await uploadResp.json();
+                saveBasePath = uploadData.subfolder ? `${uploadData.subfolder}/${uploadData.name} [input]` : `${uploadData.name} [input]`;
+            }
+
             // Extract mask directly as transparent PNG (just like official editor)
             let hasMask = false;
             let maskBase64 = "";
@@ -957,15 +1534,13 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
                 if (hasPaint) paintBase64 = tmpPaintCnv.toDataURL("image/png");
             }
             
-            const origPath = (node && node.properties && node.properties.original_image_paths) ? node.properties.original_image_paths[index] : imagePaths[index];
-
             // 只要点击了保存，哪怕只是加载了历史记录没有新增绘制，我们也强制重新上传
             // 因为用户可能在别的节点复用了原图，这里手动保存就应该生成一个独立的新实例
             const resp = await api.fetchApi("/a_my_nodes/upload_custom_edited_image", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    image_path: origPath,
+                    image_path: saveBasePath,
                     mask_data: maskBase64,
                     paint_data: paintBase64
                 })
@@ -979,6 +1554,11 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
                 // 只要产生了编辑后的新路径，就统一补上 [input]
                 newPath += " [input]";
                 imagePaths[index] = newPath;
+                if (node) {
+                    if (!node.properties) node.properties = {};
+                    if (!node.properties.original_image_paths) node.properties.original_image_paths = [];
+                    node.properties.original_image_paths[index] = saveBasePath;
+                }
                 if (onSaveCallback) onSaveCallback(imagePaths);
                 cleanup();
             }
