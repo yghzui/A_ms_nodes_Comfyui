@@ -1,71 +1,342 @@
-# ComfyUI MaskEditor 批量图片加载工作流分析
+# ComfyUI `LoadImageBatchAdvanced` 图片编辑工作流说明
 
-本文档记录了 `LoadImageBatchAdvanced` 节点如何通过复用 ComfyUI 官方内置的 `MaskEditor`（遮罩编辑器），实现在批量图片节点中对单张图片进行独立遮罩绘制和预览的完整生命周期。
+本文档面向两类读者：
 
-## 1. 前端唤起与 `[input]` 标识符的意义
-当在一张图片（例如 `comment_4a7e8e53...edit.jpg`）上右键选择“编辑图片”时：
-- **剥离标识符**：前端 JS 代码会先检查并切掉 ` [input]` 这个后缀。
-- **为何需要 `[input]`？**：在 ComfyUI 的文件系统里，图片通常分为 `input`、`output`、`temp` 三类。`[input]` 是一种显式的状态标记，告诉整个系统：“这是一张需要从 `input` 文件夹去寻找的用户输入图”，而不是一张由模型生成的输出图。
-- **发送请求**：去除标识符后，拿到干净的路径，通过构造一个“伪造的节点”（Mock Node），触发官方的 `Comfy.MaskEditor.OpenMaskEditor` 命令，从而将官方编辑器“骗”出来为该图片服务。
+- 需要从外部 Web 项目接入该节点的人。
+- 需要继续维护前后端实现的人。
 
-## 2. 编辑并保存：为何会产生 4 个时间戳文件？
-当你在 `MaskEditor` 中涂抹并点击“Save to node”时，ComfyUI 前端会向后端发送一个 `/upload/mask` 请求。为了实现“非破坏性编辑”和“历史记录追踪”，后端会在 `input/clipspace` 文件夹下生成带有**唯一时间戳**（如 `1776257523204`）的 4 个衍生文件：
+文档目标是先讲清“怎么接”，再解释“内部为什么这样工作”。核心内容包括两条编辑链路、`clipspace` 文件生成规则、`[input]` 标记的作用，以及后端如何从最终 PNG 拆分 `IMAGE` 与 `MASK`。
 
-1. **`clipspace-mask-<ts>.png`**：
-   - **内容**：纯粹的黑白遮罩图（涂抹区域为白色，其余黑色）。
-   - **作用**：记录纯净的 Mask 区域形状，主要用于 UI 重新打开编辑器时的形状还原。
-2. **`clipspace-paint-<ts>.png`**：
-   - **内容**：彩色笔触本身（背景全透明，只保留涂抹的色彩）。
-   - **作用**：如果使用了带有颜色的画笔（而不是单纯的透明橡皮擦），这层会保存颜色信息。
-3. **`clipspace-painted-<ts>.png`**：
-   - **内容**：原图与上述 `paint` 彩色笔触叠加后的合成图像。
-   - **作用**：用于展示带有彩色涂鸦的底图。
-4. **`clipspace-painted-masked-<ts>.png`** (🌟 核心交付物)：
-   - **内容**：**原图 + 彩色笔触 + Alpha透明通道** 的终极合成体。
-   - **作用**：这就是前端 UI 用于渲染预览，以及后端 Python 用于提取数据的最终目标文件。
+核心结论如下：
 
-**时间戳机制的意义**：每次保存，即使是清除遮罩，也会生成一组全新的时间戳文件。这避免了浏览器缓存导致图片不更新的问题（如果文件名不变，浏览器可能直接读旧图），也相当于一种简单的“版本控制”。如果没有保存操作，就不会产生新文件。
+- 这个节点同时支持两条编辑链路：`官方 MaskEditor 复用链路` 与 `自定义全屏编辑器 / 外部 API 链路`。
+- 两条链路的入口不同，但最终都会落到 `input/clipspace` 下的一组带时间戳的派生文件。
+- 工作流运行时，后端读取的核心文件是 `clipspace-painted-masked-<ts>.png`，并从其 `Alpha` 通道拆出 `MASK`。
+- 原始图片不会被覆盖；节点只是把内部引用路径替换到新的 `clipspace` 文件，实现非破坏性编辑。
 
-## 3. 前端状态更替
-保存完成后，MaskEditor 返回核心文件路径 `clipspace/clipspace-painted-masked-<ts>.png`：
-- 代码拦截到这个新路径后，如果原图带有 `[input]`，会再把 ` [input]` 给**缝补回去**，变成：`clipspace/clipspace-painted-masked-<ts>.png [input]`。
-- 接着，替换掉隐藏的 `image_paths` 输入框里原本的旧路径，并刷新 UI 显示这张带有透明通道的 PNG。前端此时发生了真正的“移花接木”。
+## 0. 外部接入速览
 
-## 4. 后端加载与“解剖” (Python 端)
-当点击“Queue Prompt”运行工作流时，任务交接给了后端 `load_image_batch.py`：
-- **脱下马甲**：后端第一件事就是把传进来的 ` [input]` 标识符砍掉，还原出真实的相对路径 `clipspace/clipspace-painted-masked-<ts>.png`。
-- **寻找实体**：拼接上 `input_dir`（ComfyUI 的 input 目录），验证这个带时间戳的文件是否在硬盘上真的存在。
-- **解剖提取**：
-  - **分离遮罩**：把它的 Alpha 通道拿出来，反转后作为 `MASK` 张量输出（因为涂抹区域透明 Alpha=0，变成 Mask=1）。
-  - **分离原图**：调用 `.convert("RGB")`，强制丢弃 Alpha 通道，完美“揭开”透明层，暴露出被透明层盖住的原图色彩，作为 `IMAGE` 张量输出。
-- **可选的透明度应用**：如果开启了 `apply_alpha_to_image`，代码会手动将刚才分离出的 Alpha 通道乘以 RGB 像素，从而真正在图像数据上抹除涂抹区域。
+如果你只是想从外部 Web 项目接入这套机制，可以先记住下面 5 步：
 
-## 5. 完整流程架构图总结
+1. 准备一张已经位于 ComfyUI `input` 目录中的原图路径。
+2. 前端分别导出 `mask_data` 与 `paint_data` 两张透明 PNG 的 Base64。
+3. 调用 `POST /a_my_nodes/upload_custom_edited_image`。
+4. 取回返回值里的 `filepath`，并在末尾补上 ` [input]`。
+5. 把这个新路径写回 `LoadImageBatchAdvanced` 节点，再提交工作流到 `/prompt`。
 
-```text
-[用户行为] 
-  1. 上传/选择图片 comment_...edit.jpg
-  2. 右键点击 -> 编辑图片 (MaskEditor)
-       ↓
-[前端劫持] 
-  3. 剥离 [input] 后缀，将真实路径喂给伪造的节点。
-  4. 唤起官方 MaskEditor 界面。
-       ↓
-[MaskEditor & 临时文件] 
-  5. 用户涂抹并点击 Save。
-  6. 在 input/clipspace/ 下生成 4 个带新时间戳的文件：
-     - mask / paint / painted / painted-masked
-       ↓
-[前端状态更新]
-  7. 拿到 clipspace/clipspace-painted-masked-<ts>.png。
-  8. 补回 [input] 后缀。
-  9. 将节点内部的图片路径从 comment... 替换为 clipspace...
- 10. 刷新节点预览图（由于自带Alpha，直接透出遮罩效果）。
-       ↓
-[后端执行]
- 11. 点击运行，后端收到 clipspace... [input]。
- 12. 再次剥离 [input]，找到硬盘上的 clipspace-painted-masked-<ts>.png。
- 13. 读取图片 -> Alpha通道转 MASK -> 丢弃Alpha保留RGB转 IMAGE。
+如果你只关心外部调用，优先阅读 `第 3 节`、`第 5 节`、`第 8 节` 即可。
+
+## 1. 核心概念
+
+### 1.1 `[input]` 标记
+
+`[input]` 不是文件名本体的一部分，而是一个路径解析标记，表示这张图应当从 ComfyUI 的 `input` 目录中查找。
+
+它的作用不是单纯标识“这是原图”，而是明确告诉前后端：
+
+- 这张图片属于 `input` 资源，而不是 `output` 或 `temp`。
+- 后续构造预览 URL、提交工作流、后端加载文件时，都应以 `input_dir` 为根进行解析。
+
+### 1.2 `clipspace` 目录
+
+`clipspace` 位于 ComfyUI 的 `input` 目录下，用于保存编辑后的派生文件。每次保存都会生成一组新的时间戳文件，避免浏览器缓存命中旧图，也相当于保留了一份轻量级历史快照。
+
+### 1.3 `paint` 与 `mask`
+
+- `paint`：彩色绘制层，保存用户的彩色笔触。
+- `mask`：遮罩层，本质上对应最终图像的透明度控制信息。
+
+这两层在前端编辑时是分开的，在后端合成时也分别参与输出文件生成。
+
+## 2. 链路 A：官方 MaskEditor 复用流程
+
+这条链路对应节点右键菜单中的“编辑图片 (官方MaskEditor)”。
+
+### 2.1 前端如何唤起官方编辑器
+
+当用户在某张图片上右键选择官方编辑器时，前端会执行以下步骤：
+
+1. 检查路径是否带有 ` [input]` 后缀。
+2. 若存在该后缀，先临时剥离，得到可直接解析的相对路径。
+3. 通过一个 `Mock Node` 把当前图片伪装成官方 `MaskEditor` 可处理的节点输入。
+4. 调用 `Comfy.MaskEditor.OpenMaskEditor` 命令，唤起 ComfyUI 官方编辑器。
+
+这一过程的重点不是直接向自定义后端接口发请求，而是复用 ComfyUI 官方前端扩展能力。
+
+### 2.2 保存后会发生什么
+
+用户在官方 `MaskEditor` 中点击 `Save to node` 后，ComfyUI 会生成新的 `clipspace` 文件，并返回新的文件路径。
+
+前端接到保存结果后会：
+
+1. 取出新的 `clipspace/clipspace-painted-masked-<ts>.png`。
+2. 如果原图属于 `input` 资源，则把 ` [input]` 后缀补回去。
+3. 用新路径替换节点中原本的图片路径。
+4. 刷新节点缩略图与预览。
+
+这一步真正变化的不是原文件本身，而是节点内部指向的路径。
+
+## 3. 链路 B：自定义全屏编辑器与外部 API 流程
+
+这条链路对应节点中的“编辑图片 (全屏)”，以及外部 Web 项目直接调用 `/a_my_nodes/upload_custom_edited_image` 的接入方式。
+
+需要注意的是，这条链路和官方 `MaskEditor` 不是同一套前端实现，但最终生成的落盘结果是兼容的。
+
+### 3.1 前端需要准备什么
+
+无论你是在节点内使用自定义全屏编辑器，还是在外部 Web 项目中自己做 UI，前端都不需要手动生成那 4 个 `clipspace` 文件。
+
+前端只需要提供两份透明 PNG 数据：
+
+- `mask_data`：遮罩层图像。
+  涂抹区域的 `Alpha` 应为 `255`，未涂抹区域应为 `0`。
+- `paint_data`：彩色笔触图像。
+  背景应保持完全透明，只保留彩色笔触本身。
+
+推荐的前端图层结构如下：
+
+1. 底图层：原始图片。
+2. 遮罩层：用户绘制的遮罩。
+3. 绘画层：用户绘制的彩色笔触。
+
+### 3.2 自定义上传接口
+
+后端提供如下接口：
+
+`POST /a_my_nodes/upload_custom_edited_image`
+
+请求体示例：
+
+```json
+{
+  "image_path": "your_original_image_name.jpg [input]",
+  "mask_data": "data:image/png;base64,iVBORw0KGgo...",
+  "paint_data": "data:image/png;base64,iVBORw0KGgo..."
+}
 ```
 
-这种设计极为巧妙：**它不动你的原始图片分毫**（`comment_...edit.jpg` 永远躺在原文件夹里），而是通过不断产生时间戳“快照文件”，并在前端动态替换引用路径，完美实现了非破坏性的编辑和数据分离。
+参数说明：
+
+- `image_path`：建议携带 ` [input]` 后缀。后端会先剥离该标记，再到 `input_dir` 下拼接实际物理路径。
+- `mask_data`：可为空；为空时表示没有新增遮罩。
+- `paint_data`：可为空；为空时表示没有新增彩色笔触。
+
+额外注意：
+
+- `image_path` 必须能映射到 ComfyUI 的 `input` 目录内部。
+- 后端会做路径越界校验；不能传一个跳出 `input_dir` 的任意磁盘路径。
+
+### 3.3 返回结果与工作流替换
+
+上传成功后，接口会返回：
+
+```json
+{
+  "success": true,
+  "filepath": "clipspace/clipspace-painted-masked-1776257523204.png"
+}
+```
+
+拿到这个结果后，外部调用方还需要执行一步关键处理：
+
+1. 将返回的 `filepath` 补成 `clipspace/clipspace-painted-masked-1776257523204.png [input]`。
+2. 把它写回 `LoadImageBatchAdvanced` 节点的图片路径参数。
+3. 再将更新后的工作流提交给 `/prompt`。
+
+如果省略 ` [input]`，后续路径解析就可能与节点约定不一致。
+
+## 4. 四类 `clipspace` 文件的准确含义
+
+每次保存后，后端都会在 `input/clipspace` 下生成一组新的时间戳文件：
+
+### 4.1 `clipspace-mask-<ts>.png`
+
+- 实际内容不是“纯黑白遮罩位图”。
+- 它保存的是：`原图 RGB + 反转后的 Alpha`。
+- 主要用途是帮助前端在重新打开编辑器时恢复遮罩状态。
+
+也就是说，前端在恢复遮罩时，主要消费的是它的 `Alpha` 信息，而不是直接把它当作一张独立的纯 mask 图片来展示。
+
+### 4.2 `clipspace-paint-<ts>.png`
+
+- 保存彩色笔触本身。
+- 背景为完全透明。
+- 用于恢复绘画层内容。
+
+### 4.3 `clipspace-painted-<ts>.png`
+
+- 保存原图与 `paint` 层叠加后的结果。
+- 主要作用是作为可视化合成中间态。
+
+### 4.4 `clipspace-painted-masked-<ts>.png`
+
+- 这是最终交付文件。
+- 它包含：`原图/paint 叠加结果 + Alpha 透明信息`。
+- 节点前端预览与后端运行时都以它为核心输入。
+
+## 5. 后端加载与 `IMAGE` / `MASK` 拆分逻辑
+
+当工作流执行到 `load_image_batch.py` 时，处理流程如下：
+
+1. 读取传入路径。
+2. 如果路径末尾存在 ` [input]`，先剥离该后缀。
+3. 以 `input_dir` 为根拼接实际文件路径。
+4. 读取目标图片。
+5. 从 `Alpha` 通道生成 `MASK`。
+6. 从图像的 `RGB` 通道生成 `IMAGE`。
+
+### 5.1 `MASK` 如何生成
+
+后端会取目标图的 `Alpha` 通道，并执行反转：
+
+- 透明区域 `Alpha = 0`
+- 反转后变成 `Mask = 1`
+
+因此，编辑时被“挖空”或标记为遮罩的区域，会在 `MASK` 输出中成为有效遮罩区域。
+
+### 5.2 `IMAGE` 实际包含什么
+
+这里最容易误解。
+
+`IMAGE` 并不是“自动还原出来的纯原图”，而是目标 PNG 的 `RGB` 内容：
+
+- 如果最终图里包含彩色 `paint` 笔触，那么这些笔触也会进入 `IMAGE`。
+- `convert("RGB")` 的作用只是丢弃 `Alpha` 通道，不会自动回退到未经编辑的原始像素。
+
+因此，`IMAGE` 是否看起来像“纯原图”，取决于用户有没有在 `paint` 层绘制内容。
+
+### 5.3 `apply_alpha_to_image` 的作用
+
+如果启用了 `apply_alpha_to_image`，后端会将恢复出的 `alpha` 再乘回 `RGB` 图像：
+
+- `MASK` 的计算方式不变。
+- `IMAGE` 中被遮罩的区域会真正被透明度影响，从而在图像数据层面被抹除或压暗。
+
+如果未启用该选项，`IMAGE` 仍然只是“丢弃 Alpha 后的 RGB 图像”。
+
+## 6. 为什么这是非破坏性编辑
+
+这个设计的关键点在于：
+
+- 原始图片不会被覆盖。
+- 每次保存都会得到新的时间戳文件。
+- 节点只是把引用从旧路径切换到新的 `clipspace` 路径。
+
+因此：
+
+- 原图始终保留在原位置。
+- 不同保存版本天然具备隔离性。
+- 浏览器不会因为文件名不变而继续使用旧缓存。
+
+## 7. 两条链路的关系总结
+
+可以把整个机制理解成两层：
+
+- 上层是两种不同的编辑入口：
+  `官方 MaskEditor` 或 `自定义全屏编辑器 / 外部 API`。
+- 下层是统一的落盘与加载逻辑：
+  `clipspace` 时间戳文件 + 运行时从最终 PNG 拆 `MASK` 与 `IMAGE`。
+
+两条链路的区别主要在“前端如何编辑、如何提交保存”；它们的共同点在于“最终都把节点路径替换到新的 `clipspace-painted-masked-<ts>.png [input]`”。
+
+## 8. 外部 Web 接入的最小实现清单
+
+如果你要在外部 Web 项目中适配这个节点，可以按以下最小步骤实现：
+
+1. 准备原图路径，并确保它能映射到 ComfyUI 的 `input` 目录。
+2. 用前端画布分别导出 `mask_data` 与 `paint_data`。
+3. 调用 `/a_my_nodes/upload_custom_edited_image`。
+4. 获取返回的 `filepath`，并补上 ` [input]` 后缀。
+5. 将新路径写回 `LoadImageBatchAdvanced` 节点，再提交到 `/prompt`。
+
+### 8.1 推荐的请求顺序
+
+推荐将外部接入过程理解成两次提交：
+
+1. 第一次提交编辑数据到 `/a_my_nodes/upload_custom_edited_image`，生成新的 `clipspace` 文件。
+2. 第二次提交更新后的工作流到 `/prompt`，让节点读取新的最终图。
+
+这样做的好处是职责清晰：
+
+- 编辑数据生成由专用接口负责。
+- 工作流执行仍然保持 ComfyUI 原生的 `/prompt` 调度方式。
+
+### 8.2 最容易漏掉的两个点
+
+- `image_path` 必须指向 `input` 目录内可访问的图片，不能是任意绝对路径。
+- 返回的 `filepath` 只是相对路径；外部调用时要主动补上 ` [input]`，再写回节点。
+
+## 9. 常见误区
+
+### 9.1 误区：`clipspace-mask-<ts>.png` 就是一张纯黑白遮罩图
+
+不准确。它更接近“用于恢复编辑状态的中间文件”，实际包含原图 RGB 与反转后的 Alpha。
+
+### 9.2 误区：`IMAGE` 输出一定是未编辑的原图
+
+不准确。`IMAGE` 读取的是最终图像文件的 RGB 内容，因此可能包含彩色 `paint` 笔触。
+
+### 9.3 误区：整个节点完全不走 ComfyUI 常规上传接口
+
+不准确。初始导入图片时，前端仍然可以通过 ComfyUI 常规的 `/upload/image` 上传；自定义接口主要负责“编辑后重新生成 clipspace 文件”。
+
+### 9.4 误区：拿到 `filepath` 后可以直接提交工作流，不需要补 ` [input]`
+
+不建议这样做。这个节点的路径约定依赖 ` [input]` 标记，外部调用时应主动补回，保证前后端逻辑一致。
+
+## 10. 源码对应关系附录
+
+下面给出文档各结论对应的源码职责，便于后续排查和维护。
+
+### 10.1 前端入口与节点交互
+
+- `web/js/load_image_batch.js`
+  负责把 `LoadImageBatchAdvanced` 节点接入 ComfyUI 前端，包括：
+  - 图片选择、拖拽、粘贴上传。
+  - 右键菜单中的“编辑图片 (官方MaskEditor)”与“编辑图片 (全屏)”入口。
+  - 保存后把新路径回写到节点的 `image_paths`。
+
+### 10.2 官方 MaskEditor 复用封装
+
+- `web/js/load_image/image_manager.js`
+  负责封装 `openMaskEditorForImage()`：
+  - 构造 `Mock Node`。
+  - 查找 `Comfy.MaskEditor` 扩展与 `Comfy.MaskEditor.OpenMaskEditor` 命令。
+  - 调起官方编辑器，并接收保存回调。
+
+### 10.3 自定义全屏编辑器
+
+- `web/js/image_editor/image_editor.js`
+  负责自定义全屏编辑器的主要逻辑，包括：
+  - 画布 UI、遮罩层与绘画层管理。
+  - 从已有 `clipspace` 文件恢复 `mask` 与 `paint` 图层。
+  - 导出 `mask_data` 与 `paint_data`。
+  - 调用 `/a_my_nodes/upload_custom_edited_image` 并在保存后补回 ` [input]`。
+
+### 10.4 自定义后端上传接口
+
+- `routes.py`
+  负责注册并实现 `/a_my_nodes/upload_custom_edited_image`：
+  - 接收 `image_path`、`mask_data`、`paint_data`。
+  - 校验路径是否位于 `input_dir` 内。
+  - 生成 `clipspace-mask-*`、`clipspace-paint-*`、`clipspace-painted-*`、`clipspace-painted-masked-*`。
+  - 返回最终的 `filepath`。
+
+### 10.5 工作流运行时加载逻辑
+
+- `nodes/load_image_batch.py`
+  负责节点运行时的文件读取与张量输出：
+  - 剥离 ` [input]`。
+  - 拼接 `input_dir` 定位真实文件。
+  - 从 `Alpha` 通道反转生成 `MASK`。
+  - 从最终图像的 `RGB` 内容生成 `IMAGE`。
+  - 在需要时执行 `apply_alpha_to_image`。
+
+### 10.6 问题排查建议
+
+如果后续出现问题，可按职责逆推：
+
+1. `保存后路径没更新`：先查 `load_image_batch.js` 与 `image_editor.js`。
+2. `官方 MaskEditor 打不开`：先查 `image_manager.js` 中的扩展命令查找逻辑。
+3. `接口保存成功但文件异常`：先查 `routes.py` 的合成与落盘逻辑。
+4. `工作流运行后 MASK/IMAGE 不符合预期`：先查 `nodes/load_image_batch.py` 的 Alpha 与 RGB 拆分逻辑。
