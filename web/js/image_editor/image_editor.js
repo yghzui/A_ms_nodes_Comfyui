@@ -204,12 +204,24 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
 
     const cropOverlay = document.createElement("div");
     const cropBox = document.createElement("div");
+    const cropSnapGuides = {};
     const cropHandles = {};
     Object.assign(cropOverlay.style, { position: "absolute", inset: "0", pointerEvents: "none", overflow: "hidden", display: "none" });
     Object.assign(cropBox.style, {
         position: "absolute", boxSizing: "border-box", border: "2px solid #00d2ff",
         boxShadow: "0 0 0 99999px rgba(0, 0, 0, 0.45)",
         backgroundImage: "linear-gradient(to right, transparent 33.1%, rgba(255,255,255,0.5) 33.1%, rgba(255,255,255,0.5) 33.9%, transparent 33.9%, transparent 66.1%, rgba(255,255,255,0.5) 66.1%, rgba(255,255,255,0.5) 66.9%, transparent 66.9%), linear-gradient(to bottom, transparent 33.1%, rgba(255,255,255,0.5) 33.1%, rgba(255,255,255,0.5) 33.9%, transparent 33.9%, transparent 66.1%, rgba(255,255,255,0.5) 66.1%, rgba(255,255,255,0.5) 66.9%, transparent 66.9%)"
+    });
+    ['left', 'right', 'top', 'bottom'].forEach((edge) => {
+        const guide = document.createElement("div");
+        Object.assign(guide.style, {
+            position: "absolute",
+            display: "none",
+            background: "#ffb300",
+            boxShadow: "0 0 0 1px rgba(255, 179, 0, 0.35)"
+        });
+        cropSnapGuides[edge] = guide;
+        cropOverlay.appendChild(guide);
     });
     [['nw', '0%', '0%'], ['ne', '100%', '0%'], ['sw', '0%', '100%'], ['se', '100%', '100%']].forEach(([id, left, top]) => {
         const handle = document.createElement("div");
@@ -331,14 +343,21 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     const resetCropBtn = createBtn("重置裁剪", "#555");
     resetCropBtn.style.flex = "1";
     cropActionWrap.append(applyCropBtn, resetCropBtn);
+    const fitImageCropBtn = createBtn("与原图重合", "#555");
+    fitImageCropBtn.style.width = "100%";
 
     const cropMeta = document.createElement("div");
     cropMeta.style.fontSize = "12px";
     cropMeta.style.color = "#bdbdbd";
     cropMeta.style.lineHeight = "1.5";
     cropMeta.textContent = "裁剪工具未激活";
+    const cropSnapStatus = document.createElement("div");
+    cropSnapStatus.style.fontSize = "12px";
+    cropSnapStatus.style.color = "#ffca5a";
+    cropSnapStatus.style.lineHeight = "1.5";
+    cropSnapStatus.textContent = "";
 
-    cropPanel.append(cropHint, cropPresetWrap, cropActionWrap, cropMeta);
+    cropPanel.append(cropHint, cropPresetWrap, cropActionWrap, fitImageCropBtn, cropMeta, cropSnapStatus);
     rightBar.appendChild(createSection("图像裁剪", cropPanel));
 
     // Shape Toggle
@@ -411,6 +430,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
 
 
     let lastMouseE = null;
+    let cropSnapEdges = null;
     const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
     const cloneRect = (rect) => rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null;
     const roundRect = (rect) => rect ? {
@@ -530,6 +550,71 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
             new: 'crosshair'
         };
         return cursorMap[handle] || 'crosshair';
+    };
+    const getCropSnapTolerance = () => Math.max(6, 10 / Math.max(state.scale, 0.25));
+    const hasCropSnapEdge = (edges) => !!(edges && (edges.left || edges.right || edges.top || edges.bottom));
+    const getCropSnapLabels = (edges) => {
+        if (!hasCropSnapEdge(edges)) return [];
+        return [
+            edges.left ? '左边' : null,
+            edges.right ? '右边' : null,
+            edges.top ? '上边' : null,
+            edges.bottom ? '下边' : null
+        ].filter(Boolean);
+    };
+    const getCropSnapEdges = (rect, tolerance = getCropSnapTolerance()) => {
+        if (!rect) return null;
+        const normalized = normalizeRect(rect);
+        return {
+            left: Math.abs(normalized.x) <= tolerance,
+            right: Math.abs((normalized.x + normalized.width) - canvasW) <= tolerance,
+            top: Math.abs(normalized.y) <= tolerance,
+            bottom: Math.abs((normalized.y + normalized.height) - canvasH) <= tolerance
+        };
+    };
+    const applyCropSnap = (rect, action, edges = getCropSnapEdges(rect)) => {
+        if (!rect || !hasCropSnapEdge(edges)) return rect;
+        const normalized = normalizeRect(rect);
+        const right = normalized.x + normalized.width;
+        const bottom = normalized.y + normalized.height;
+        let { x, y, width, height } = normalized;
+        const isMove = action && action.type === 'move';
+
+        if (edges.left && edges.right) {
+            x = 0;
+            width = canvasW;
+        } else {
+            if (edges.left) {
+                if (isMove) x = 0;
+                else {
+                    x = 0;
+                    width = right;
+                }
+            }
+            if (edges.right) {
+                if (isMove) x = canvasW - width;
+                else width = canvasW - x;
+            }
+        }
+
+        if (edges.top && edges.bottom) {
+            y = 0;
+            height = canvasH;
+        } else {
+            if (edges.top) {
+                if (isMove) y = 0;
+                else {
+                    y = 0;
+                    height = bottom;
+                }
+            }
+            if (edges.bottom) {
+                if (isMove) y = canvasH - height;
+                else height = canvasH - y;
+            }
+        }
+
+        return clampRectToCanvas({ x, y, width, height }, 10);
     };
     const fitCropRectToAspect = (rect, aspectRatio) => {
         const normalized = normalizeRect(rect);
@@ -652,24 +737,62 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         }
         if (!state.cropRect) {
             cropMeta.textContent = `当前比例: ${state.cropPreset === 'original' ? '原比例' : state.cropPreset === 'free' ? '自由' : state.cropPreset}`;
+            cropSnapStatus.textContent = "";
             return;
         }
         const rect = roundRect(normalizeRect(state.cropRect));
         cropMeta.textContent = `当前比例: ${state.cropPreset === 'original' ? '原比例' : state.cropPreset === 'free' ? '自由' : state.cropPreset} | 区域 ${rect.width} x ${rect.height} @ (${rect.x}, ${rect.y})`;
+        const snapLabels = getCropSnapLabels(cropSnapEdges);
+        cropSnapStatus.textContent = snapLabels.length ? `贴边提示: ${snapLabels.join(' / ')}` : "";
     };
     const drawCropOverlay = () => {
         tempCtx.clearRect(0, 0, canvasW, canvasH);
         if (state.tool !== 'crop' || !state.cropRect) {
             cropOverlay.style.display = "none";
+            cropSnapEdges = null;
+            Object.values(cropSnapGuides).forEach((guide) => { guide.style.display = "none"; });
             updateCropMeta();
             return;
         }
         const rect = normalizeRect(state.cropRect);
+        cropSnapEdges = getCropSnapEdges(rect);
         cropOverlay.style.display = "block";
         cropBox.style.left = `${state.panX + rect.x * state.scale}px`;
         cropBox.style.top = `${state.panY + rect.y * state.scale}px`;
         cropBox.style.width = `${Math.max(1, rect.width * state.scale)}px`;
         cropBox.style.height = `${Math.max(1, rect.height * state.scale)}px`;
+        const imageLeft = state.panX;
+        const imageTop = state.panY;
+        const imageWidth = canvasW * state.scale;
+        const imageHeight = canvasH * state.scale;
+        Object.assign(cropSnapGuides.left.style, {
+            display: cropSnapEdges.left ? "block" : "none",
+            left: `${imageLeft}px`,
+            top: `${imageTop}px`,
+            width: "2px",
+            height: `${Math.max(1, imageHeight)}px`
+        });
+        Object.assign(cropSnapGuides.right.style, {
+            display: cropSnapEdges.right ? "block" : "none",
+            left: `${imageLeft + imageWidth - 2}px`,
+            top: `${imageTop}px`,
+            width: "2px",
+            height: `${Math.max(1, imageHeight)}px`
+        });
+        Object.assign(cropSnapGuides.top.style, {
+            display: cropSnapEdges.top ? "block" : "none",
+            left: `${imageLeft}px`,
+            top: `${imageTop}px`,
+            width: `${Math.max(1, imageWidth)}px`,
+            height: "2px"
+        });
+        Object.assign(cropSnapGuides.bottom.style, {
+            display: cropSnapEdges.bottom ? "block" : "none",
+            left: `${imageLeft}px`,
+            top: `${imageTop + imageHeight - 2}px`,
+            width: `${Math.max(1, imageWidth)}px`,
+            height: "2px"
+        });
         updateCropMeta();
     };
     const setCanvasSize = (width, height) => {
@@ -733,6 +856,13 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     const resetCropSelection = () => {
         if (!canvasW || !canvasH) return;
         state.cropRect = createDefaultCropRect();
+        cropAction = null;
+        drawCropOverlay();
+        updateCursorPos(lastMouseE);
+    };
+    fitImageCropBtn.onclick = () => {
+        if (!canvasW || !canvasH) return;
+        state.cropRect = { x: 0, y: 0, width: canvasW, height: canvasH };
         cropAction = null;
         drawCropOverlay();
         updateCursorPos(lastMouseE);
@@ -1277,6 +1407,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
             workArea.style.cursor = state.tool === 'pan' ? "grab" : "none";
         }
         if (cropAction && state.tool === 'crop') {
+            state.cropRect = applyCropSnap(state.cropRect, cropAction, cropSnapEdges);
             cropAction = null;
             drawCropOverlay();
             updateCursorPos(e);
