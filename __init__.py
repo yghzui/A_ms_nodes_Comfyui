@@ -45,6 +45,7 @@ from .nodes.wan_video_double_stream_asset import WanVideoDoubleStreamAsset
 from .nodes.crop_face_fast import CropFaceFast
 from .nodes.save_image_toggle import SaveImageWithToggle
 from .nodes.auto_vae_encode import AutoVAEEncode, FluxLatentMaskBinder
+from .nodes.workflow_force_rerun import WorkflowForceRerunPassthrough
 
 
 # 延迟注册路由 - 确保在ComfyUI完全初始化后注册
@@ -80,154 +81,156 @@ except:
     pass
 
 NODE_CLASS_MAPPINGS = {
-    "LoadAndResizeImageMy": LoadAndResizeImageMy,
-    "ResizeImagesAndMasks": ResizeImagesAndMasks,
-    "CropPerson": CropPerson,
-    "CropInfoToNumbers": CropInfoToNumbers,
-    "CropFaceMy": CropFaceMy,
-    "CropFaceMyDetailed": CropFaceMyDetailed,
-    "CropFaceFast": CropFaceFast,
-    "CreateFaceBboxMask": CreateBboxMask,
-    "CreateTextMask": CreateTextMask,
-    "CoordinateTessPosNeg": CoordinateTessPosNeg,
-    "GroundingDinoGetBbox": GroundingDinoGetBbox,
-    "MaskAdd": MaskAdd,
-    "MaskSubtract": MaskSubtract,
-    "MaskOverlap": MaskOverlap,
-    "FilterClothingWords": FilterClothingWords,
-    "PasteFacesMy": PasteFacesMy,
-    "PasteFacesAdvanced": PasteFacesAdvanced,
-    "PasteMasksMy": PasteMasksMy,
-    "GenerateBlackTensor": GenerateWhiteTensor,
-    "MyLoadImageListPlus": MyLoadImageListPlus,
-    "RemoveGlassesFaceMask": RemoveGlassesFaceMask,
-    "AdjustMaskValues": AdjustMaskValues,
-    "NoticeSound": NoticeSound,
-    "AspectRatioAdjuster": AspectRatioAdjuster,
-    "I2VConfigureNode": I2VConfigureNode,
-    "ResolutionPresetNode": ResolutionPresetNode,
-    "FramesSplitCalculator": FramesSplitCalculator,
-    "FramesSegmentSlicer": FramesSegmentSlicer,
-    "ImagesConcatWithOverlap": ImagesConcatWithOverlap,
-    "ImageFlipNode": FaceFlip,
-    "CreateColorImageAndMask": CreateColorImageAndMask,
-    "NormalizeMask": NormalizeMask,
-    "AnalyzeMask": AnalyzeMask,
-    # 注册新的节点
-    "LoadImageBatchAdvanced": LoadImageBatchAdvanced,
-    "LoadImageByIndex": LoadImageByIndex,
-    "ImageMaskedColorFill": ImageMaskedColorFill,
-    "ImageBlackColorFill": ImageBlackColorFill,
-    "ImageLayerMix": ImageLayerMix,
-    "ImageDualMaskColorFill": ImageDualMaskColorFill,
-    "LoadLoraBatch": LoadLoraBatch,
-    "WanVideoLoraBatch": WanVideoLoraBatch,
-    "ShowResultLast": ShowResultLast,
-    "ManualVideoInput": ManualVideoInput,
-    "LoadVideoFromFolder": LoadVideoFromFolder,
-    "LoadLatentUpload": LoadLatentUpload,
-    # 新增注册：图像序列与遮罩生成节点
-    "ImageToSequenceWithMask": ImageToSequenceWithMask,
-    # 新增注册：文本批量输入
-    "TextInputBatch": TextInputBatch,
-    "TextDictSplitter": TextDictSplitter,
-    # 新增注册：文本字典检查节点
-    "TextDictChecker": TextDictChecker,
-    # 新增注册：图像扩展节点
-    "ImageExpand": ImageExpand,
-    # 新增注册：增强版图像混合节点
-    "ImageBlendAdvanceMy": ImageBlendAdvanceMy,
-    # 新增注册：图像截取节点
-    "ImageTakeLast": ImageTakeLast,
-    "LoadLoraMerge": LoadLoraMerge,
-    "IndexSelector": IndexSelector,
-    "MyBatchManager": MyBatchManager,
-    # 新增注册：图像拼接多输入节点
-    "ImageConcatMultiMs": ImageConcatMultiMs,
-    "ImageBatchAccumulator": ImageBatchAccumulator,
-    "AnyBatchAccumulator": AnyBatchAccumulator,
-    "AnyBatchListConverter": AnyBatchListConverter,
-    "AnyStopOnNone": AnyStopOnNone,
-    "AnyValidityChecker": AnyValidityChecker,
-    "AnyRecover": AnyRecover,# 不生效待完善
+    "LoadAndResizeImageMy": LoadAndResizeImageMy, # 加载并调整图片大小
+    "ResizeImagesAndMasks": ResizeImagesAndMasks, # 调整图片和遮罩大小
+    "CropPerson": CropPerson, # 裁剪人物区域
+    "CropInfoToNumbers": CropInfoToNumbers, # 裁剪信息转数值
+    "CropFaceMy": CropFaceMy, # 裁剪面部
+    "CropFaceMyDetailed": CropFaceMyDetailed, # 裁剪面部（详细）
+    "CropFaceFast": CropFaceFast, # 快速裁剪面部（SCRFD）
+    "CreateFaceBboxMask": CreateBboxMask, # 创建面部边界框遮罩
+    "CreateTextMask": CreateTextMask, # 创建文本遮罩路径
+    "CoordinateTessPosNeg": CoordinateTessPosNeg, # 坐标 Tess 正负
+    "GroundingDinoGetBbox": GroundingDinoGetBbox, # Grounding Dino 获取边界框
+    "MaskAdd": MaskAdd, # 遮罩相加
+    "MaskSubtract": MaskSubtract, # 遮罩相减
+    "MaskOverlap": MaskOverlap, # 遮罩重叠
+    "FilterClothingWords": FilterClothingWords, # 过滤服装词汇
+    "PasteFacesMy": PasteFacesMy, # 粘贴面部
+    "PasteFacesAdvanced": PasteFacesAdvanced, # 粘贴面部（高级）
+    "PasteMasksMy": PasteMasksMy, # 粘贴遮罩
+    "GenerateBlackTensor": GenerateWhiteTensor, # 生成黑色张量
+    "MyLoadImageListPlus": MyLoadImageListPlus, # 加载图片列表增强版
+    "RemoveGlassesFaceMask": RemoveGlassesFaceMask, # 移除眼镜面部遮罩
+    "AdjustMaskValues": AdjustMaskValues, # 调整遮罩值
+    "NoticeSound": NoticeSound, # 提示音节点
+    "AspectRatioAdjuster": AspectRatioAdjuster, # 宽高比调整
+    "I2VConfigureNode": I2VConfigureNode, # 图生视频配置节点
+    "ResolutionPresetNode": ResolutionPresetNode, # 分辨率预设节点
+    "FramesSplitCalculator": FramesSplitCalculator, # 帧分割计算器
+    "FramesSegmentSlicer": FramesSegmentSlicer, # 帧分段切片器
+    "ImagesConcatWithOverlap": ImagesConcatWithOverlap, # 图片拼接（带重叠）
+    "ImageFlipNode": FaceFlip, # 图像翻转
+    "CreateColorImageAndMask": CreateColorImageAndMask, # 创建彩色图片和遮罩
+    "NormalizeMask": NormalizeMask, # 标准化遮罩
+    "AnalyzeMask": AnalyzeMask, # 分析遮罩
+    # 批量加载相关
+    "LoadImageBatchAdvanced": LoadImageBatchAdvanced, # 批量加载图片
+    "LoadImageByIndex": LoadImageByIndex, # 按索引加载图片
+    "ImageMaskedColorFill": ImageMaskedColorFill, # 遮罩区域颜色填充
+    "ImageBlackColorFill": ImageBlackColorFill, # 黑色填充
+    "ImageLayerMix": ImageLayerMix, # 图像图层混合
+    "ImageDualMaskColorFill": ImageDualMaskColorFill, # 双遮罩颜色填充
+    "LoadLoraBatch": LoadLoraBatch, # 批量加载 LoRA
+    "WanVideoLoraBatch": WanVideoLoraBatch, # Wan 视频 LoRA 批量
+    "ShowResultLast": ShowResultLast, # 显示最后结果（VHS 文件名）
+    "ManualVideoInput": ManualVideoInput, # 手动视频输入
+    "LoadVideoFromFolder": LoadVideoFromFolder, # 从文件夹加载视频
+    "LoadLatentUpload": LoadLatentUpload, # 加载上传的潜空间数据
+    # 图像序列与遮罩生成
+    "ImageToSequenceWithMask": ImageToSequenceWithMask, # 图像转序列带遮罩
+    # 文本批量输入
+    "TextInputBatch": TextInputBatch, # 文本批量输入
+    "TextDictSplitter": TextDictSplitter, # 文本字典分割
+    # 文本字典检查
+    "TextDictChecker": TextDictChecker, # 文本字典检查
+    # 图像扩展
+    "ImageExpand": ImageExpand, # 图像扩展
+    # 增强版图像混合
+    "ImageBlendAdvanceMy": ImageBlendAdvanceMy, # 增强版图像混合
+    # 图像截取
+    "ImageTakeLast": ImageTakeLast, # 截取最后几张图片
+    "LoadLoraMerge": LoadLoraMerge, # 加载并合并 LoRA
+    "IndexSelector": IndexSelector, # 索引选择器
+    "MyBatchManager": MyBatchManager, # 批量管理器
+    # 图像拼接多输入
+    "ImageConcatMultiMs": ImageConcatMultiMs, # 图像拼接多输入
+    "ImageBatchAccumulator": ImageBatchAccumulator, # 图像批量累加器
+    "AnyBatchAccumulator": AnyBatchAccumulator, # 任意类型批量累加器
+    "AnyBatchListConverter": AnyBatchListConverter, # 任意类型批量列表转换器
+    "AnyStopOnNone": AnyStopOnNone, # 遇到空值停止
+    "AnyValidityChecker": AnyValidityChecker, # 任意类型数据校验器
+    "AnyRecover": AnyRecover, # 任意类型数据恢复（不生效待完善）
     # "AnyDataAnalyzer": AnyDataAnalyzer,
-    "GetNodeInputValue": GetNodeInputValue,
-    "WanVideoDoubleStream": WanVideoDoubleStream,
-    "WanVideoDoubleStreamAsset": WanVideoDoubleStreamAsset,
-    "SaveImageWithToggle": SaveImageWithToggle,
-    "AutoVAEEncode": AutoVAEEncode,
-    "FluxLatentMaskBinder": FluxLatentMaskBinder,
+    "GetNodeInputValue": GetNodeInputValue, # 获取节点输入值
+    "WanVideoDoubleStream": WanVideoDoubleStream, # Wan 视频双流
+    "WanVideoDoubleStreamAsset": WanVideoDoubleStreamAsset, # Wan 视频双流资产
+    "SaveImageWithToggle": SaveImageWithToggle, # 保存带开关的图片
+    "AutoVAEEncode": AutoVAEEncode, # 自动 VAE 编码（切换）
+    "FluxLatentMaskBinder": FluxLatentMaskBinder, # Flux 潜空间遮罩绑定
+    "WorkflowForceRerunPassthrough": WorkflowForceRerunPassthrough, # 强制让工作流每次更新
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "LoadAndResizeImageMy": "Load & Resize Image by ms",
-    "ResizeImagesAndMasks": "Resize Images and Masks by ms",
-    "CropPerson": "Crop Person by ms",
-    "CropInfoToNumbers": "Crop Info to Numbers by ms",
-    "CropFaceMy": "Crop Face by ms",
-    "CropFaceMyDetailed": "Crop Face Detailed by ms",
-    "CropFaceFast": "Crop Face Fast (SCRFD) by ms",
-    "CreateFaceBboxMask": "Create Face Bbox Mask by ms",
-    "CreateTextMask": "Create Text Mask Path by ms",
-    "example_class": "Example Class by ms",
-    "GroundingDinoGetBbox": "Grounding Dino Get Bbox by ms",
-    "CoordinateTessPosNeg": "Coordinate Tess Pos Neg by ms",
-    "MaskAdd": "Mask Add by ms",
-    "MaskSubtract": "Mask Subtract by ms",
-    "MaskOverlap": "Mask Overlap by ms",
-    "FilterClothingWords": "Filter Clothing Words by ms",
-    "PasteFacesMy": "Paste Faces My by ms",
-    "PasteFacesAdvanced": "Paste Faces Advanced by ms",
-    "PasteMasksMy": "Paste Masks My by ms",
-    "GenerateBlackTensor": "Generate Black Tensor by ms",
-    "MyLoadImageListPlus": "Load Image List Plus by ms",
-    "RemoveGlassesFaceMask": "Remove Glasses Face Mask by ms",
-    "AdjustMaskValues": "Adjust Mask Values by ms",
-    "NoticeSound": "Notice Sound Node by ms",
-    "AspectRatioAdjuster": "Aspect Ratio Adjuster by ms",
-    "I2VConfigureNode": "I2V Configure Node by ms",
-    "ResolutionPresetNode": "Resolution Preset Node by ms",
-    "FramesSplitCalculator": "Frames Split Calculator by ms",
-    "FramesSegmentSlicer": "Frames Segment Slicer by ms",
-    "ImagesConcatWithOverlap": "Images Concat With Overlap by ms",
-    "ImageFlipNode": "Image Flip Node by ms",
-    "CreateColorImageAndMask": "Create Color Image And Mask by ms",
-    "NormalizeMask": "Normalize Mask by ms",
-    "AnalyzeMask": "Analyze Mask by ms",
-    "LoadImageBatchAdvanced": "Load Image Batch by ms",
-    "LoadImageByIndex": "Load Image By Index by ms",
-    "ImageMaskedColorFill": "Image Masked Color Fill by ms",
-    "ImageBlackColorFill": "Image Black Color Fill by ms",
-    "ImageLayerMix": "Image Layer Mix by ms",
-    "ImageDualMaskColorFill": "Image Dual Mask Color Fill by ms",
-    "LoadLoraBatch": "Load Lora Batch by ms",
-    "WanVideoLoraBatch": "Wan Video Lora Batch by ms",
-    "ShowResultLast": "Show Result Last (VHS Filenames) by ms",
-    "ManualVideoInput": "Manual Video Input by ms",
-    "LoadVideoFromFolder": "Load Video From Folder by ms",
-    "LoadLatentUpload": "Load Latent Upload by ms",
-    "ImageToSequenceWithMask": "Image To Sequence With Mask by ms",
-    "TextInputBatch": "Text Input Batch by ms",
-    "TextDictSplitter": "Text Dict Splitter by ms",
-    "TextDictChecker": "Text Dict Checker by ms",
-    "ImageExpand": "Image Expand by ms",
-    "ImageBlendAdvanceMy": "Image Blend Advance My by ms",
-    "ImageTakeLast": "Image Take Last by ms",
-    "LoadLoraMerge": "Load Lora Merge by ms",
-    "IndexSelector": "Index Selector by ms",
-    "MyBatchManager": "My Batch Manager by ms",
-    "ImageConcatMultiMs": "Image Concat Multi by ms",
-    "ImageBatchAccumulator": "Image Batch Accumulator by ms",
-    "AnyBatchAccumulator": "Any Batch Accumulator by ms",
-    "AnyBatchListConverter": "Any Batch List Converter by ms",
-    "AnyStopOnNone": "Any Stop On None by ms",
-    "AnyValidityChecker": "Any Validity Checker by ms",
-    "AnyRecover": "Any Recover by ms",# 不生效待完善
-    "GetNodeInputValue": "Get Node Input Value by ms",
-    "WanVideoDoubleStream": "Wan Video Double Stream by ms",
-    "WanVideoDoubleStreamAsset": "Wan Video Double Stream Asset by ms",
-    "SaveImageWithToggle": "Save Image With Toggle by ms",
-    "AutoVAEEncode": "Auto VAE Encode (Switch) by ms",
-    "FluxLatentMaskBinder": "Flux Latent Mask Binder by ms",
+    "LoadAndResizeImageMy": "Load & Resize Image by ms", # 加载并调整图片大小
+    "ResizeImagesAndMasks": "Resize Images and Masks by ms", # 调整图片和遮罩大小
+    "CropPerson": "Crop Person by ms", # 裁剪人物区域
+    "CropInfoToNumbers": "Crop Info to Numbers by ms", # 裁剪信息转数值
+    "CropFaceMy": "Crop Face by ms", # 裁剪面部
+    "CropFaceMyDetailed": "Crop Face Detailed by ms", # 裁剪面部（详细）
+    "CropFaceFast": "Crop Face Fast (SCRFD) by ms", # 快速裁剪面部（SCRFD）
+    "CreateFaceBboxMask": "Create Face Bbox Mask by ms", # 创建面部边界框遮罩
+    "CreateTextMask": "Create Text Mask Path by ms", # 创建文本遮罩路径
+    "example_class": "Example Class by ms", # 示例类
+    "GroundingDinoGetBbox": "Grounding Dino Get Bbox by ms", # Grounding Dino 获取边界框
+    "CoordinateTessPosNeg": "Coordinate Tess Pos Neg by ms", # 坐标 Tess 正负
+    "MaskAdd": "Mask Add by ms", # 遮罩相加
+    "MaskSubtract": "Mask Subtract by ms", # 遮罩相减
+    "MaskOverlap": "Mask Overlap by ms", # 遮罩重叠
+    "FilterClothingWords": "Filter Clothing Words by ms", # 过滤服装词汇
+    "PasteFacesMy": "Paste Faces My by ms", # 粘贴面部
+    "PasteFacesAdvanced": "Paste Faces Advanced by ms", # 粘贴面部（高级）
+    "PasteMasksMy": "Paste Masks My by ms", # 粘贴遮罩
+    "GenerateBlackTensor": "Generate Black Tensor by ms", # 生成黑色张量
+    "MyLoadImageListPlus": "Load Image List Plus by ms", # 加载图片列表增强版
+    "RemoveGlassesFaceMask": "Remove Glasses Face Mask by ms", # 移除眼镜面部遮罩
+    "AdjustMaskValues": "Adjust Mask Values by ms", # 调整遮罩值
+    "NoticeSound": "Notice Sound Node by ms", # 提示音节点
+    "AspectRatioAdjuster": "Aspect Ratio Adjuster by ms", # 宽高比调整
+    "I2VConfigureNode": "I2V Configure Node by ms", # 图生视频配置节点
+    "ResolutionPresetNode": "Resolution Preset Node by ms", # 分辨率预设节点
+    "FramesSplitCalculator": "Frames Split Calculator by ms", # 帧分割计算器
+    "FramesSegmentSlicer": "Frames Segment Slicer by ms", # 帧分段切片器
+    "ImagesConcatWithOverlap": "Images Concat With Overlap by ms", # 图片拼接（带重叠）
+    "ImageFlipNode": "Image Flip Node by ms", # 图像翻转
+    "CreateColorImageAndMask": "Create Color Image And Mask by ms", # 创建彩色图片和遮罩
+    "NormalizeMask": "Normalize Mask by ms", # 标准化遮罩
+    "AnalyzeMask": "Analyze Mask by ms", # 分析遮罩
+    "LoadImageBatchAdvanced": "Load Image Batch by ms", # 批量加载图片
+    "LoadImageByIndex": "Load Image By Index by ms", # 按索引加载图片
+    "ImageMaskedColorFill": "Image Masked Color Fill by ms", # 遮罩区域颜色填充
+    "ImageBlackColorFill": "Image Black Color Fill by ms", # 黑色填充
+    "ImageLayerMix": "Image Layer Mix by ms", # 图像图层混合
+    "ImageDualMaskColorFill": "Image Dual Mask Color Fill by ms", # 双遮罩颜色填充
+    "LoadLoraBatch": "Load Lora Batch by ms", # 批量加载 LoRA
+    "WanVideoLoraBatch": "Wan Video Lora Batch by ms", # Wan 视频 LoRA 批量
+    "ShowResultLast": "Show Result Last (VHS Filenames) by ms", # 显示最后结果（VHS 文件名）
+    "ManualVideoInput": "Manual Video Input by ms", # 手动视频输入
+    "LoadVideoFromFolder": "Load Video From Folder by ms", # 从文件夹加载视频
+    "LoadLatentUpload": "Load Latent Upload by ms", # 加载上传的潜空间数据
+    "ImageToSequenceWithMask": "Image To Sequence With Mask by ms", # 图像转序列带遮罩
+    "TextInputBatch": "Text Input Batch by ms", # 文本批量输入
+    "TextDictSplitter": "Text Dict Splitter by ms", # 文本字典分割
+    "TextDictChecker": "Text Dict Checker by ms", # 文本字典检查
+    "ImageExpand": "Image Expand by ms", # 图像扩展
+    "ImageBlendAdvanceMy": "Image Blend Advance My by ms", # 增强版图像混合
+    "ImageTakeLast": "Image Take Last by ms", # 截取最后几张图片
+    "LoadLoraMerge": "Load Lora Merge by ms", # 加载并合并 LoRA
+    "IndexSelector": "Index Selector by ms", # 索引选择器
+    "MyBatchManager": "My Batch Manager by ms", # 批量管理器
+    "ImageConcatMultiMs": "Image Concat Multi by ms", # 图像拼接多输入
+    "ImageBatchAccumulator": "Image Batch Accumulator by ms", # 图像批量累加器
+    "AnyBatchAccumulator": "Any Batch Accumulator by ms", # 任意类型批量累加器
+    "AnyBatchListConverter": "Any Batch List Converter by ms", # 任意类型批量列表转换器
+    "AnyStopOnNone": "Any Stop On None by ms", # 遇到空值停止
+    "AnyValidityChecker": "Any Validity Checker by ms", # 任意类型数据校验器
+    "AnyRecover": "Any Recover by ms", # 任意类型数据恢复（不生效待完善）
+    "GetNodeInputValue": "Get Node Input Value by ms", # 获取节点输入值
+    "WanVideoDoubleStream": "Wan Video Double Stream by ms", # Wan 视频双流
+    "WanVideoDoubleStreamAsset": "Wan Video Double Stream Asset by ms", # Wan 视频双流资产
+    "SaveImageWithToggle": "Save Image With Toggle by ms", # 保存带开关的图片
+    "AutoVAEEncode": "Auto VAE Encode (Switch) by ms", # 自动 VAE 编码（切换）
+    "FluxLatentMaskBinder": "Flux Latent Mask Binder by ms", # Flux 潜空间遮罩绑定
+    "WorkflowForceRerunPassthrough": "Workflow Force Rerun Passthrough by ms", # 强制让工作流每次更新
 }
 
 WEB_DIRECTORY = "./web/js"
