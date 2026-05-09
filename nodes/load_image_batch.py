@@ -90,7 +90,7 @@ class LoadImageBatchAdvanced:
     CATEGORY = "A_my_nodes/Image"
 
     def load_images(self, image_paths, image_path_use="", folder_path="", normalize_mask=True, apply_alpha_to_image=False, reuse_mask=False, batch_manager=None):
-        use_str = (image_path_use or '').strip() or (image_paths or '').strip()
+        use_str = (image_path_use or '').strip()
         raw_paths = [p.strip() for p in use_str.split(',') if p.strip()]
         
         input_dir = folder_paths.get_input_directory()
@@ -120,7 +120,7 @@ class LoadImageBatchAdvanced:
         all_paths = raw_paths + folder_images
         
         if not all_paths:
-            return ([], [], [], 0, "")
+            return ([None], [None], [""], 0, "")
 
         template_paths = []
         if reuse_mask:

@@ -115,7 +115,7 @@ class ImageConcatMultiMs:
                 "tooltip": "图像拼接方向：right-向右拼接，down-向下拼接，left-向左拼接，up-向上拼接。"
                 }),
                 "match_image_size": ("BOOLEAN", {
-                    "default": False,
+                    "default": True,
                     "tooltip": "是否匹配图像尺寸。启用时会将所有图像调整为相同尺寸后再拼接。"
                 }),
                 "batch_align_mode": (

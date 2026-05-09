@@ -378,9 +378,10 @@ class AnyValidityChecker:
         return {
             "required": {
                 "math_expr": ("STRING", {"default": "+0", "tooltip": "输入如 +1, -2, *100, /2，对最终的判断结果(0或1)应用该数学运算。"}),
+                "invalid_output_mode": (["block", "none"], {"default": "block", "tooltip": "无效数据时 out_data 的输出方式：block=输出终止信号阻止后续节点执行，none=直接输出 None。"}),
             },
             "optional": {
-                "any_data": (ANY_TYPE, {"tooltip": "需要检查有效性的任意数据(图像、遮罩、Latent等)。若无效则any_data输出端会停止后续执行。"}),
+                "any_data": (ANY_TYPE, {"tooltip": "需要检查有效性的任意数据(图像、遮罩、Latent等)。当数据无效时，out_data 的行为由 invalid_output_mode 控制。"}),
             }
         }
 
@@ -390,7 +391,7 @@ class AnyValidityChecker:
     INPUT_IS_LIST = True
     FUNCTION = "check_validity"
     CATEGORY = "A_my_nodes/logic"
-    DESCRIPTION = "检查输入数据是否有效（非空、非零、非NaN等）。可以对检查结果(0或1)进行数学运算，并将无效数据自动拦截以阻止后续节点执行。"
+    DESCRIPTION = "检查输入数据是否有效（非空、非零、非NaN等）。可以对检查结果(0或1)进行数学运算，并在数据无效时按参数设置输出终止信号或 None。"
 
     def _parse_and_apply_math(self, base_val, expr):
         if not expr or not isinstance(expr, str):
@@ -418,14 +419,18 @@ class AnyValidityChecker:
             return base_val // val if val != 0 else base_val # 避免除零错误，使用整除保持返回INT类型
         return base_val
 
-    def check_validity(self, any_data=None, math_expr=None):
+    def _get_invalid_output(self, output_mode):
+        return None if output_mode == "none" else ExecutionBlocker(None)
+
+    def check_validity(self, any_data=None, math_expr=None, invalid_output_mode=None):
         # 处理空输入情况（例如上游被Bypass且无有效数据）
         if not any_data:
             expr = math_expr[0] if (math_expr and len(math_expr) > 0) else "+0"
+            output_mode = invalid_output_mode[0] if (invalid_output_mode and len(invalid_output_mode) > 0) else "block"
             final_int = self._parse_and_apply_math(0, expr)
             
-            print("AnyValidityChecker: 收到空数据，停止该分支的后续执行。")
-            return ([False], [final_int], [ExecutionBlocker(None)])
+            print(f"AnyValidityChecker: 收到空数据，out_data 将按 {output_mode} 模式输出。")
+            return ([False], [final_int], [self._get_invalid_output(output_mode)])
             
         out_bool = []
         out_int = []
@@ -467,6 +472,9 @@ class AnyValidityChecker:
             expr = "+0"
             if math_expr:
                 expr = math_expr[i] if i < len(math_expr) else math_expr[-1]
+            output_mode = "block"
+            if invalid_output_mode:
+                output_mode = invalid_output_mode[i] if i < len(invalid_output_mode) else invalid_output_mode[-1]
             
             base_int = 1 if is_valid else 0
             final_int = self._parse_and_apply_math(base_int, expr)
@@ -477,8 +485,8 @@ class AnyValidityChecker:
             if is_valid:
                 out_data.append(data)
             else:
-                print("AnyValidityChecker: 检测到无效数据，停止该分支的后续执行。")
-                out_data.append(ExecutionBlocker(None))
+                print(f"AnyValidityChecker: 检测到无效数据，out_data 将按 {output_mode} 模式输出。")
+                out_data.append(self._get_invalid_output(output_mode))
                 
         return (out_bool, out_int, out_data)
 

@@ -254,10 +254,10 @@ export function showImages(node, paths) {
     
     const imagePathUseWidget = node.widgets.find(w => w.name === "image_path_use");
     const selectedList = (imagePathUseWidget && imagePathUseWidget.value) ? imagePathUseWidget.value.split(',').filter(s => s.trim()) : [];
-    if (!selectedList.length) {
-        node._customSelectedImages = new Array(validPaths.length).fill(true);
-    } else {
+    if (selectedList.length) {
         node._customSelectedImages = validPaths.map(p => selectedList.includes(p));
+    } else {
+        node._customSelectedImages = new Array(validPaths.length).fill(false);
     }
     
     node._customSingleImageMode = false;

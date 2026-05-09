@@ -46,6 +46,7 @@ from .nodes.crop_face_fast import CropFaceFast
 from .nodes.save_image_toggle import SaveImageWithToggle
 from .nodes.auto_vae_encode import AutoVAEEncode, FluxLatentMaskBinder
 from .nodes.workflow_force_rerun import WorkflowForceRerunPassthrough
+from .nodes.group_switch_any import GroupSwitchAny
 
 
 # 延迟注册路由 - 确保在ComfyUI完全初始化后注册
@@ -159,6 +160,7 @@ NODE_CLASS_MAPPINGS = {
     "AutoVAEEncode": AutoVAEEncode, # 自动 VAE 编码（切换）
     "FluxLatentMaskBinder": FluxLatentMaskBinder, # Flux 潜空间遮罩绑定
     "WorkflowForceRerunPassthrough": WorkflowForceRerunPassthrough, # 强制让工作流每次更新
+    "GroupSwitchAny": GroupSwitchAny, # 任意类型分组切换
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by ms", # 加载并调整图片大小
@@ -231,6 +233,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "AutoVAEEncode": "Auto VAE Encode (Switch) by ms", # 自动 VAE 编码（切换）
     "FluxLatentMaskBinder": "Flux Latent Mask Binder by ms", # Flux 潜空间遮罩绑定
     "WorkflowForceRerunPassthrough": "Workflow Force Rerun Passthrough by ms", # 强制让工作流每次更新
+    "GroupSwitchAny": "Group Switch Any by ms", # 任意类型分组切换
 }
 
 WEB_DIRECTORY = "./web/js"
