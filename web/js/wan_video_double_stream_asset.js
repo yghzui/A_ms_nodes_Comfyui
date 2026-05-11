@@ -20,6 +20,10 @@ app.registerExtension({
                 this.groupsList = []; // 存储所有组名
                 this.currentGroupFilter = "All"; // 当前选择的组过滤器
                 this.viewMode = "list"; // 'list' 或 'grid'
+                this.searchKeyword = ""; // 当前搜索关键字
+                this.searchDebounceTimer = null; // 搜索防抖定时器
+                this.assetDisplayOrder = []; // 资产显示顺序，支持拖拽后真实改变位置
+                this.hoverPreviewEl = null; // 当前悬浮预览图
                 try {
                     const savedViewMode = localStorage.getItem("wan_video_double_stream_asset_view_mode");
                     if (savedViewMode === "list" || savedViewMode === "grid") {
@@ -68,6 +72,22 @@ app.registerExtension({
                 container.style.fontSize = "12px";
 
                 this.renderContainer = container;
+                this._handleHoverPreviewWindowBlur = () => {
+                    this.removeHoverPreview();
+                };
+                window.addEventListener("blur", this._handleHoverPreviewWindowBlur);
+
+                // execution_start 是全局事件，这里用“节点实例级监听”确保 this 指向当前节点
+                // 并避免整表重渲染：优先局部更新
+                this._handleExecutionStart = () => {
+                    if (this.hitStatus && Object.keys(this.hitStatus).length > 0) {
+                        this.hitStatus = {};
+                        if (!this.refreshVisibleItemStates()) {
+                            this.renderList();
+                        }
+                    }
+                };
+                api.addEventListener("execution_start", this._handleExecutionStart);
 
                 // 初始化时加载数据并还原选中状态
                 this.loadAssetsData().then(() => {
@@ -93,17 +113,28 @@ app.registerExtension({
                         }
                     });
                 }
-                // 重新渲染以显示命中效果
-                this.renderList();
-            };
-
-            // 监听执行开始事件，清除状态
-            api.addEventListener("execution_start", () => {
-                if (this.hitStatus && Object.keys(this.hitStatus).length > 0) {
-                    this.hitStatus = {};
+                if (!this.refreshVisibleItemStates()) {
                     this.renderList();
                 }
-            });
+            };
+
+            // 节点移除时清理事件监听，避免泄漏
+            const onRemoved = nodeType.prototype.onRemoved;
+            nodeType.prototype.onRemoved = function () {
+                try {
+                    if (this._handleHoverPreviewWindowBlur) {
+                        window.removeEventListener("blur", this._handleHoverPreviewWindowBlur);
+                        this._handleHoverPreviewWindowBlur = null;
+                    }
+                    if (this._handleExecutionStart) {
+                        api.removeEventListener("execution_start", this._handleExecutionStart);
+                        this._handleExecutionStart = null;
+                    }
+                    if (this.removeHoverPreview) this.removeHoverPreview();
+                } catch (e) {}
+
+                if (onRemoved) return onRemoved.apply(this, arguments);
+            };
 
                 nodeType.prototype.loadAssetsData = async function () {
                 try {
@@ -128,6 +159,7 @@ app.registerExtension({
                             }
                         });
                     }
+                    this.syncAssetDisplayOrder();
                 } catch (e) {
                     console.error("[WanVideoDoubleStreamAsset] Failed to load models data:", e);
                 }
@@ -152,13 +184,187 @@ app.registerExtension({
                 if (this.selectedWidget) {
                     this.selectedWidget.value = JSON.stringify(this.selectedAssets);
                 }
+                if (typeof this.setDirtyCanvas === "function") {
+                    this.setDirtyCanvas(true, true);
+                }
+                if (this.graph && typeof this.graph.setDirtyCanvas === "function") {
+                    this.graph.setDirtyCanvas(true, true);
+                } else if (app.graph && typeof app.graph.setDirtyCanvas === "function") {
+                    app.graph.setDirtyCanvas(true, true);
+                }
             };
 
-            nodeType.prototype.renderList = function () {
+            nodeType.prototype.getPreviewImageSrc = function (item) {
+                if (!item) return "";
+                if (item.preview_image) {
+                    return `/a_my_nodes/assets/view_preview?path=${encodeURIComponent(item.preview_image)}`;
+                }
+
+                let firstLora = "";
+                if (item.high_loras && item.high_loras.length > 0 && item.high_loras[0].lora) {
+                    firstLora = item.high_loras[0].lora;
+                } else if (item.low_loras && item.low_loras.length > 0 && item.low_loras[0].lora) {
+                    firstLora = item.low_loras[0].lora;
+                }
+
+                if (firstLora && firstLora !== "None") {
+                    return `/a_my_nodes/assets/view_preview?fallback_lora=${encodeURIComponent(firstLora)}`;
+                }
+
+                return "";
+            };
+
+            nodeType.prototype.removeHoverPreview = function () {
+                if (this.hoverPreviewEl && this.hoverPreviewEl.parentNode) {
+                    this.hoverPreviewEl.remove();
+                }
+                this.hoverPreviewEl = null;
+            };
+
+            nodeType.prototype.updateHoverPreviewPosition = function (clientX, clientY) {
+                if (!this.hoverPreviewEl) return;
+                this.hoverPreviewEl.style.left = (clientX + 15) + "px";
+                this.hoverPreviewEl.style.top = (clientY + 15) + "px";
+            };
+
+            nodeType.prototype.buildSelectedAssetMap = function () {
+                const map = new Map();
+                this.selectedAssets.forEach((sel, selectedIndex) => {
+                    map.set(sel.id, {
+                        enable_mode: sel.enable_mode || "Auto",
+                        selectedIndex
+                    });
+                });
+                return map;
+            };
+
+            nodeType.prototype.syncAssetDisplayOrder = function () {
+                const currentIds = this.assetsData.map(asset => asset.id);
+                const currentIdSet = new Set(currentIds);
+                const existingOrder = Array.isArray(this.assetDisplayOrder) ? this.assetDisplayOrder : [];
+                const nextOrder = existingOrder.filter(id => currentIdSet.has(id));
+                const orderedIdSet = new Set(nextOrder);
+
+                currentIds.forEach(id => {
+                    if (!orderedIdSet.has(id)) {
+                        nextOrder.push(id);
+                        orderedIdSet.add(id);
+                    }
+                });
+
+                this.assetDisplayOrder = nextOrder;
+                return nextOrder;
+            };
+
+            nodeType.prototype.getOrderedAssetsData = function () {
+                const orderedIds = this.syncAssetDisplayOrder();
+                const assetMap = new Map(this.assetsData.map(asset => [asset.id, asset]));
+                return orderedIds.map(id => assetMap.get(id)).filter(Boolean);
+            };
+
+            nodeType.prototype.refreshVisibleItemStates = function () {
+                const container = this.renderContainer;
+                if (!container) return false;
+                const listContainer = container.querySelector(".am-list-container");
+                if (!listContainer) return false;
+
+                const latestSelectedMap = this.buildSelectedAssetMap();
+                let refreshed = false;
+                listContainer.querySelectorAll(".am-asset-item").forEach(itemEl => {
+                    const selectedInfo = latestSelectedMap.get(itemEl.dataset.assetId) || null;
+                    if (typeof itemEl._applySelectionState === "function") {
+                        itemEl._applySelectionState(selectedInfo);
+                        refreshed = true;
+                    }
+                });
+                return refreshed;
+            };
+
+            nodeType.prototype.reorderVisibleItemsInDom = function (listContainer) {
+                const itemsContainer = listContainer?.querySelector(".am-items");
+                if (!itemsContainer) return false;
+
+                const itemNodes = Array.from(itemsContainer.querySelectorAll(".am-asset-item"));
+                if (itemNodes.length === 0) return false;
+
+                const nodeMap = new Map(itemNodes.map(node => [node.dataset.assetId, node]));
+                const orderedVisibleNodes = this.syncAssetDisplayOrder()
+                    .filter(id => nodeMap.has(id))
+                    .map(id => nodeMap.get(id));
+
+                if (orderedVisibleNodes.length !== itemNodes.length) return false;
+
+                orderedVisibleNodes.forEach(node => itemsContainer.appendChild(node));
+                return true;
+            };
+
+            nodeType.prototype.getSearchTextForAsset = function (asset) {
+                return [
+                    asset?.keyword || "",
+                    asset?.groupName || "",
+                    asset?.check_mode || ""
+                ].join(" ");
+            };
+
+            nodeType.prototype.getLocalSearchMatchSet = function (normalizedSearch) {
+                const matchedIds = new Set();
+                if (!normalizedSearch) {
+                    this.assetsData.forEach(asset => matchedIds.add(asset.id));
+                    return matchedIds;
+                }
+
+                this.assetsData.forEach(asset => {
+                    const searchText = this.getSearchTextForAsset(asset).toLowerCase();
+                    if (searchText.includes(normalizedSearch)) {
+                        matchedIds.add(asset.id);
+                    }
+                });
+                return matchedIds;
+            };
+
+            nodeType.prototype.getSearchMatchSet = async function (normalizedSearch) {
+                if (!normalizedSearch) {
+                    return this.getLocalSearchMatchSet("");
+                }
+
+                try {
+                    const texts = this.assetsData.map(asset => this.getSearchTextForAsset(asset));
+                    const res = await api.fetchApi("/a_my_nodes/assets/search_pinyin", {
+                        method: "POST",
+                        body: JSON.stringify({ texts, keyword: normalizedSearch }),
+                        headers: { "Content-Type": "application/json" }
+                    });
+                    const data = await res.json();
+                    if (data && Array.isArray(data.matches) && data.matches.length === this.assetsData.length) {
+                        const matchedIds = new Set();
+                        data.matches.forEach((matched, idx) => {
+                            if (matched && this.assetsData[idx]) {
+                                matchedIds.add(this.assetsData[idx].id);
+                            }
+                        });
+                        return matchedIds;
+                    }
+                } catch (e) {
+                    console.warn("[WanVideoDoubleStreamAsset] Search API failed, fallback to local search:", e);
+                }
+
+                return this.getLocalSearchMatchSet(normalizedSearch);
+            };
+
+            nodeType.prototype.renderList = async function () {
                 const container = this.renderContainer;
                 if (!container) return;
 
+                this.removeHoverPreview();
                 container.innerHTML = "";
+
+                const normalizedSearch = (this.searchKeyword || "").trim().toLowerCase();
+                const currentRenderSeq = (this._renderListSeq || 0) + 1;
+                this._renderListSeq = currentRenderSeq;
+                const matchedAssetIds = await this.getSearchMatchSet(normalizedSearch);
+                if (this._renderListSeq !== currentRenderSeq) return;
+
+                const matchesSearch = (asset) => matchedAssetIds.has(asset.id);
 
                 // --- 渲染工具栏 ---
                 const toolbar = document.createElement("div");
@@ -174,6 +380,8 @@ app.registerExtension({
                 const btnGroup = document.createElement("div");
                 btnGroup.style.display = "flex";
                 btnGroup.style.gap = "5px";
+                btnGroup.style.alignItems = "center";
+                btnGroup.style.flexWrap = "wrap";
 
                 const btnSelectAll = document.createElement("button");
                 btnSelectAll.textContent = "全选";
@@ -181,7 +389,7 @@ app.registerExtension({
                 btnSelectAll.style.cursor = "pointer";
                 btnSelectAll.onclick = () => {
                     this.assetsData.forEach(asset => {
-                        if (this.currentGroupFilter === "All" || asset.groupName === this.currentGroupFilter) {
+                        if ((this.currentGroupFilter === "All" || asset.groupName === this.currentGroupFilter) && matchesSearch(asset)) {
                             if (!this.selectedAssets.find(s => s.id === asset.id)) {
                                 this.selectedAssets.push({
                                     id: asset.id,
@@ -191,7 +399,9 @@ app.registerExtension({
                         }
                     });
                     this.updateWidgetValue();
-                    this.renderList();
+                    if (!this.refreshVisibleItemStates()) {
+                        this.renderList();
+                    }
                 };
 
                 const btnInvertSelect = document.createElement("button");
@@ -203,7 +413,7 @@ app.registerExtension({
                     const toRemove = [];
                     
                     this.assetsData.forEach(asset => {
-                        if (this.currentGroupFilter === "All" || asset.groupName === this.currentGroupFilter) {
+                        if ((this.currentGroupFilter === "All" || asset.groupName === this.currentGroupFilter) && matchesSearch(asset)) {
                             const isSelected = !!this.selectedAssets.find(s => s.id === asset.id);
                             if (isSelected) {
                                 toRemove.push(asset.id);
@@ -219,7 +429,9 @@ app.registerExtension({
                     this.selectedAssets = this.selectedAssets.filter(s => !toRemove.includes(s.id));
                     this.selectedAssets.push(...toAdd);
                     this.updateWidgetValue();
-                    this.renderList();
+                    if (!this.refreshVisibleItemStates()) {
+                        this.renderList();
+                    }
                 };
 
                 btnGroup.appendChild(btnSelectAll);
@@ -239,6 +451,105 @@ app.registerExtension({
                     btnRefresh.disabled = false;
                 };
                 btnGroup.appendChild(btnRefresh);
+
+                const searchWrapper = document.createElement("div");
+                searchWrapper.style.position = "relative";
+                searchWrapper.style.display = "flex";
+                searchWrapper.style.alignItems = "center";
+
+                const searchInput = document.createElement("input");
+                searchInput.type = "text";
+                searchInput.className = "am-search-input";
+                searchInput.placeholder = "搜索标题/分组";
+                searchInput.value = this.searchKeyword || "";
+                searchInput.style.width = "180px";
+                searchInput.style.padding = "3px 22px 3px 6px";
+                searchInput.style.fontSize = "10px";
+                searchInput.style.color = "#fff";
+                searchInput.style.background = "#333";
+                searchInput.style.border = "1px solid #555";
+                searchInput.style.borderRadius = "3px";
+                searchInput.style.outline = "none";
+                searchInput.title = "按标题、分组或模式搜索";
+                let isSearchComposing = false;
+                const rerenderSearchInput = (selectionStart, selectionEnd) => {
+                    this.renderList();
+                    requestAnimationFrame(() => {
+                        const nextInput = this.renderContainer?.querySelector(".am-search-input");
+                        if (nextInput) {
+                            nextInput.focus();
+                            if (typeof selectionStart === "number" && typeof selectionEnd === "number") {
+                                nextInput.setSelectionRange(selectionStart, selectionEnd);
+                            }
+                        }
+                    });
+                };
+                const scheduleSearchRender = (selectionStart, selectionEnd, delay = 150) => {
+                    if (this.searchDebounceTimer) {
+                        clearTimeout(this.searchDebounceTimer);
+                    }
+                    this.searchDebounceTimer = setTimeout(() => {
+                        this.searchDebounceTimer = null;
+                        rerenderSearchInput(selectionStart, selectionEnd);
+                    }, delay);
+                };
+                searchInput.addEventListener("compositionstart", () => {
+                    isSearchComposing = true;
+                    if (this.searchDebounceTimer) {
+                        clearTimeout(this.searchDebounceTimer);
+                        this.searchDebounceTimer = null;
+                    }
+                });
+                searchInput.addEventListener("compositionend", (e) => {
+                    isSearchComposing = false;
+                    this.searchKeyword = e.target.value;
+                    const end = e.target.value.length;
+                    scheduleSearchRender(end, end);
+                });
+                searchInput.oninput = (e) => {
+                    if (isSearchComposing) return;
+                    const target = e.target;
+                    const selectionStart = target.selectionStart ?? target.value.length;
+                    const selectionEnd = target.selectionEnd ?? target.value.length;
+                    this.searchKeyword = target.value;
+                    scheduleSearchRender(selectionStart, selectionEnd);
+                };
+
+                const clearSearchBtn = document.createElement("button");
+                clearSearchBtn.textContent = "x";
+                clearSearchBtn.style.position = "absolute";
+                clearSearchBtn.style.right = "4px";
+                clearSearchBtn.style.top = "50%";
+                clearSearchBtn.style.transform = "translateY(-50%)";
+                clearSearchBtn.style.width = "14px";
+                clearSearchBtn.style.height = "14px";
+                clearSearchBtn.style.padding = "0";
+                clearSearchBtn.style.border = "none";
+                clearSearchBtn.style.borderRadius = "50%";
+                clearSearchBtn.style.background = this.searchKeyword ? "#666" : "transparent";
+                clearSearchBtn.style.color = "#fff";
+                clearSearchBtn.style.cursor = this.searchKeyword ? "pointer" : "default";
+                clearSearchBtn.style.display = this.searchKeyword ? "inline-flex" : "none";
+                clearSearchBtn.style.alignItems = "center";
+                clearSearchBtn.style.justifyContent = "center";
+                clearSearchBtn.title = "清除搜索";
+                clearSearchBtn.onclick = () => {
+                    if (!this.searchKeyword) return;
+                    if (this.searchDebounceTimer) {
+                        clearTimeout(this.searchDebounceTimer);
+                        this.searchDebounceTimer = null;
+                    }
+                    this.searchKeyword = "";
+                    this.renderList();
+                    requestAnimationFrame(() => {
+                        const nextInput = this.renderContainer?.querySelector(".am-search-input");
+                        if (nextInput) nextInput.focus();
+                    });
+                };
+
+                searchWrapper.appendChild(searchInput);
+                searchWrapper.appendChild(clearSearchBtn);
+                btnGroup.appendChild(searchWrapper);
                 
                 toolbar.appendChild(btnGroup);
 
@@ -246,6 +557,8 @@ app.registerExtension({
                 const rightControls = document.createElement("div");
                 rightControls.style.display = "flex";
                 rightControls.style.gap = "5px";
+                rightControls.style.alignItems = "center";
+                rightControls.style.flexWrap = "wrap";
 
                 const groupSelect = document.createElement("select");
                 groupSelect.style.background = "#333";
@@ -300,39 +613,27 @@ app.registerExtension({
                 
                 container.appendChild(toolbar);
 
-                // 将数据分为两部分：已选中的（按选中顺序） 和 未选中的
-                const selectedItems = [];
-                const unselectedItems = [];
+                // 统一列表：保持原始资产顺序，避免勾选后条目跳动
+                const selectedAssetMap = this.buildSelectedAssetMap();
 
-                // 遍历保存的选中列表，从 assetsData 中找出最新数据，并保持顺序和设置
-                this.selectedAssets.forEach(sel => {
-                    const found = this.assetsData.find(a => a.id === sel.id);
-                    if (found) {
-                        // 过滤器：如果当前分组不是 All，且当前条目不属于该分组，依然要显示已选中的条目吗？
-                        // 通常已选中的条目最好一直显示，以保持排序可见，或者也可以过滤。这里选择不隐藏已选中项。
-                        selectedItems.push({
-                            ...found,
-                            enable_mode: sel.enable_mode || "Auto", // 保留之前设置的模式
-                            selected: true
+                const orderedAssets = this.getOrderedAssetsData();
+                const visibleItems = [];
+                orderedAssets.forEach(asset => {
+                    if ((this.currentGroupFilter === "All" || asset.groupName === this.currentGroupFilter) && matchesSearch(asset)) {
+                        const selectedInfo = selectedAssetMap.get(asset.id);
+                        visibleItems.push({
+                            ...asset,
+                            enable_mode: selectedInfo?.enable_mode || "Auto",
+                            selected: !!selectedInfo,
+                            selectedIndex: selectedInfo?.selectedIndex ?? -1
                         });
                     }
                 });
 
-                // 找出未选中的，应用分组过滤
-                this.assetsData.forEach(asset => {
-                    if (!this.selectedAssets.find(sel => sel.id === asset.id)) {
-                        if (this.currentGroupFilter === "All" || asset.groupName === this.currentGroupFilter) {
-                            unselectedItems.push({
-                                ...asset,
-                                enable_mode: "Auto",
-                                selected: false
-                            });
-                        }
-                    }
-                });
-
-                const renderItem = (item, isSelected, index) => {
+                const renderItem = (item, isSelected, selectedIndex) => {
                     const div = document.createElement("div");
+                    div.className = "am-asset-item";
+                    div.dataset.assetId = item.id;
                     div.style.display = this.viewMode === "list" ? "flex" : "inline-flex";
                     div.style.flexDirection = this.viewMode === "list" ? "row" : "column";
                     if (this.viewMode === "grid") {
@@ -350,19 +651,6 @@ app.registerExtension({
                     div.style.border = "1px solid #555";
                     div.style.borderRadius = "4px";
                     div.style.cursor = "default";
-                    
-                    // 命中状态视觉反馈
-                    if (isSelected && this.hitStatus[item.id] === true) {
-                        div.style.backgroundColor = "rgba(40, 167, 69, 0.3)"; // 绿色高亮
-                        div.style.borderColor = "#28a745";
-                    } else if (isSelected && this.hitStatus[item.id] === false) {
-                        div.style.backgroundColor = "rgba(108, 117, 125, 0.2)"; // 灰色
-                    } else if (isSelected) {
-                        div.style.backgroundColor = "rgba(0, 123, 255, 0.1)"; // 蓝色（普通选中）
-                        div.style.borderColor = "#007bff";
-                    } else {
-                        div.style.backgroundColor = "transparent";
-                    }
 
                     // 右键菜单支持
                     div.addEventListener("contextmenu", (e) => {
@@ -449,85 +737,100 @@ app.registerExtension({
                         setTimeout(() => document.addEventListener("click", closeMenu), 0);
                     });
 
-                    // 拖拽手柄 (仅选中的支持排序)
-                    if (isSelected) {
-                        const dragHandle = document.createElement("span");
-                        dragHandle.textContent = "☰";
-                        dragHandle.style.cursor = "grab";
-                        dragHandle.style.color = "#ccc";
-                        dragHandle.draggable = true;
-                        
-                        if (this.viewMode === "grid") {
-                            dragHandle.style.position = "absolute";
-                            dragHandle.style.top = "2px";
-                            dragHandle.style.right = "2px";
-                            dragHandle.style.background = "rgba(0,0,0,0.5)";
-                            dragHandle.style.padding = "2px";
-                            dragHandle.style.borderRadius = "2px";
-                        } else {
-                            dragHandle.style.marginRight = "5px";
-                        }
-
-                        dragHandle.addEventListener("dragstart", (e) => {
-                            e.dataTransfer.setData("text/plain", index.toString());
-                            e.dataTransfer.effectAllowed = "move";
-                            div.style.opacity = "0.5";
-                        });
-
-                        dragHandle.addEventListener("dragend", () => {
-                            div.style.opacity = "1";
-                        });
-
-                        div.addEventListener("dragover", (e) => {
-                            e.preventDefault();
-                            e.dataTransfer.dropEffect = "move";
-                            if (this.viewMode === "list") div.style.borderTop = "2px solid #007bff";
-                            else div.style.border = "2px solid #007bff";
-                        });
-
-                        div.addEventListener("dragleave", () => {
-                            if (this.viewMode === "list") div.style.borderTop = "1px solid transparent";
-                            else div.style.border = "1px solid #007bff"; // 保持选中颜色
-                        });
-
-                        div.addEventListener("drop", (e) => {
-                            e.preventDefault();
-                            div.style.borderTop = "1px solid transparent";
-                            const sourceIndex = parseInt(e.dataTransfer.getData("text/plain"), 10);
-                            if (isNaN(sourceIndex) || sourceIndex === index) return;
-
-                            // 重新排序
-                            const movedItem = this.selectedAssets.splice(sourceIndex, 1)[0];
-                            this.selectedAssets.splice(index, 0, movedItem);
-                            this.updateWidgetValue();
-                            this.renderList();
-                        });
-
-                        div.appendChild(dragHandle);
-                    } else if (this.viewMode === "list") {
-                        // 占位
-                        const spacer = document.createElement("span");
-                        spacer.style.width = "16px";
-                        spacer.style.display = "inline-block";
-                        div.appendChild(spacer);
+                    const dragHandle = document.createElement("span");
+                    dragHandle.textContent = "☰";
+                    dragHandle.style.color = "#ccc";
+                    if (this.viewMode === "grid") {
+                        dragHandle.style.position = "absolute";
+                        dragHandle.style.top = "2px";
+                        dragHandle.style.right = "2px";
+                        dragHandle.style.background = "rgba(0,0,0,0.5)";
+                        dragHandle.style.padding = "2px";
+                        dragHandle.style.borderRadius = "2px";
+                    } else {
+                        dragHandle.style.width = "16px";
+                        dragHandle.style.display = "inline-block";
+                        dragHandle.style.marginRight = "5px";
                     }
+                    dragHandle.addEventListener("dragstart", (e) => {
+                        if (parseInt(div.dataset.selectedIndex || "-1", 10) < 0) {
+                            e.preventDefault();
+                            return;
+                        }
+                        e.dataTransfer.setData("text/plain", item.id);
+                        e.dataTransfer.effectAllowed = "move";
+                        div.style.opacity = "0.5";
+                    });
+
+                    dragHandle.addEventListener("dragend", () => {
+                        div.style.opacity = "1";
+                    });
+
+                    div.addEventListener("dragover", (e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        if (this.viewMode === "list") {
+                            const rect = div.getBoundingClientRect();
+                            const dropAfter = (e.clientY - rect.top) > (rect.height / 2);
+                            div.style.borderTop = dropAfter ? "1px solid transparent" : "2px solid #007bff";
+                            div.style.borderBottom = dropAfter ? "2px solid #007bff" : "1px solid transparent";
+                        } else {
+                            div.style.border = "2px solid #007bff";
+                        }
+                    });
+
+                    div.addEventListener("dragleave", () => {
+                        if (this.viewMode === "list") {
+                            div.style.borderTop = "1px solid transparent";
+                            div.style.borderBottom = "1px solid transparent";
+                        }
+                        else if (div.dataset.selectedIndex && div.dataset.selectedIndex !== "-1") div.style.border = "1px solid #007bff";
+                    });
+
+                    div.addEventListener("drop", (e) => {
+                        e.preventDefault();
+                        div.style.borderTop = "1px solid transparent";
+                        div.style.borderBottom = "1px solid transparent";
+                        const sourceAssetId = e.dataTransfer.getData("text/plain");
+                        if (!sourceAssetId) return;
+                        if (sourceAssetId === item.id) return;
+
+                        const rect = div.getBoundingClientRect();
+                        const dropAfter = (e.clientY - rect.top) > (rect.height / 2);
+                        const newDisplayOrder = this.syncAssetDisplayOrder().slice();
+                        const sourcePos = newDisplayOrder.indexOf(sourceAssetId);
+                        const targetPos = newDisplayOrder.indexOf(item.id);
+                        if (sourcePos === -1 || targetPos === -1) return;
+
+                        let insertPos = targetPos + (dropAfter ? 1 : 0);
+                        if (sourcePos < insertPos) {
+                            insertPos -= 1;
+                        }
+                        if (sourcePos === insertPos) return;
+
+                        newDisplayOrder.splice(sourcePos, 1);
+                        newDisplayOrder.splice(insertPos, 0, sourceAssetId);
+                        this.assetDisplayOrder = newDisplayOrder;
+
+                        const selectedAssetMap = new Map(this.selectedAssets.map(sel => [sel.id, { ...sel }]));
+                        this.selectedAssets = newDisplayOrder
+                            .filter(id => selectedAssetMap.has(id))
+                            .map(id => selectedAssetMap.get(id));
+
+                        this.updateWidgetValue();
+                        const listContainer = div.closest(".am-list-container");
+                        const reordered = listContainer ? this.reorderVisibleItemsInDom(listContainer) : false;
+                        const refreshed = this.refreshVisibleItemStates();
+                        if (!reordered && !refreshed) {
+                            this.renderList();
+                        }
+                    });
+
+                    div.appendChild(dragHandle);
 
                     // 预览图（如果有且是网格模式）
                     if (this.viewMode === "grid") {
-                        let imgSrc = "";
-                        if (item.preview_image) {
-                            imgSrc = `/a_my_nodes/assets/view_preview?path=${encodeURIComponent(item.preview_image)}`;
-                        } else {
-                            let firstLora = "";
-                            if (item.high_loras && item.high_loras.length > 0 && item.high_loras[0].lora) {
-                                firstLora = item.high_loras[0].lora;
-                            } else if (item.low_loras && item.low_loras.length > 0 && item.low_loras[0].lora) {
-                                firstLora = item.low_loras[0].lora;
-                            }
-                            if (firstLora && firstLora !== "None") {
-                                imgSrc = `/a_my_nodes/assets/view_preview?fallback_lora=${encodeURIComponent(firstLora)}`;
-                            }
-                        }
+                        const imgSrc = this.getPreviewImageSrc(item);
                         
                         const imgContainer = document.createElement("div");
                         imgContainer.style.width = "100%";
@@ -553,63 +856,34 @@ app.registerExtension({
                         div.appendChild(imgContainer);
                     }
 
-                    // 悬浮预览图容器 (仅列表模式)
-                    let hoverPreview = null;
-
                     div.addEventListener("mouseenter", (e) => {
-                        if (this.viewMode === "list") {
-                            let imgSrc = "";
-                            if (item.preview_image) {
-                                imgSrc = `/a_my_nodes/assets/view_preview?path=${encodeURIComponent(item.preview_image)}`;
-                            } else {
-                                let firstLora = "";
-                                if (item.high_loras && item.high_loras.length > 0 && item.high_loras[0].lora) {
-                                    firstLora = item.high_loras[0].lora;
-                                } else if (item.low_loras && item.low_loras.length > 0 && item.low_loras[0].lora) {
-                                    firstLora = item.low_loras[0].lora;
-                                }
-                                if (firstLora && firstLora !== "None") {
-                                    imgSrc = `/a_my_nodes/assets/view_preview?fallback_lora=${encodeURIComponent(firstLora)}`;
-                                }
-                            }
+                        if (this.viewMode !== "list") return;
+                        const imgSrc = this.getPreviewImageSrc(item);
+                        if (!imgSrc) return;
 
-                            if (imgSrc) {
-                                hoverPreview = document.createElement("img");
-                                hoverPreview.src = imgSrc;
-                                hoverPreview.style.position = "fixed";
-                                hoverPreview.style.maxWidth = "200px";
-                                hoverPreview.style.maxHeight = "200px";
-                                hoverPreview.style.objectFit = "cover";
-                                hoverPreview.style.border = "2px solid #555";
-                                hoverPreview.style.borderRadius = "4px";
-                                hoverPreview.style.zIndex = "10001";
-                                hoverPreview.style.pointerEvents = "none";
-                                hoverPreview.style.boxShadow = "0 4px 8px rgba(0,0,0,0.5)";
-                                hoverPreview.style.background = "#111";
-                                
-                                // 根据鼠标位置调整预览图位置
-                                const x = e.clientX + 15;
-                                const y = e.clientY + 15;
-                                hoverPreview.style.left = x + "px";
-                                hoverPreview.style.top = y + "px";
-                                
-                                document.body.appendChild(hoverPreview);
-                            }
-                        }
+                        this.removeHoverPreview();
+                        this.hoverPreviewEl = document.createElement("img");
+                        this.hoverPreviewEl.src = imgSrc;
+                        this.hoverPreviewEl.style.position = "fixed";
+                        this.hoverPreviewEl.style.maxWidth = "200px";
+                        this.hoverPreviewEl.style.maxHeight = "200px";
+                        this.hoverPreviewEl.style.objectFit = "cover";
+                        this.hoverPreviewEl.style.border = "2px solid #555";
+                        this.hoverPreviewEl.style.borderRadius = "4px";
+                        this.hoverPreviewEl.style.zIndex = "10001";
+                        this.hoverPreviewEl.style.pointerEvents = "none";
+                        this.hoverPreviewEl.style.boxShadow = "0 4px 8px rgba(0,0,0,0.5)";
+                        this.hoverPreviewEl.style.background = "#111";
+                        this.updateHoverPreviewPosition(e.clientX, e.clientY);
+                        document.body.appendChild(this.hoverPreviewEl);
                     });
 
                     div.addEventListener("mousemove", (e) => {
-                        if (hoverPreview) {
-                            hoverPreview.style.left = (e.clientX + 15) + "px";
-                            hoverPreview.style.top = (e.clientY + 15) + "px";
-                        }
+                        this.updateHoverPreviewPosition(e.clientX, e.clientY);
                     });
 
                     div.addEventListener("mouseleave", () => {
-                        if (hoverPreview) {
-                            hoverPreview.remove();
-                            hoverPreview = null;
-                        }
+                        this.removeHoverPreview();
                     });
 
                     // 控制区 (复选框 + 名称)
@@ -628,7 +902,6 @@ app.registerExtension({
                     // 复选框
                     const checkbox = document.createElement("input");
                     checkbox.type = "checkbox";
-                    checkbox.checked = isSelected;
                     checkbox.style.marginRight = "4px";
                     if (this.viewMode === "grid") {
                         checkbox.style.position = "absolute";
@@ -647,60 +920,27 @@ app.registerExtension({
                             this.selectedAssets = this.selectedAssets.filter(sel => sel.id !== item.id);
                         }
                         this.updateWidgetValue();
-                        
-                        // 局部更新 DOM 而不刷新整个列表，避免滚动条变化
-                        const listContainer = div.closest(".am-list-container");
-                        if (!listContainer) {
+                        if (!this.refreshVisibleItemStates()) {
                             this.renderList();
-                            return;
-                        }
-                        
-                        const selContainer = listContainer.querySelector(".am-sel-items");
-                        const unselContainer = listContainer.querySelector(".am-unsel-items");
-                        const selTitle = listContainer.querySelector(".am-sel-title");
-                        const unselTitle = listContainer.querySelector(".am-unsel-title");
-                        
-                        // 如果容器不存在，说明之前某一边是空的，需要完整刷新并恢复滚动位置
-                        if ((isChecked && !selContainer) || (!isChecked && !unselContainer)) {
-                            const scrollTop = listContainer.scrollTop;
-                            this.renderList();
-                            setTimeout(() => {
-                                const newContainer = this.renderContainer.querySelector(".am-list-container");
-                                if (newContainer) newContainer.scrollTop = scrollTop;
-                            }, 50);
-                            return;
-                        }
-                        
-                        // 创建新节点并替换
-                        const newItem = { ...item, enable_mode: "Auto", selected: isChecked };
-                        const newDiv = renderItem(newItem, isChecked, isChecked ? this.selectedAssets.length - 1 : -1);
-                        
-                        if (isChecked) {
-                            selContainer.appendChild(newDiv);
-                        } else {
-                            unselContainer.appendChild(newDiv);
-                        }
-                        div.remove();
-                        
-                        // 更新标题计数
-                        if (selTitle) {
-                            selTitle.textContent = `已选模型 (${this.selectedAssets.length}) - 拖拽排序 / 右键编辑`;
-                        }
-                        if (unselTitle) {
-                            let unselCount = 0;
-                            this.assetsData.forEach(a => {
-                                if (!this.selectedAssets.find(sel => sel.id === a.id)) {
-                                    if (this.currentGroupFilter === "All" || a.groupName === this.currentGroupFilter) {
-                                        unselCount++;
-                                    }
-                                }
-                            });
-                            unselTitle.textContent = `未选模型 (${unselCount})`;
                         }
                     });
                     
                     if (this.viewMode === "list") controlRow.appendChild(checkbox);
                     else div.appendChild(checkbox); // 网格模式下复选框绝对定位
+
+                    const orderBadge = document.createElement("span");
+                    orderBadge.style.display = "none";
+                    orderBadge.style.minWidth = "16px";
+                    orderBadge.style.padding = "0 4px";
+                    orderBadge.style.marginRight = "4px";
+                    orderBadge.style.borderRadius = "8px";
+                    orderBadge.style.background = "#4b6280";
+                    orderBadge.style.color = "#e6edf3";
+                    orderBadge.style.fontSize = "8px";
+                    orderBadge.style.lineHeight = "14px";
+                    orderBadge.style.textAlign = "center";
+                    orderBadge.style.flexShrink = "0";
+                    controlRow.appendChild(orderBadge);
 
                     // 名称与组名
                     const titleDiv = document.createElement("div");
@@ -729,42 +969,82 @@ app.registerExtension({
                     
                     div.appendChild(controlRow);
 
-                    // 启动模式下拉框 (仅选中显示)
-                    if (isSelected) {
-                        const select = document.createElement("select");
-                        select.style.background = "#333";
-                        select.style.color = "#fff";
-                        select.style.border = "1px solid #555";
-                        select.style.padding = "1px";
-                        if (this.viewMode === "grid") {
-                            select.style.width = "100%";
-                            select.style.fontSize = "9px";
-                            select.style.marginTop = "2px";
-                        } else {
-                            select.style.marginLeft = "5px";
-                            select.style.fontSize = "10px";
-                        }
-                        
-                        ["Auto", "True", "False"].forEach(opt => {
-                            const option = document.createElement("option");
-                            option.value = opt;
-                            option.textContent = opt;
-                            select.appendChild(option);
-                        });
-                        
-                        select.value = item.enable_mode;
-                        
-                        select.addEventListener("change", (e) => {
-                            const selItem = this.selectedAssets.find(s => s.id === item.id);
-                            if (selItem) {
-                                selItem.enable_mode = e.target.value;
-                                this.updateWidgetValue();
-                            }
-                        });
-                        
-                        if (this.viewMode === "grid") div.appendChild(select);
-                        else div.appendChild(select);
+                    const select = document.createElement("select");
+                    select.style.background = "#333";
+                    select.style.color = "#fff";
+                    select.style.border = "1px solid #555";
+                    select.style.padding = "1px";
+                    if (this.viewMode === "grid") {
+                        select.style.width = "100%";
+                        select.style.fontSize = "9px";
+                        select.style.marginTop = "2px";
+                    } else {
+                        select.style.marginLeft = "5px";
+                        select.style.fontSize = "10px";
                     }
+                    
+                    ["Auto", "True", "False"].forEach(opt => {
+                        const option = document.createElement("option");
+                        option.value = opt;
+                        option.textContent = opt;
+                        select.appendChild(option);
+                    });
+                    
+                    select.addEventListener("change", (e) => {
+                        const selItem = this.selectedAssets.find(s => s.id === item.id);
+                        if (selItem) {
+                            selItem.enable_mode = e.target.value;
+                            this.updateWidgetValue();
+                        }
+                    });
+                    
+                    if (this.viewMode === "grid") div.appendChild(select);
+                    else div.appendChild(select);
+
+                    div._applySelectionState = (selectedInfo) => {
+                        const selected = !!selectedInfo;
+                        div.dataset.selectedIndex = selected ? String(selectedInfo.selectedIndex) : "-1";
+                        checkbox.checked = selected;
+                        select.value = selected ? selectedInfo.enable_mode : "Auto";
+                        select.style.display = selected ? "" : "none";
+
+                        if (selected && this.hitStatus[item.id] === true) {
+                            div.style.backgroundColor = "rgba(40, 167, 69, 0.3)";
+                            div.style.borderColor = "#28a745";
+                        } else if (selected && this.hitStatus[item.id] === false) {
+                            div.style.backgroundColor = "rgba(108, 117, 125, 0.2)";
+                            div.style.borderColor = "#555";
+                        } else if (selected) {
+                            div.style.backgroundColor = "rgba(0, 123, 255, 0.1)";
+                            div.style.borderColor = "#007bff";
+                        } else {
+                            div.style.backgroundColor = "transparent";
+                            div.style.borderColor = "#555";
+                        }
+
+                        if (this.viewMode === "grid") {
+                            dragHandle.style.display = selected ? "inline-block" : "none";
+                            dragHandle.style.cursor = selected ? "grab" : "default";
+                        } else {
+                            dragHandle.style.cursor = selected ? "grab" : "default";
+                            dragHandle.draggable = selected;
+                            dragHandle.textContent = selected ? "☰" : "";
+                        }
+                        dragHandle.draggable = selected;
+                        dragHandle.title = selected ? `拖拽调整已选顺序 (${selectedInfo.selectedIndex + 1})` : "";
+
+                        const hitBadge = (selected && this.hitStatus[item.id] === true) ? `<span style="color:#28a745; font-weight:bold; margin-right:4px;">✅</span>` : "";
+                        if (this.viewMode === "grid") {
+                            titleDiv.innerHTML = `${hitBadge}<strong>${item.keyword || '未命名'}</strong>`;
+                        } else {
+                            titleDiv.innerHTML = `${hitBadge}<strong>${item.keyword || '未命名'}</strong> <span style="color:#888; font-size:10px;">[${item.groupName}]</span>`;
+                        }
+
+                        orderBadge.style.display = selected ? "inline-block" : "none";
+                        orderBadge.textContent = selected ? `${selectedInfo.selectedIndex + 1}` : "";
+                    };
+
+                    div._applySelectionState(isSelected ? { enable_mode: item.enable_mode, selectedIndex } : null);
 
                     return div;
                 };
@@ -774,6 +1054,9 @@ app.registerExtension({
                 listContainer.className = "am-list-container";
                 listContainer.style.flex = "1";
                 listContainer.style.overflowY = "auto";
+                listContainer.addEventListener("scroll", () => this.removeHoverPreview(), { passive: true });
+                listContainer.addEventListener("wheel", () => this.removeHoverPreview(), { passive: true });
+                listContainer.addEventListener("mouseleave", () => this.removeHoverPreview());
                 
                 if (this._renderListToken) {
                     cancelAnimationFrame(this._renderListToken);
@@ -781,83 +1064,38 @@ app.registerExtension({
                 const currentPass = {};
                 this._renderListPass = currentPass;
 
-                let selItemsContainer = null;
-                // 渲染已选中区域标题
-                if (selectedItems.length > 0) {
-                    const selTitle = document.createElement("div");
-                    selTitle.className = "am-sel-title";
-                    selTitle.textContent = `已选模型 (${selectedItems.length}) - 拖拽排序 / 右键编辑`;
-                    selTitle.style.fontWeight = "bold";
-                    selTitle.style.marginBottom = "5px";
-                    selTitle.style.borderBottom = "1px solid #555";
-                    listContainer.appendChild(selTitle);
-
-                    selItemsContainer = document.createElement("div");
-                    selItemsContainer.className = "am-sel-items";
-                    if (this.viewMode === "grid") {
-                        selItemsContainer.style.display = "flex";
-                        selItemsContainer.style.flexWrap = "wrap";
-                        selItemsContainer.style.justifyContent = "center";
-                    }
-                    listContainer.appendChild(selItemsContainer);
+                const itemsContainer = document.createElement("div");
+                itemsContainer.className = "am-items";
+                if (this.viewMode === "grid") {
+                    itemsContainer.style.display = "flex";
+                    itemsContainer.style.flexWrap = "wrap";
+                    itemsContainer.style.justifyContent = "center";
                 }
-
-                let unselItemsContainer = null;
-                // 渲染未选中区域标题
-                if (unselectedItems.length > 0) {
-                    const unselTitle = document.createElement("div");
-                    unselTitle.className = "am-unsel-title";
-                    unselTitle.textContent = `未选模型 (${unselectedItems.length})`;
-                    unselTitle.style.fontWeight = "bold";
-                    unselTitle.style.marginTop = "10px";
-                    unselTitle.style.marginBottom = "5px";
-                    unselTitle.style.borderBottom = "1px solid #555";
-                    unselTitle.style.color = "#aaa";
-                    listContainer.appendChild(unselTitle);
-
-                    unselItemsContainer = document.createElement("div");
-                    unselItemsContainer.className = "am-unsel-items";
-                    if (this.viewMode === "grid") {
-                        unselItemsContainer.style.display = "flex";
-                        unselItemsContainer.style.flexWrap = "wrap";
-                        unselItemsContainer.style.justifyContent = "center";
-                    }
-                    listContainer.appendChild(unselItemsContainer);
-                }
+                listContainer.appendChild(itemsContainer);
 
                 container.appendChild(listContainer);
 
                 const CHUNK_SIZE = 15;
-                let selIndex = 0;
-                let unselIndex = 0;
+                let visibleIndex = 0;
 
                 const renderNextChunk = () => {
                     if (this._renderListPass !== currentPass) return;
 
-                    const fragmentSel = document.createDocumentFragment();
-                    const fragmentUnsel = document.createDocumentFragment();
+                    const fragment = document.createDocumentFragment();
                     let count = 0;
 
-                    while (selIndex < selectedItems.length && count < CHUNK_SIZE) {
-                        fragmentSel.appendChild(renderItem(selectedItems[selIndex], true, selIndex));
-                        selIndex++;
+                    while (visibleIndex < visibleItems.length && count < CHUNK_SIZE) {
+                        const item = visibleItems[visibleIndex];
+                        fragment.appendChild(renderItem(item, item.selected, item.selectedIndex));
+                        visibleIndex++;
                         count++;
                     }
 
-                    while (unselIndex < unselectedItems.length && count < CHUNK_SIZE) {
-                        fragmentUnsel.appendChild(renderItem(unselectedItems[unselIndex], false, -1));
-                        unselIndex++;
-                        count++;
+                    if (fragment.childNodes.length > 0) {
+                        itemsContainer.appendChild(fragment);
                     }
 
-                    if (selItemsContainer && fragmentSel.childNodes.length > 0) {
-                        selItemsContainer.appendChild(fragmentSel);
-                    }
-                    if (unselItemsContainer && fragmentUnsel.childNodes.length > 0) {
-                        unselItemsContainer.appendChild(fragmentUnsel);
-                    }
-
-                    if (selIndex < selectedItems.length || unselIndex < unselectedItems.length) {
+                    if (visibleIndex < visibleItems.length) {
                         this._renderListToken = requestAnimationFrame(renderNextChunk);
                     }
                 };

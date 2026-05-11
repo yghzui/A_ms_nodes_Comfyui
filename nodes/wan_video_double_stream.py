@@ -182,10 +182,12 @@ class WanVideoDoubleStream:
         """
         Processes a single stream of LoRA loading.
         """
-        print(f"[{stream_name}] model is {'✅' if model is not None else '❌'}.")
+        has_model_input = model is not None
+        has_wanvideo_input = prev_lora is not None
+        print(f"[{stream_name}] model is {'✅' if has_model_input else '❌'}.")
         # Create a copy of the list to prevent modifying the original list in place
         # This is crucial when High and Low streams share the same input list
-        prev_lora = list(prev_lora) if prev_lora else []
+        prev_lora = list(prev_lora) if (has_wanvideo_input and prev_lora) else []
             
         current_loras = []
         low_mem_load = False
@@ -205,11 +207,12 @@ class WanVideoDoubleStream:
                 current_loras_list = []
             
             # Parse settings
-            settings = loras_data_raw.get("settings", {})
-            if isinstance(settings, dict):
-                # value2 is Low Mem, value3 is Merge
-                low_mem_load = settings.get("value2", False)
-                merge_loras = settings.get("value3", True)
+            if has_wanvideo_input:
+                settings = loras_data_raw.get("settings", {})
+                if isinstance(settings, dict):
+                    # value2 is Low Mem, value3 is Merge
+                    low_mem_load = settings.get("value2", False)
+                    merge_loras = settings.get("value3", True)
                 
         elif isinstance(loras_data_raw, list):
             current_loras_list = loras_data_raw
@@ -224,8 +227,9 @@ class WanVideoDoubleStream:
         # If not merging, force low_mem to false as per logic in load_lora_merge.py
         if not merge_loras:
             low_mem_load = False
-            
-        print(f"[{stream_name}] Settings: low_mem_load={'✅' if low_mem_load else '❌'}, merge_loras={'✅' if merge_loras else '❌'}")
+
+        if has_wanvideo_input and not has_model_input:
+            print(f"[{stream_name}] Settings: low_mem_load={'✅' if low_mem_load else '❌'}, merge_loras={'✅' if merge_loras else '❌'}")
         
         if not current_loras:
             return (model, prev_lora)
@@ -252,6 +256,8 @@ class WanVideoDoubleStream:
                     # Usually yes, as they might be used separately.
 
             # --- Part 2: Collect LoRA for WANVIDLORA output ---
+            if not has_wanvideo_input:
+                continue
             try:
                 lora_path = folder_paths.get_full_path_or_raise("loras", lora_name)
                 prev_lora.append({
@@ -263,7 +269,8 @@ class WanVideoDoubleStream:
                     "low_mem_load": low_mem_load,
                     "merge_loras": merge_loras,
                 })
-                print(f"[{stream_name}] 💡Collected LoRA for WanVideo: {lora_name}")
+                if not has_model_input:
+                    print(f"[{stream_name}] 💡Collected LoRA for WanVideo: {lora_name}")
             except Exception as e:
                 print(f"[{stream_name}] ❌ Failed to find LoRA path: {lora_name}, {e}")
 
@@ -282,14 +289,11 @@ class WanVideoDoubleStream:
         if enable_mode is True or enable_mode in ["True", "true", "Force True"]:
             is_active = True
             ui_text_status = "True"
-            print(f"UI Status True")
         elif enable_mode is False or enable_mode in ["False", "false", "Force False"]:
             is_active = False
             ui_text_status = "False"
-            print(f"UI Status False")
         else: # Auto
             is_active, _, ui_text_status = self.check_dict_key_logic(dict_input, key_to_check, check_mode)
-            print(f"Auto Enable State: {is_active}, UI Status: {ui_text_status}")
 
         # UI Feedback
         ui_response = {"ui": {"text": [ui_text_status]}}

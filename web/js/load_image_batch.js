@@ -523,10 +523,6 @@ app.registerExtension({
             chainCallback(nodeType.prototype, "onConfigure", function() {
                 const imagePathsWidget = this.widgets.find(w => w.name === "image_paths");
                 if (imagePathsWidget && imagePathsWidget.value) {
-                    const useWidget = this.widgets.find(w => w.name === "image_path_use");
-                    if (useWidget && (!useWidget.value || !String(useWidget.value).trim())) {
-                        useWidget.value = imagePathsWidget.value;
-                    }
                     const paths = imagePathsWidget.value.split(',').filter(path => path.trim());
                     if (paths.length > 0) {
                         populate.call(this, paths);
