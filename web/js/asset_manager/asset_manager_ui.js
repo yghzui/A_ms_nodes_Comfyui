@@ -229,14 +229,21 @@ class AssetManagerUI {
             const endpoint = this.currentTab === 'prompts' ? '/a_my_nodes/assets/prompts' : '/a_my_nodes/assets/models';
             const data = this.currentTab === 'prompts' ? this.promptsData : this.modelsData;
             
-            await api.fetchApi(endpoint, {
+            const res = await api.fetchApi(endpoint, {
                 method: "POST",
                 body: JSON.stringify(data),
                 headers: { "Content-Type": "application/json" }
             });
+            const result = await res.json().catch(() => ({ success: true }));
+            if (result && result.success === false) {
+                throw new Error(result.error || "保存失败");
+            }
             console.log(`[AssetManager] Saved ${this.currentTab} successfully.`);
+            return true;
         } catch (e) {
             console.error("[AssetManager] Failed to save data:", e);
+            await this.alert("保存失败！\n" + (e?.message || e));
+            return false;
         }
     }
 
@@ -297,11 +304,31 @@ class AssetManagerUI {
                 style: { cursor: "pointer", fontSize: "12px", marginLeft: "5px", opacity: "0.6" },
                 onclick: async (e) => {
                     e.stopPropagation();
-                    const yes = await this.confirm(`确定要清空/删除当前标签页下的【${group.name}】分组的所有数据吗？`);
+                    const yes = await this.confirm(
+                        `确定要删除分组【${group.name}】吗？\n` +
+                        `这会同时删除这个分组下的提示词和模型内容。`
+                    );
                     if (yes) {
-                        group.items = []; // 只清空当前侧的内容，不破坏两端对齐的索引
-                        this.saveData();
-                        this.renderItems();
+                        // 删除一个逻辑分组时，需要同时移除 prompts/models 两侧同索引分组
+                        if (this.promptsData.groups[index]) this.promptsData.groups.splice(index, 1);
+                        if (this.modelsData.groups[index]) this.modelsData.groups.splice(index, 1);
+
+                        if (this.currentGroupIndex >= this.promptsData.groups.length) {
+                            this.currentGroupIndex = Math.max(0, this.promptsData.groups.length - 1);
+                        }
+
+                        const prevTab = this.currentTab;
+                        this.currentTab = "prompts";
+                        const okP = await this.saveData();
+                        this.currentTab = "models";
+                        const okM = await this.saveData();
+                        this.currentTab = prevTab;
+
+                        if (okP && okM) {
+                            this.selectedIndices.clear();
+                            this.lastClickedIndex = -1;
+                            this.renderGroups();
+                        }
                     }
                 }
             });
@@ -378,13 +405,20 @@ class AssetManagerUI {
         try {
             const endpoint = this.currentTab !== 'prompts' ? '/a_my_nodes/assets/prompts' : '/a_my_nodes/assets/models';
             const data = this.currentTab !== 'prompts' ? this.promptsData : this.modelsData;
-            await api.fetchApi(endpoint, {
+            const res = await api.fetchApi(endpoint, {
                 method: "POST",
                 body: JSON.stringify(data),
                 headers: { "Content-Type": "application/json" }
             });
+            const result = await res.json().catch(() => ({ success: true }));
+            if (result && result.success === false) {
+                throw new Error(result.error || "保存失败");
+            }
+            return true;
         } catch (e) {
             console.error("[AssetManager] Failed to save other data:", e);
+            await this.alert("保存失败！\n" + (e?.message || e));
+            return false;
         }
     }
 
