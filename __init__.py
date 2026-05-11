@@ -20,7 +20,7 @@ from .nodes.load_lora_merge import LoadLoraMerge
 from .nodes.index_selector import IndexSelector
 from .nodes.my_batch_manager import MyBatchManager
 from .nodes.image_batch_accumulator import ImageBatchAccumulator
-from .nodes.any_batch_accumulator import AnyBatchAccumulator,AnyBatchListConverter,AnyStopOnNone,AnyValidityChecker,AnyRecover#,AnyDataAnalyzer
+from .nodes.any_batch_accumulator import AnyBatchAccumulator,AnyBatchListConverter,AnyStopOnNone,AnyValidityChecker
 from .nodes.show_result_last import ShowResultLast
 from .nodes.manual_video_input import ManualVideoInput
 from .nodes.load_video import LoadVideoFromFolder
@@ -151,7 +151,6 @@ NODE_CLASS_MAPPINGS = {
     "AnyBatchListConverter": AnyBatchListConverter, # 任意类型批量列表转换器
     "AnyStopOnNone": AnyStopOnNone, # 遇到空值停止
     "AnyValidityChecker": AnyValidityChecker, # 任意类型数据校验器
-    "AnyRecover": AnyRecover, # 任意类型数据恢复（不生效待完善）
     # "AnyDataAnalyzer": AnyDataAnalyzer,
     "GetNodeInputValue": GetNodeInputValue, # 获取节点输入值
     "WanVideoDoubleStream": WanVideoDoubleStream, # Wan 视频双流
@@ -225,7 +224,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "AnyBatchListConverter": "Any Batch List Converter by ms", # 任意类型批量列表转换器
     "AnyStopOnNone": "Any Stop On None by ms", # 遇到空值停止
     "AnyValidityChecker": "Any Validity Checker by ms", # 任意类型数据校验器
-    "AnyRecover": "Any Recover by ms", # 任意类型数据恢复（不生效待完善）
     "GetNodeInputValue": "Get Node Input Value by ms", # 获取节点输入值
     "WanVideoDoubleStream": "Wan Video Double Stream by ms", # Wan 视频双流
     "WanVideoDoubleStreamAsset": "Wan Video Double Stream Asset by ms", # Wan 视频双流资产

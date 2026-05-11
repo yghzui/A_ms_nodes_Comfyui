@@ -491,56 +491,6 @@ class AnyValidityChecker:
         return (out_bool, out_int, out_data)
 
 
-class AnyRecover:# 不生效待完善
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {},
-            "optional": {
-                "any_data": (ANY_TYPE,),
-                "fallback_data": (ANY_TYPE,),
-            }
-        }
-
-    RETURN_TYPES = (ANY_TYPE,)
-    RETURN_NAMES = ("data",)
-    INPUT_IS_LIST = True
-    OUTPUT_IS_LIST = (True,)
-    FUNCTION = "recover"
-    CATEGORY = "A_my_nodes/logic"
-
-    def recover(self, any_data=None, fallback_data=None):
-        out_data = []
-        
-        # 确定循环的最大长度，处理可能出现的列表长度不一致
-        len_any = len(any_data) if any_data else 0
-        len_fallback = len(fallback_data) if fallback_data else 0
-        max_len = max(len_any, len_fallback)
-        
-        if max_len == 0:
-            # 两者都没输入数据
-            return ([],)
-            
-        for i in range(max_len):
-            # 安全获取当前批次的 any_data 和 fallback_data，超出长度取最后一个
-            current_any = None
-            if any_data:
-                current_any = any_data[i] if i < len_any else any_data[-1]
-                
-            current_fallback = None
-            if fallback_data:
-                current_fallback = fallback_data[i] if i < len_fallback else fallback_data[-1]
-                
-            # 核心判断逻辑：如果数据为空，或者是 ExecutionBlocker 对象，则进行恢复
-            if current_any is None or isinstance(current_any, ExecutionBlocker):
-                print(f"AnyRecover: 检测到第 {i} 批次数据为空或被静默，使用 fallback_data 恢复后续执行。")
-                out_data.append(current_fallback)
-            else:
-                out_data.append(current_any)
-                
-        return (out_data,)
-
-
 #
 # import json
 #
