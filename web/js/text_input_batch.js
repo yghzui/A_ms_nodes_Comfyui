@@ -1,4 +1,5 @@
 import { app } from "../../../scripts/app.js";
+import { api } from "../../../scripts/api.js";
 import { rgthree } from "./core/rgthree.js"; // 统一右键菜单定位使用的事件来源
 import { modal } from "./utils/modal.js";
 import { showTopNotification } from "./utils/shared_utils.js";
@@ -517,6 +518,376 @@ function handleBatchDelete(node) {
     });
 }
 
+async function fetchAssetManagerCollection(endpoint) {
+    const res = await api.fetchApi(endpoint);
+    if (!res.ok) {
+        throw new Error(`请求失败: ${res.status}`);
+    }
+    const data = await res.json();
+    if (!data || typeof data !== "object") {
+        return { groups: [] };
+    }
+    if (!Array.isArray(data.groups)) {
+        data.groups = [];
+    }
+    return data;
+}
+
+async function saveAssetManagerCollection(endpoint, data) {
+    const res = await api.fetchApi(endpoint, {
+        method: "POST",
+        body: JSON.stringify(data),
+        headers: { "Content-Type": "application/json" }
+    });
+    if (!res.ok) {
+        throw new Error(`保存失败: ${res.status}`);
+    }
+    const result = await res.json().catch(() => ({ success: true }));
+    if (result && result.success === false) {
+        throw new Error(result.error || "保存失败");
+    }
+    return result;
+}
+
+function buildLocalIncludesMatches(texts, keyword) {
+    const normalized = String(keyword || "").trim().toLowerCase();
+    if (!normalized) return texts.map(() => true);
+    return texts.map(t => String(t || "").toLowerCase().includes(normalized));
+}
+
+async function fetchPinyinMatches(texts, keyword) {
+    const normalized = String(keyword || "").trim().toLowerCase();
+    if (!normalized) return texts.map(() => true);
+
+    try {
+        const res = await api.fetchApi("/a_my_nodes/assets/search_pinyin", {
+            method: "POST",
+            body: JSON.stringify({ texts, keyword: normalized }),
+            headers: { "Content-Type": "application/json" }
+        });
+        if (!res.ok) {
+            throw new Error(`Search API failed: ${res.status}`);
+        }
+        const data = await res.json();
+        if (data && Array.isArray(data.matches) && data.matches.length === texts.length) {
+            return data.matches.map(Boolean);
+        }
+    } catch (e) {
+        console.warn("[TextInputBatch] search_pinyin failed, fallback to local search:", e);
+    }
+
+    return buildLocalIncludesMatches(texts, normalized);
+}
+
+function buildNewPromptAssetItem(item, index) {
+    const baseTitle = getBaseTitle(item?.title || `prompt_${index}`).trim();
+    return {
+        id: `${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
+        title: baseTitle || `prompt_${index}`,
+        content: String(item?.content || ""),
+        preview_image: ""
+    };
+}
+
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+function ensureModelsGroupAlignment(modelsData, targetIndex, targetGroupName) {
+    if (!Array.isArray(modelsData.groups)) {
+        modelsData.groups = [];
+    }
+    while (modelsData.groups.length < targetIndex) {
+        modelsData.groups.push({
+            name: `未命名分组 ${modelsData.groups.length + 1}`,
+            items: []
+        });
+    }
+    if (!modelsData.groups[targetIndex]) {
+        modelsData.groups[targetIndex] = {
+            name: targetGroupName,
+            items: []
+        };
+    } else if (!modelsData.groups[targetIndex].name) {
+        modelsData.groups[targetIndex].name = targetGroupName;
+    }
+}
+
+function getSearchRowDom({ placeholder = "🔍 搜索拼音/原名/首字母...", onChange }) {
+    const wrap = document.createElement("div");
+    wrap.style.position = "relative";
+    wrap.style.display = "flex";
+    wrap.style.alignItems = "center";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = placeholder;
+    input.style.width = "100%";
+    input.style.boxSizing = "border-box";
+    input.style.padding = "8px 26px 8px 10px";
+    input.style.background = "#1a1a1a";
+    input.style.border = "1px solid #444";
+    input.style.color = "#eee";
+    input.style.borderRadius = "4px";
+    input.style.outline = "none";
+
+    const clearBtn = document.createElement("span");
+    clearBtn.textContent = "✖";
+    clearBtn.style.position = "absolute";
+    clearBtn.style.right = "8px";
+    clearBtn.style.cursor = "pointer";
+    clearBtn.style.color = "#aaa";
+    clearBtn.style.fontSize = "12px";
+    clearBtn.style.display = "none";
+    clearBtn.onmouseenter = () => { clearBtn.style.color = "#fff"; };
+    clearBtn.onmouseleave = () => { clearBtn.style.color = "#aaa"; };
+
+    const setClearVisible = (visible) => {
+        clearBtn.style.display = visible ? "block" : "none";
+    };
+
+    let composing = false;
+    input.addEventListener("compositionstart", () => { composing = true; });
+    input.addEventListener("compositionend", () => {
+        composing = false;
+        if (onChange) onChange(input.value);
+    });
+
+    input.addEventListener("input", () => {
+        setClearVisible(!!input.value);
+        if (composing) return;
+        if (onChange) onChange(input.value);
+    });
+
+    clearBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        input.value = "";
+        setClearVisible(false);
+        if (onChange) onChange("");
+        input.focus();
+    });
+
+    wrap.appendChild(input);
+    wrap.appendChild(clearBtn);
+    return { wrap, input, clearBtn };
+}
+
+async function openAddToAssetManagerGroupPicker(node, index) {
+    const items = getItems(node);
+    const item = items[index];
+    if (!item) {
+        showTopNotification("未找到要添加的提示词", "error");
+        return;
+    }
+
+    let promptsData;
+    let modelsData;
+    try {
+        [promptsData, modelsData] = await Promise.all([
+            fetchAssetManagerCollection("/a_my_nodes/assets/prompts"),
+            fetchAssetManagerCollection("/a_my_nodes/assets/models")
+        ]);
+    } catch (e) {
+        showTopNotification(`读取管理器数据失败: ${e.message || e}`, "error");
+        return;
+    }
+
+    const promptItem = buildNewPromptAssetItem(item, index);
+
+    const root = document.createElement("div");
+    root.style.display = "flex";
+    root.style.flexDirection = "column";
+    root.style.gap = "10px";
+
+    const tip = document.createElement("div");
+    tip.style.color = "#bbb";
+    tip.style.fontSize = "12px";
+    tip.textContent = `选择要添加到的目录（提示词标题将使用: ${promptItem.title}）`;
+    root.appendChild(tip);
+
+    const listContainer = document.createElement("div");
+    listContainer.style.border = "1px solid #333";
+    listContainer.style.borderRadius = "6px";
+    listContainer.style.overflow = "hidden";
+    listContainer.style.maxHeight = "360px";
+    listContainer.style.overflowY = "auto";
+
+    const groupNames = promptsData.groups.map(g => String(g?.name || "").trim());
+    const groupTexts = groupNames.map(n => n || "");
+
+    let debounceTimer = null;
+    let latestSeq = 0;
+    let lastKeyword = "";
+
+    const createRow = (label, onClick, opts = {}) => {
+        const row = document.createElement("div");
+        row.style.padding = "10px 12px";
+        row.style.cursor = "pointer";
+        row.style.borderBottom = "1px solid #2a2a2a";
+        row.style.display = "flex";
+        row.style.alignItems = "center";
+        row.style.justifyContent = "space-between";
+        row.style.background = opts.background || "transparent";
+        row.style.color = opts.color || "#eee";
+        row.onmouseenter = () => { row.style.background = "#333"; };
+        row.onmouseleave = () => { row.style.background = opts.background || "transparent"; };
+
+        const left = document.createElement("span");
+        left.textContent = label;
+        left.style.overflow = "hidden";
+        left.style.textOverflow = "ellipsis";
+        left.style.whiteSpace = "nowrap";
+        row.appendChild(left);
+
+        if (opts.suffix) {
+            const right = document.createElement("span");
+            right.textContent = opts.suffix;
+            right.style.color = "#888";
+            right.style.fontSize = "12px";
+            row.appendChild(right);
+        }
+
+        row.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (onClick) onClick();
+        });
+        return row;
+    };
+
+    const tryAddToGroup = async (targetGroupName) => {
+        const cleanName = String(targetGroupName || "").trim();
+        if (!cleanName) {
+            showTopNotification("请先选择目录或输入目录名", "warning");
+            return;
+        }
+
+        let targetGroupIndex = promptsData.groups.findIndex(group => String(group?.name || "").trim() === cleanName);
+        let shouldSaveModels = false;
+
+        if (targetGroupIndex === -1) {
+            promptsData.groups.push({ name: cleanName, items: [] });
+            targetGroupIndex = promptsData.groups.length - 1;
+            ensureModelsGroupAlignment(modelsData, targetGroupIndex, cleanName);
+            shouldSaveModels = true;
+        }
+
+        const targetGroup = promptsData.groups[targetGroupIndex];
+        if (!Array.isArray(targetGroup.items)) targetGroup.items = [];
+
+        const duplicateExists = targetGroup.items.some(existingItem =>
+            String(existingItem?.title || "").trim() === promptItem.title &&
+            String(existingItem?.content || "") === promptItem.content
+        );
+        if (duplicateExists) {
+            showTopNotification(`目录 [${cleanName}] 中已存在相同提示词`, "warning");
+            return;
+        }
+
+        targetGroup.items.push({ ...promptItem });
+        try {
+            await saveAssetManagerCollection("/a_my_nodes/assets/prompts", promptsData);
+            if (shouldSaveModels) {
+                await saveAssetManagerCollection("/a_my_nodes/assets/models", modelsData);
+            }
+            modal.close();
+            showTopNotification(`已添加到管理器目录: ${cleanName}`, "success");
+        } catch (e) {
+            showTopNotification(`保存到管理器失败: ${e.message || e}`, "error");
+        }
+    };
+
+    const promptCreateGroup = async () => {
+        const currentKeyword = String(searchInput?.value || "").trim();
+        const groupName = prompt("请输入新分组名:", currentKeyword);
+        if (groupName == null) return;
+        await tryAddToGroup(groupName);
+    };
+
+    const renderGroups = (matches) => {
+        listContainer.innerHTML = "";
+
+        const keyword = String(lastKeyword || "").trim();
+        const keywordHasValue = !!keyword;
+        const hasExact = keywordHasValue && groupNames.some(n => String(n || "").trim() === keyword);
+
+        if (keywordHasValue && !hasExact) {
+            listContainer.appendChild(createRow(`➕ 新建分组: ${keyword}`, () => tryAddToGroup(keyword), {
+                background: "rgba(42, 109, 181, 0.15)",
+                color: "#e6edf3",
+                suffix: "Enter"
+            }));
+        } else {
+            listContainer.appendChild(createRow("➕ 新建分组...", () => promptCreateGroup(), {
+                background: "rgba(42, 109, 181, 0.08)",
+                color: "#e6edf3"
+            }));
+        }
+
+        let shown = 0;
+        for (let i = 0; i < promptsData.groups.length; i++) {
+            const name = String(promptsData.groups[i]?.name || "").trim();
+            if (!name) continue;
+            if (matches && matches[i] === false) continue;
+            listContainer.appendChild(createRow(name, () => tryAddToGroup(name), { suffix: `#${i + 1}` }));
+            shown += 1;
+        }
+
+        if (shown === 0 && !(keywordHasValue && !hasExact)) {
+            const empty = document.createElement("div");
+            empty.style.padding = "12px";
+            empty.style.color = "#888";
+            empty.style.textAlign = "center";
+            empty.textContent = "无匹配目录";
+            listContainer.appendChild(empty);
+        }
+    };
+
+    const scheduleSearch = (keyword, delay = 180) => {
+        lastKeyword = keyword;
+        if (debounceTimer) clearTimeout(debounceTimer);
+        const seq = ++latestSeq;
+        debounceTimer = setTimeout(async () => {
+            debounceTimer = null;
+            const matches = await fetchPinyinMatches(groupTexts, keyword);
+            if (seq !== latestSeq) return; // 丢弃过期请求
+            renderGroups(matches);
+        }, delay);
+    };
+
+    const { wrap: searchWrap, input: searchInput } = getSearchRowDom({
+        placeholder: "🔍 搜索目录(拼音/原名/首字母)...",
+        onChange: (v) => scheduleSearch(v)
+    });
+    root.appendChild(searchWrap);
+    root.appendChild(listContainer);
+
+    // Enter: 如果输入框里有值，直接走“新建分组: xxx”
+    searchInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            const keyword = String(searchInput.value || "").trim();
+            if (keyword) tryAddToGroup(keyword);
+        }
+    });
+
+    // 初始渲染
+    renderGroups(null);
+
+    modal.show({
+        title: "选择管理器目录",
+        content: root,
+        width: "520px",
+        buttons: [{ text: "关闭", onClick: () => modal.close() }]
+    });
+}
+
 function isHandMode() {
     const canvasWrapper = app?.canvas;
     const canvasEl = canvasWrapper?.canvas;
@@ -752,6 +1123,9 @@ function showItemContextMenu(node, index, event) {
             showTopNotification('未找到节点的 index 控件', "error");
         }
     };
+    const doAddToAssetManager = async () => {
+        await openAddToAssetManagerGroupPicker(node, index);
+    };
 
     // 临时降低触发的 textarea 的指针，避免挡住菜单
     const targetEl = event?.target;
@@ -768,6 +1142,7 @@ function showItemContextMenu(node, index, event) {
     if (Lite && Lite.ContextMenu) {
         const menu = [
             { content: `✨ 使用该提示词`, callback: doUseThisPrompt },
+            { content: `📁 添加到管理器...`, callback: doAddToAssetManager },
             null, // 分隔线
             { content: `🧹 清空内容`, callback: doClear },
             { content: `📋 复制`, callback: doCopy },
@@ -794,8 +1169,9 @@ function showItemContextMenu(node, index, event) {
         }, 0);
     } else {
         // 简易回退
-        const choice = prompt(`操作: u=使用该提示词, c=清空, y=复制, p=粘贴, d=删除, up=上移, n=下移, m=移动到索引`, "u");
+        const choice = prompt(`操作: u=使用该提示词, a=添加到管理器, c=清空, y=复制, p=粘贴, d=删除, up=上移, n=下移, m=移动到索引`, "u");
         if (choice === 'u') doUseThisPrompt();
+        else if (choice === 'a') doAddToAssetManager();
         else if (choice === 'c') doClear();
         else if (choice === 'y') doCopy();
         else if (choice === 'p') doPaste();
@@ -1010,13 +1386,18 @@ function showCustomDropdown(node, items) {
         flex-shrink: 0;
     `;
     
+    const searchWrap = document.createElement('div');
+    searchWrap.style.position = "relative";
+    searchWrap.style.display = "flex";
+    searchWrap.style.alignItems = "center";
+
     const searchInput = document.createElement('input');
     searchInput.type = 'text';
-    searchInput.placeholder = '🔍 搜索...';
+    searchInput.placeholder = '🔍 搜索拼音/原名/首字母...';
     searchInput.style.cssText = `
         width: 100%;
         box-sizing: border-box;
-        padding: 4px 6px;
+        padding: 4px 24px 4px 6px;
         border: 1px solid #555;
         border-radius: 3px;
         background: #111;
@@ -1024,8 +1405,30 @@ function showCustomDropdown(node, items) {
         font-size: 12px;
         outline: none;
     `;
-    
-    searchContainer.appendChild(searchInput);
+
+    const clearBtn = document.createElement("span");
+    clearBtn.textContent = "✖";
+    clearBtn.style.position = "absolute";
+    clearBtn.style.right = "6px";
+    clearBtn.style.cursor = "pointer";
+    clearBtn.style.color = "#aaa";
+    clearBtn.style.fontSize = "12px";
+    clearBtn.style.display = "none";
+    clearBtn.onmouseenter = () => { clearBtn.style.color = "#fff"; };
+    clearBtn.onmouseleave = () => { clearBtn.style.color = "#aaa"; };
+
+    clearBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        searchInput.value = "";
+        clearBtn.style.display = "none";
+        scheduleSearchRender("");
+        searchInput.focus();
+    });
+
+    searchWrap.appendChild(searchInput);
+    searchWrap.appendChild(clearBtn);
+    searchContainer.appendChild(searchWrap);
     dropdown.appendChild(searchContainer);
     
     // 列表容器
@@ -1046,16 +1449,22 @@ function showCustomDropdown(node, items) {
     dropdown.appendChild(listContainer);
     
     // 渲染列表函数
-    const renderList = (filterText = '') => {
+    const searchTexts = items.map((it, idx) => {
+        const title = String(it?.title || `prompt_${idx}`);
+        const content = String(it?.content || "");
+        // 给拼音/首字母匹配更多上下文，但别太长
+        const merged = `${title} ${content}`.trim();
+        return merged.length > 240 ? merged.slice(0, 240) : merged;
+    });
+
+    const renderList = (matches, filterText = '') => {
         listContainer.innerHTML = '';
-        const lowerFilter = filterText.toLowerCase();
         let hasMatch = false;
         
         items.forEach((item, idx) => {
             const title = item.title || `prompt_${idx}`;
             const content = item.content || '';
-            // 搜索匹配：标题或内容
-            const match = title.toLowerCase().includes(lowerFilter) || content.toLowerCase().includes(lowerFilter);
+            const match = matches ? !!matches[idx] : true;
             
             if (match) {
                 hasMatch = true;
@@ -1114,11 +1523,35 @@ function showCustomDropdown(node, items) {
     };
     
     // 初始渲染
-    renderList();
+    renderList(null);
     
-    // 搜索事件
+    // 搜索事件：API + 防抖
+    let debounceTimer = null;
+    let composing = false;
+    let latestSeq = 0;
+
+    const scheduleSearchRender = (keyword, delay = 150) => {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        const seq = ++latestSeq;
+        debounceTimer = setTimeout(async () => {
+            debounceTimer = null;
+            const matches = await fetchPinyinMatches(searchTexts, keyword);
+            if (seq !== latestSeq) return;
+            renderList(matches, keyword);
+        }, delay);
+    };
+
+    searchInput.addEventListener("compositionstart", () => { composing = true; });
+    searchInput.addEventListener("compositionend", () => {
+        composing = false;
+        clearBtn.style.display = searchInput.value ? "block" : "none";
+        scheduleSearchRender(searchInput.value);
+    });
+
     searchInput.addEventListener('input', (e) => {
-        renderList(e.target.value);
+        clearBtn.style.display = e.target.value ? "block" : "none";
+        if (composing) return;
+        scheduleSearchRender(e.target.value);
     });
     
     // 关闭函数
