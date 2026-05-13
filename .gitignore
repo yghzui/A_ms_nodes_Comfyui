@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# ComfyUI
+models/
+output/
+output/**/*.png
+output/**/*.jpg
+output/**/*.webp
+output/**/*.mp4
+output/**/*.gif
+previews/
+temp/
+input/
+
+# Database files
+*_db.json
+
+# Test files
+test_*.py
+*_test.txt
+*_test_results.txt
+test_results/
+
+# Output logs
+output.txt
+output_*.txt
+*.log
+
+# Backup files
+*.bak
+*.jsbb
+*.jsn
+*.jsb
+*.backup
+* - 副本*
+* copy*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Resolution presets
+resolution_presets.json
+
+# ONNX related
+*onnx.py
+*onnx模型.py
+
+# Specific utility files
+delete_file.py
+web/js/en_load_video.jsb无效文件勿参考

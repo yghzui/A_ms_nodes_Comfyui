@@ -912,6 +912,49 @@ class NormalizeMask:
         return (normalized_mask,)
 
 
+class GenerateBlackMaskByMode:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "width": ("INT", {"default": 512, "min": 1, "max": 8192, "step": 1, "tooltip": "input 模式下输出 mask 的宽度"}),
+                "height": ("INT", {"default": 512, "min": 1, "max": 8192, "step": 1, "tooltip": "input 模式下输出 mask 的高度"}),
+                "batch_size": ("INT", {"default": 1, "min": 1, "max": 4096, "step": 1, "tooltip": "input 模式下生成的 mask 批次数量"}),
+                "mode": (["auto", "image", "input"], {"default": "auto", "tooltip": "auto: 有图用图像尺寸, 无图用输入参数; image: 强制使用图像尺寸; input: 强制使用宽高和 batch_size"}),
+            },
+            "optional": {
+                "image": ("IMAGE", {"default": None, "tooltip": "可选参考图像，用于读取宽、高和 batch 大小"}),
+            }
+        }
+
+    RETURN_TYPES = ("MASK",)
+    FUNCTION = "generate_mask"
+    CATEGORY = "My_node/mask"
+    DESCRIPTION = "生成纯黑 MASK。支持 auto、image、input 三种模式，可按输入图像或手动宽高/batch 创建。"
+
+    def generate_mask(self, width, height, batch_size, mode, image=None):
+        if mode not in {"auto", "image", "input"}:
+            raise ValueError(f"Unsupported mode: {mode}")
+
+        use_image = image is not None and mode in {"auto", "image"}
+
+        if mode == "image" and image is None:
+            raise ValueError("mode=image 时必须输入 image。")
+
+        if use_image:
+            if len(image.shape) != 4:
+                raise ValueError(f"image 的形状无效，期望为 (batch, height, width, channels)，实际为 {tuple(image.shape)}")
+            batch_size = int(image.shape[0])
+            height = int(image.shape[1])
+            width = int(image.shape[2])
+            device = image.device
+        else:
+            device = torch.device("cpu")
+
+        black_mask = torch.zeros((batch_size, height, width), dtype=torch.float32, device=device)
+        return (black_mask,)
+
+
 class AnalyzeMask:
     """
     一个用于分析遮罩（Mask）类型的节点。

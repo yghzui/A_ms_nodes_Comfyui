@@ -61,6 +61,20 @@ function installNodeSelector(node) {
         refreshBtn.name = "refresh_helper";
     }
 
+    let modeHint = node.widgets.find(w => w.name === "runtime_mode_hint");
+    if (!modeHint) {
+        modeHint = node.addWidget(
+            "text",
+            "runtime_mode_hint",
+            "UI显示值仅供参考，API/实际执行以后端prompt解析为准",
+            () => {},
+            {}
+        );
+        modeHint.name = "runtime_mode_hint";
+        modeHint.label = "运行说明";
+        modeHint.options = { readonly: true };
+    }
+
     // 3. 调整 Widget 顺序
     // 期望顺序: 
     // 0. refresh_helper
@@ -72,6 +86,7 @@ function installNodeSelector(node) {
     
     const desiredOrder = [
         "refresh_helper",
+        "runtime_mode_hint",
         "select_node_helper",
         "target_node_id",
         "select_input_helper",
@@ -303,6 +318,14 @@ app.registerExtension({
             if (capturedWidget && capturedWidget.inputEl) {
                 capturedWidget.inputEl.readOnly = true;
                 capturedWidget.inputEl.style.opacity = 0.8;
+                capturedWidget.inputEl.title = "该值用于UI预览；API/实际执行时以后端根据 target_node_id 和 target_input_name 从当前 prompt 解析的真实值为准。";
+            }
+
+            const hintWidget = this.widgets?.find(w => w.name === "runtime_mode_hint");
+            if (hintWidget && hintWidget.inputEl) {
+                hintWidget.inputEl.readOnly = true;
+                hintWidget.inputEl.style.opacity = 0.85;
+                hintWidget.inputEl.title = "避免误解：前端显示的 captured_value 主要用于编辑器内预览；真正执行时，后端会优先从当前 prompt 读取目标输入值。";
             }
         };
         

@@ -48,6 +48,7 @@ from .nodes.auto_vae_encode import AutoVAEEncode, FluxLatentMaskBinder
 from .nodes.auto_latent_source import AutoLatentSource
 from .nodes.workflow_force_rerun import WorkflowForceRerunPassthrough
 from .nodes.group_switch_any import GroupSwitchAny
+from .nodes.multi_input_state_mapper import MultiInputStateMapper
 
 
 # 延迟注册路由 - 确保在ComfyUI完全初始化后注册
@@ -102,6 +103,7 @@ NODE_CLASS_MAPPINGS = {
     "PasteFacesAdvanced": PasteFacesAdvanced, # 粘贴面部（高级）
     "PasteMasksMy": PasteMasksMy, # 粘贴遮罩
     "GenerateBlackTensor": GenerateWhiteTensor, # 生成黑色张量
+    "GenerateBlackMaskByMode": GenerateBlackMaskByMode, # 按模式生成纯黑遮罩
     "MyLoadImageListPlus": MyLoadImageListPlus, # 加载图片列表增强版
     "RemoveGlassesFaceMask": RemoveGlassesFaceMask, # 移除眼镜面部遮罩
     "AdjustMaskValues": AdjustMaskValues, # 调整遮罩值
@@ -162,6 +164,7 @@ NODE_CLASS_MAPPINGS = {
     "FluxLatentMaskBinder": FluxLatentMaskBinder, # Flux 潜空间遮罩绑定
     "WorkflowForceRerunPassthrough": WorkflowForceRerunPassthrough, # 强制让工作流每次更新
     "GroupSwitchAny": GroupSwitchAny, # 任意类型分组切换
+    "MultiInputStateMapper": MultiInputStateMapper, # 多输入存在状态映射
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by ms", # 加载并调整图片大小
@@ -184,6 +187,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PasteFacesAdvanced": "Paste Faces Advanced by ms", # 粘贴面部（高级）
     "PasteMasksMy": "Paste Masks My by ms", # 粘贴遮罩
     "GenerateBlackTensor": "Generate Black Tensor by ms", # 生成黑色张量
+    "GenerateBlackMaskByMode": "Generate Black Mask By Mode by ms", # 按模式生成纯黑遮罩
     "MyLoadImageListPlus": "Load Image List Plus by ms", # 加载图片列表增强版
     "RemoveGlassesFaceMask": "Remove Glasses Face Mask by ms", # 移除眼镜面部遮罩
     "AdjustMaskValues": "Adjust Mask Values by ms", # 调整遮罩值
@@ -235,6 +239,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "FluxLatentMaskBinder": "Flux Latent Mask Binder by ms", # Flux 潜空间遮罩绑定
     "WorkflowForceRerunPassthrough": "Workflow Force Rerun Passthrough by ms", # 强制让工作流每次更新
     "GroupSwitchAny": "Group Switch Any by ms", # 任意类型分组切换
+    "MultiInputStateMapper": "Multi Input State Mapper by ms", # 多输入存在状态映射
 }
 
 WEB_DIRECTORY = "./web/js"
