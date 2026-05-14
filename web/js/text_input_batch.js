@@ -1660,6 +1660,7 @@ function ensureTextareas(node, layout, items) {
         if (node.__suffixEls) { node.__suffixEls.forEach(el => el && el.remove()); node.__suffixEls = []; }
         if (node.__toggleEls) { node.__toggleEls.forEach(el => el && el.remove()); node.__toggleEls = []; }
         if (node.__inputEls) { node.__inputEls.forEach(el => el && el.remove()); node.__inputEls = []; }
+        if (node.__cardEls) { node.__cardEls.forEach(el => el && el.remove()); node.__cardEls = []; }
         if (node.__gridScrollContainer) { node.__gridScrollContainer.remove(); node.__gridScrollContainer = null; }
     };
     
@@ -3291,6 +3292,8 @@ function installViewportSync(node) {
         if (node.__suffixEls) node.__suffixEls.forEach(el => { if (el && el.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; } });
         if (node.__toggleEls) node.__toggleEls.forEach(el => { if (el && el.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; } });
         if (node.__inputEls) node.__inputEls.forEach(el => { if (el && el.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; } });
+        if (node.__cardEls) node.__cardEls.forEach(el => { if (el && el.style) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; } });
+        if (node.__gridScrollContainer && node.__gridScrollContainer.style) { node.__gridScrollContainer.style.visibility = 'hidden'; node.__gridScrollContainer.style.pointerEvents = 'none'; }
         
         // Hide Combo elements
         if (node.__comboSelect && node.__comboSelect.style) { node.__comboSelect.style.visibility = 'hidden'; node.__comboSelect.style.pointerEvents = 'none'; }
@@ -3302,6 +3305,7 @@ function installViewportSync(node) {
         if (node.__comboSuffixEl && node.__comboSuffixEl.style) { node.__comboSuffixEl.style.visibility = 'hidden'; node.__comboSuffixEl.style.pointerEvents = 'none'; }
         if (node.__comboMenuBtn && node.__comboMenuBtn.style) { node.__comboMenuBtn.style.visibility = 'hidden'; node.__comboMenuBtn.style.pointerEvents = 'none'; }
         if (node.__comboToggleEl && node.__comboToggleEl.style) { node.__comboToggleEl.style.visibility = 'hidden'; node.__comboToggleEl.style.pointerEvents = 'none'; }
+        if (node.__customDropdown && node.__customDropdown.style) { node.__customDropdown.style.visibility = 'hidden'; node.__customDropdown.style.pointerEvents = 'none'; }
     };
     const show = () => {
         const items = getItems(node);
@@ -3328,10 +3332,10 @@ function installViewportSync(node) {
 
 function initDomRefs(node) {
     const props = [
-        "__taEls", "__titleEls", "__suffixEls", "__toggleEls", "__inputEls",
+        "__taEls", "__titleEls", "__suffixEls", "__toggleEls", "__inputEls", "__cardEls",
         "__comboSelect", "__comboTextarea", "__comboInputEl",
         "__comboTitleInput", "__comboSuffixEl", "__comboMenuBtn", "__comboToggleEl",
-        "__customDropdown", // Add this
+        "__customDropdown", "__gridScrollContainer",
         "__viewportSyncInstalled", "__indexListenerInstalled", "__addButtonInstalled",
         "__drawingInstalled", "__rafId", "__onWheel", "__onMouseDown", "__indexCheckInterval",
         "_customSelectAllButtonRect", "_customDeselectAllButtonRect", 
