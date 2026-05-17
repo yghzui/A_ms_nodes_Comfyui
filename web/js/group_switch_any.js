@@ -164,9 +164,24 @@ app.registerExtension({
             graph?.setDirtyCanvas(true, true);
         };
 
-        const updateOutputs = (node) => {
-            const requiredCount = MAX_OUTPUTS;
+        const syncOutputMetadata = (node) => {
+            const outputs = node.outputs || [];
+            for (let i = 0; i < outputs.length; i++) {
+                if (outputs[i]) {
+                    outputs[i].name = `out${i + 1}`;
+                    outputs[i].type = "*";
+                    if (!outputs[i].extra_info) {
+                        outputs[i].extra_info = {};
+                    }
+                    outputs[i].extra_info.tooltip = `第 ${i + 1} 个输出。当前 group_size 小于该位置时会输出空值。`;
+                }
+            }
+        };
+
+        const updateOutputs = (node, options = {}) => {
+            const { bootstrap = false } = options;
             const graph = node.graph || app.graph;
+            const requiredCount = bootstrap ? MAX_OUTPUTS : getRequiredOutputCount(node);
             const currentOutputs = node.outputs ? node.outputs.length : 0;
 
             if (currentOutputs > requiredCount) {
@@ -183,36 +198,29 @@ app.registerExtension({
                 }
             }
 
-            for (let i = 0; i < requiredCount; i++) {
-                if (node.outputs[i]) {
-                    node.outputs[i].name = `out${i + 1}`;
-                    node.outputs[i].type = "*";
-                    if (!node.outputs[i].extra_info) {
-                        node.outputs[i].extra_info = {};
-                    }
-                    node.outputs[i].extra_info.tooltip = `第 ${i + 1} 个输出。当前 group_size 小于该位置时会输出空值。`;
-                }
-            }
-
             cancelPendingOutputCleanup(node);
-            node.__groupSwitchAnyOutputCleanupTimer = setTimeout(() => {
-                node.__groupSwitchAnyOutputCleanupTimer = null;
-                pruneTrailingUnusedOutputs(node);
-            }, OUTPUT_CLEANUP_DELAY_MS);
+            syncOutputMetadata(node);
+
+            if (bootstrap) {
+                node.__groupSwitchAnyOutputCleanupTimer = setTimeout(() => {
+                    node.__groupSwitchAnyOutputCleanupTimer = null;
+                    pruneTrailingUnusedOutputs(node);
+                }, OUTPUT_CLEANUP_DELAY_MS);
+            }
 
             node.setSize(node.computeSize());
             graph?.setDirtyCanvas(true, true);
         };
 
-        const syncNodeLayout = (node) => {
+        const syncNodeLayout = (node, options = {}) => {
             ensureDynamicInputs(node);
-            updateOutputs(node);
+            updateOutputs(node, options);
         };
 
         const onNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function() {
             onNodeCreated?.apply(this, arguments);
-            setTimeout(() => syncNodeLayout(this), 0);
+            setTimeout(() => syncNodeLayout(this, { bootstrap: true }), 0);
 
             const groupSizeWidget = getGroupSizeWidget(this);
             if (groupSizeWidget) {
@@ -229,7 +237,7 @@ app.registerExtension({
             onConfigure?.apply(this, arguments);
             cancelPendingInputCleanup(this);
             cancelPendingOutputCleanup(this);
-            setTimeout(() => syncNodeLayout(this), 50);
+            setTimeout(() => syncNodeLayout(this, { bootstrap: true }), 50);
         };
 
         const onConnectionsChange = nodeType.prototype.onConnectionsChange;
