@@ -17,7 +17,7 @@ except ImportError:
 
 
 class GroupSwitchAny:
-    MAX_OUTPUTS = 5
+    MAX_OUTPUTS = 8
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -69,14 +69,17 @@ class GroupSwitchAny:
             "optional": dyn_inputs,
         }
 
-    RETURN_TYPES = (ANY_TYPE, ANY_TYPE, ANY_TYPE, ANY_TYPE, ANY_TYPE)
-    RETURN_NAMES = ("out1", "out2", "out3", "out4", "out5")
+    RETURN_TYPES = (ANY_TYPE, ANY_TYPE, ANY_TYPE, ANY_TYPE, ANY_TYPE, ANY_TYPE, ANY_TYPE, ANY_TYPE)
+    RETURN_NAMES = ("out1", "out2", "out3", "out4", "out5", "out6", "out7", "out8")
     OUTPUT_TOOLTIPS = (
         "选中组的第 1 个输出；如果该组没有该位置，则输出 None。",
         "选中组的第 2 个输出；如果该组没有该位置，则输出 None。",
         "选中组的第 3 个输出；如果该组没有该位置，则输出 None。",
         "选中组的第 4 个输出；如果该组没有该位置，则输出 None。",
         "选中组的第 5 个输出；如果该组没有该位置，则输出 None。",
+        "选中组的第 6 个输出；如果该组没有该位置，则输出 None。",
+        "选中组的第 7 个输出；如果该组没有该位置，则输出 None。",
+        "选中组的第 8 个输出；如果该组没有该位置，则输出 None。",
     )
     FUNCTION = "switch_group"
     CATEGORY = "A_my_nodes/logic"

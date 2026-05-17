@@ -1,8 +1,10 @@
 import { app } from "../../../scripts/app.js";
 
 const NODE_NAME = "GroupSwitchAny";
-const MAX_OUTPUTS = 5;
+const MAX_OUTPUTS = 8;
 const INPUT_PATTERN = /^input_(\d+)_(\d+)$/;
+const INPUT_CLEANUP_DELAY_MS = 200;
+const OUTPUT_CLEANUP_DELAY_MS = 200;
 
 app.registerExtension({
     name: "A_my_nodes.GroupSwitchAny.DynamicIO",
@@ -48,19 +50,36 @@ app.registerExtension({
             return inputIndex !== -1 && node.getInputLink(inputIndex) !== null;
         };
 
-        const ensureDynamicInputs = (node) => {
-            const groupSize = getSafeGroupSize(node);
-            const dynamicInputs = getDynamicInputs(node);
+        const cancelPendingInputCleanup = (node) => {
+            if (node.__groupSwitchAnyInputCleanupTimer) {
+                clearTimeout(node.__groupSwitchAnyInputCleanupTimer);
+                node.__groupSwitchAnyInputCleanupTimer = null;
+            }
+        };
 
-            let lastConnectedIndex = -1;
+        const cancelPendingOutputCleanup = (node) => {
+            if (node.__groupSwitchAnyOutputCleanupTimer) {
+                clearTimeout(node.__groupSwitchAnyOutputCleanupTimer);
+                node.__groupSwitchAnyOutputCleanupTimer = null;
+            }
+        };
+
+        const getRequiredInputCount = (node) => {
+            const dynamicInputs = getDynamicInputs(node);
+            let highestConnectedIndex = -1;
+
             dynamicInputs.forEach((input, flatIndex) => {
                 if (isInputConnected(node, input)) {
-                    lastConnectedIndex = flatIndex;
+                    highestConnectedIndex = flatIndex;
                 }
             });
 
-            const keepCount = Math.max(1, lastConnectedIndex + 2);
+            return Math.max(1, highestConnectedIndex + 2);
+        };
 
+        const pruneTrailingUnusedInputs = (node) => {
+            const keepCount = getRequiredInputCount(node);
+            const dynamicInputs = getDynamicInputs(node);
             while (dynamicInputs.length > keepCount) {
                 const input = dynamicInputs.pop();
                 const inputIndex = node.inputs.indexOf(input);
@@ -68,6 +87,12 @@ app.registerExtension({
                     node.removeInput(inputIndex);
                 }
             }
+        };
+
+        const ensureDynamicInputs = (node) => {
+            const groupSize = getSafeGroupSize(node);
+            const dynamicInputs = getDynamicInputs(node);
+            const keepCount = getRequiredInputCount(node);
 
             while (dynamicInputs.length < keepCount) {
                 const flatIndex = dynamicInputs.length;
@@ -85,11 +110,62 @@ app.registerExtension({
                 input.extra_info.tooltip = `第 ${Math.floor(flatIndex / groupSize) + 1} 组第 ${(flatIndex % groupSize) + 1} 个输入`;
             });
 
+            cancelPendingInputCleanup(node);
+            if (dynamicInputs.length > keepCount) {
+                node.__groupSwitchAnyInputCleanupTimer = setTimeout(() => {
+                    node.__groupSwitchAnyInputCleanupTimer = null;
+                    pruneTrailingUnusedInputs(node);
+                    ensureDynamicInputs(node);
+                    (node.graph || app.graph)?.setDirtyCanvas(true, true);
+                }, INPUT_CLEANUP_DELAY_MS);
+            }
+
             node.setSize([node.size[0], node.computeSize()[1]]);
         };
 
+        const isOutputConnected = (node, output, outputIndex) => {
+            if (!output) {
+                return false;
+            }
+            if (Array.isArray(output.links) && output.links.length > 0) {
+                return true;
+            }
+            const graph = node.graph || app.graph;
+            if (!graph || !Array.isArray(graph.links) && typeof graph.links !== "object") {
+                return false;
+            }
+            const links = output.links || [];
+            return Array.isArray(links) && links.some((linkId) => !!graph.links?.[linkId]) || false;
+        };
+
+        const getRequiredOutputCount = (node) => {
+            const outputs = node.outputs || [];
+            let highestConnectedIndex = -1;
+            outputs.forEach((output, outputIndex) => {
+                if (isOutputConnected(node, output, outputIndex)) {
+                    highestConnectedIndex = outputIndex;
+                }
+            });
+            return Math.max(getSafeGroupSize(node), highestConnectedIndex + 1, 1);
+        };
+
+        const pruneTrailingUnusedOutputs = (node) => {
+            const graph = node.graph || app.graph;
+            const keepCount = getRequiredOutputCount(node);
+            while ((node.outputs?.length || 0) > keepCount) {
+                const lastIndex = node.outputs.length - 1;
+                const lastOutput = node.outputs[lastIndex];
+                if (isOutputConnected(node, lastOutput, lastIndex)) {
+                    break;
+                }
+                node.removeOutput(lastIndex);
+            }
+            node.setSize(node.computeSize());
+            graph?.setDirtyCanvas(true, true);
+        };
+
         const updateOutputs = (node) => {
-            const requiredCount = getSafeGroupSize(node);
+            const requiredCount = MAX_OUTPUTS;
             const graph = node.graph || app.graph;
             const currentOutputs = node.outputs ? node.outputs.length : 0;
 
@@ -111,8 +187,18 @@ app.registerExtension({
                 if (node.outputs[i]) {
                     node.outputs[i].name = `out${i + 1}`;
                     node.outputs[i].type = "*";
+                    if (!node.outputs[i].extra_info) {
+                        node.outputs[i].extra_info = {};
+                    }
+                    node.outputs[i].extra_info.tooltip = `第 ${i + 1} 个输出。当前 group_size 小于该位置时会输出空值。`;
                 }
             }
+
+            cancelPendingOutputCleanup(node);
+            node.__groupSwitchAnyOutputCleanupTimer = setTimeout(() => {
+                node.__groupSwitchAnyOutputCleanupTimer = null;
+                pruneTrailingUnusedOutputs(node);
+            }, OUTPUT_CLEANUP_DELAY_MS);
 
             node.setSize(node.computeSize());
             graph?.setDirtyCanvas(true, true);
@@ -141,12 +227,19 @@ app.registerExtension({
         const onConfigure = nodeType.prototype.onConfigure;
         nodeType.prototype.onConfigure = function(info) {
             onConfigure?.apply(this, arguments);
+            cancelPendingInputCleanup(this);
+            cancelPendingOutputCleanup(this);
             setTimeout(() => syncNodeLayout(this), 50);
         };
 
         const onConnectionsChange = nodeType.prototype.onConnectionsChange;
         nodeType.prototype.onConnectionsChange = function(connectionType, slotIndex, isConnected, linkInfo, slot) {
             onConnectionsChange?.apply(this, arguments);
+            if (connectionType === 2) {
+                cancelPendingOutputCleanup(this);
+                setTimeout(() => updateOutputs(this), 10);
+                return;
+            }
             if (connectionType !== 1) {
                 return;
             }
@@ -157,8 +250,10 @@ app.registerExtension({
             }
 
             if (isConnected) {
+                cancelPendingInputCleanup(this);
                 syncNodeLayout(this);
             } else {
+                cancelPendingInputCleanup(this);
                 setTimeout(() => syncNodeLayout(this), 10);
             }
         };

@@ -3,7 +3,9 @@ export function createTextInputBatchLifecycleApi({
     Tooltip,
     ensureStringsJsonWidget,
     getItems,
+    getCurrentIndex,
     setItems,
+    updateTextareaStyles,
     bindColumnsChange,
     bindMinHeightChange,
     installAddButton,
@@ -14,7 +16,8 @@ export function createTextInputBatchLifecycleApi({
     handleBatchDelete
 }) {
     const layoutCells = (...args) => getLayoutCells()(...args);
-    let ensureTextareas = (...args) => getEnsureTextareas()(...args);
+    const baseEnsureTextareas = getEnsureTextareas();
+    let ensureTextareas = (...args) => baseEnsureTextareas(...args);
 
 function installDrawingHandlers(node) {
     if (node.__drawingInstalled) return;

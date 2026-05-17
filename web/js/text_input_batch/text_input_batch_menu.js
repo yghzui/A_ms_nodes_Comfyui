@@ -448,6 +448,7 @@ function showCustomDropdown(node, items) {
         font-size: 12px;
         color: #eee;
         min-width: 150px;
+        min-height: 0;
     `;
     
     // 阻止事件冒泡
@@ -514,7 +515,10 @@ function showCustomDropdown(node, items) {
     listContainer.style.cssText = `
         overflow-y: auto;
         flex: 1;
+        min-height: 0;
         max-height: 300px; /* 默认最大高度，会被动态调整覆盖 */
+        scrollbar-width: thin;
+        scrollbar-color: #666 #222;
     `;
     
     // {{ AURA-X: Add - 点击列表空白处关闭 }}

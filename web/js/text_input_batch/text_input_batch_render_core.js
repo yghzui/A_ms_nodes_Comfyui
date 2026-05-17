@@ -5,6 +5,7 @@ export function createTextInputBatchRenderCoreApi({
     setItems,
     getBaseTitle,
     getCurrentIndex,
+    updateTextareaStyles,
     isHandMode,
     getWidgetsBottom,
     handleTextareaCommentShortcut,

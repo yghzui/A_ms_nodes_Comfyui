@@ -49,6 +49,7 @@ from .nodes.auto_latent_source import AutoLatentSource
 from .nodes.workflow_force_rerun import WorkflowForceRerunPassthrough
 from .nodes.group_switch_any import GroupSwitchAny
 from .nodes.multi_input_state_mapper import MultiInputStateMapper
+from .nodes.multi_image_condition_reference import MultiImageConditionReference
 
 
 # 延迟注册路由 - 确保在ComfyUI完全初始化后注册
@@ -165,6 +166,7 @@ NODE_CLASS_MAPPINGS = {
     "WorkflowForceRerunPassthrough": WorkflowForceRerunPassthrough, # 强制让工作流每次更新
     "GroupSwitchAny": GroupSwitchAny, # 任意类型分组切换
     "MultiInputStateMapper": MultiInputStateMapper, # 多输入存在状态映射
+    "MultiImageConditionReference": MultiImageConditionReference, # 多图条件参考
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by ms", # 加载并调整图片大小
@@ -240,6 +242,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WorkflowForceRerunPassthrough": "Workflow Force Rerun Passthrough by ms", # 强制让工作流每次更新
     "GroupSwitchAny": "Group Switch Any by ms", # 任意类型分组切换
     "MultiInputStateMapper": "Multi Input State Mapper by ms", # 多输入存在状态映射
+    "MultiImageConditionReference": "Multi Image Conditioning Reference by ms", # 多图条件参考
 }
 
 WEB_DIRECTORY = "./web/js"

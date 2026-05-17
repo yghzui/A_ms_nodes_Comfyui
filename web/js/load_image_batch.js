@@ -120,6 +120,41 @@ app.registerExtension({
                     return files;
                 }
 
+                // 避免在原生可编辑控件中抢占粘贴，防止影响正常文本输入
+                function isEditablePasteTarget(target) {
+                    if (!target || typeof target !== "object") return false;
+                    if (target.isContentEditable) return true;
+                    const tagName = typeof target.tagName === "string" ? target.tagName.toLowerCase() : "";
+                    return tagName === "input" || tagName === "textarea" || tagName === "select";
+                }
+
+                // 获取本次粘贴应由哪些自定义节点接管
+                function getPasteTargetNodes(canvas) {
+                    const targets = [];
+                    if (!canvas) return targets;
+
+                    const over = canvas.over_node;
+                    if (over && over.type === "LoadImageBatchAdvanced") {
+                        targets.push(over);
+                    }
+
+                    const sel = canvas.selected_nodes;
+                    if (sel && typeof sel === "object") {
+                        for (const k in sel) {
+                            const candidate = sel[k];
+                            if (
+                                candidate &&
+                                candidate.type === "LoadImageBatchAdvanced" &&
+                                !targets.includes(candidate)
+                            ) {
+                                targets.push(candidate);
+                            }
+                        }
+                    }
+
+                    return targets;
+                }
+
                 // 上传一组文件，返回路径数组
                 async function uploadFiles(files) {
                     const uploadPromises = files.map(file => {
@@ -223,33 +258,12 @@ app.registerExtension({
                     document.addEventListener('paste', async (evt) => {
                         try {
                             const target = evt.target;
-                            if (!target) return;
-                            const clsList = target.classList || { contains: () => false };
-                            const isCanvasZone = clsList.contains('litegraph') || clsList.contains('graph-canvas-container');
-                            if (!isCanvasZone) return;
+                            if (isEditablePasteTarget(target)) return;
 
                             const canvas = app?.canvas;
                             if (!canvas) return;
 
-                            let targets = [];
-
-                            const sel = canvas.selected_nodes;
-                            if (sel && typeof sel === 'object') {
-                                for (const k in sel) {
-                                    const n = sel[k];
-                                    if (n && n.type === 'LoadImageBatchAdvanced') {
-                                        targets.push(n);
-                                    }
-                                }
-                            }
-
-                            if (!targets.length) {
-                                const over = canvas.over_node;
-                                if (over && over.type === 'LoadImageBatchAdvanced') {
-                                    targets = [over];
-                                }
-                            }
-                            
+                            const targets = getPasteTargetNodes(canvas);
                             if (!targets.length) return;
 
                             let files = getImageFilesFromClipboard(evt.clipboardData);
@@ -280,6 +294,7 @@ app.registerExtension({
 
                             evt.preventDefault();
                             evt.stopPropagation();
+                            evt.stopImmediatePropagation?.();
 
                             await Promise.all(targets.map(t => {
                                 if (t._customHandleIncomingFiles) {

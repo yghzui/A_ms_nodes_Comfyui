@@ -64,6 +64,8 @@ app.registerExtension({
                 container.style.height = "100%";
                 container.style.display = "flex";
                 container.style.flexDirection = "column";
+                container.style.minHeight = "0";
+                container.style.overflow = "hidden";
                 container.style.backgroundColor = "var(--bg-color, #222)";
                 container.style.border = "1px solid var(--border-color, #444)";
                 container.style.padding = "5px";
@@ -1053,10 +1055,39 @@ app.registerExtension({
                 const listContainer = document.createElement("div");
                 listContainer.className = "am-list-container";
                 listContainer.style.flex = "1";
-                listContainer.style.overflowY = "auto";
+                listContainer.style.minHeight = "0";
+                listContainer.style.height = "0";
+                listContainer.style.overflowX = "hidden";
+                listContainer.style.overflowY = "scroll";
+                listContainer.style.scrollbarWidth = "thin";
+                listContainer.style.scrollbarColor = "#666 #222";
                 listContainer.addEventListener("scroll", () => this.removeHoverPreview(), { passive: true });
                 listContainer.addEventListener("wheel", () => this.removeHoverPreview(), { passive: true });
                 listContainer.addEventListener("mouseleave", () => this.removeHoverPreview());
+
+                const ensureListScrollbarStyle = () => {
+                    if (document.getElementById("wan-video-double-stream-asset-scroll-style")) return;
+                    const styleEl = document.createElement("style");
+                    styleEl.id = "wan-video-double-stream-asset-scroll-style";
+                    styleEl.textContent = `
+                        .am-list-container::-webkit-scrollbar {
+                            width: 10px;
+                        }
+                        .am-list-container::-webkit-scrollbar-track {
+                            background: #222;
+                        }
+                        .am-list-container::-webkit-scrollbar-thumb {
+                            background: #666;
+                            border-radius: 999px;
+                            border: 2px solid #222;
+                        }
+                        .am-list-container::-webkit-scrollbar-thumb:hover {
+                            background: #888;
+                        }
+                    `;
+                    document.head.appendChild(styleEl);
+                };
+                ensureListScrollbarStyle();
                 
                 if (this._renderListToken) {
                     cancelAnimationFrame(this._renderListToken);

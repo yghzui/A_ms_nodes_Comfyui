@@ -55,10 +55,12 @@ export const cssStyles = `
     border: 1px solid var(--am-border);
     color: var(--am-text);
     font-family: sans-serif;
+    min-height: 0;
 }
 
 .am-header {
     height: 50px;
+    flex-shrink: 0;
     background: var(--am-panel-bg);
     display: flex;
     align-items: center;
@@ -91,20 +93,27 @@ export const cssStyles = `
 .am-body {
     display: flex;
     flex: 1;
+    min-height: 0;
     overflow: hidden;
 }
 
 .am-sidebar {
     width: 200px;
+    flex-shrink: 0;
     background: var(--am-panel-bg);
     border-right: 1px solid var(--am-border);
     display: flex;
     flex-direction: column;
+    min-height: 0;
 }
 
 .am-groups {
     flex: 1;
-    overflow-y: auto;
+    height: 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
     padding: 10px;
 }
 
@@ -119,6 +128,7 @@ export const cssStyles = `
 
 .am-sidebar-footer {
     padding: 10px;
+    flex-shrink: 0;
     border-top: 1px solid var(--am-border);
 }
 
@@ -126,11 +136,14 @@ export const cssStyles = `
     flex: 1;
     display: flex;
     flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
     background: var(--am-bg);
 }
 
 .am-toolbar {
     height: 40px;
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     padding: 0 10px;
@@ -140,8 +153,43 @@ export const cssStyles = `
 
 .am-items-area {
     flex: 1;
-    overflow-y: auto;
+    height: 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
+    overscroll-behavior: contain;
     padding: 20px;
+}
+
+.am-groups::-webkit-scrollbar,
+.am-items-area::-webkit-scrollbar,
+.am-card-desc::-webkit-scrollbar,
+.am-drawer::-webkit-scrollbar {
+    width: 10px;
+}
+
+.am-groups::-webkit-scrollbar-track,
+.am-items-area::-webkit-scrollbar-track,
+.am-card-desc::-webkit-scrollbar-track,
+.am-drawer::-webkit-scrollbar-track {
+    background: #222;
+}
+
+.am-groups::-webkit-scrollbar-thumb,
+.am-items-area::-webkit-scrollbar-thumb,
+.am-card-desc::-webkit-scrollbar-thumb,
+.am-drawer::-webkit-scrollbar-thumb {
+    background: #666;
+    border-radius: 999px;
+    border: 2px solid #222;
+}
+
+.am-groups::-webkit-scrollbar-thumb:hover,
+.am-items-area::-webkit-scrollbar-thumb:hover,
+.am-card-desc::-webkit-scrollbar-thumb:hover,
+.am-drawer::-webkit-scrollbar-thumb:hover {
+    background: #888;
 }
 
 /* Grid View */
