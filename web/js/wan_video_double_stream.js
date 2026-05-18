@@ -17,10 +17,29 @@ statusLabelSettings = {
     bgColor: statusLabelSettings.bgColor || "#000000",
     opacity: statusLabelSettings.opacity !== undefined ? statusLabelSettings.opacity : 0.8
 };
+const ASSET_SAVE_GROUP_STORAGE_KEY = "wan_video_double_stream_asset_save_group_name";
 
 function saveStatusLabelSettings() {
     localStorage.setItem("wan_video_status_label_settings", JSON.stringify(statusLabelSettings));
     app.canvas.setDirty(true, true);
+}
+
+function getSavedAssetGroupName() {
+    try {
+        return localStorage.getItem(ASSET_SAVE_GROUP_STORAGE_KEY) || "";
+    } catch (error) {
+        console.warn("Failed to read saved asset group:", error);
+        return "";
+    }
+}
+
+function saveAssetGroupName(groupName) {
+    if (!groupName) return;
+    try {
+        localStorage.setItem(ASSET_SAVE_GROUP_STORAGE_KEY, groupName);
+    } catch (error) {
+        console.warn("Failed to save asset group:", error);
+    }
 }
 
 function showStatusLabelSettingsModal() {
@@ -767,7 +786,12 @@ app.registerExtension({
                             return;
                         }
                         
-                        const groupOptions = groups.map((g, i) => `<option value="${i}">${g.name}</option>`).join("");
+                        const savedGroupName = getSavedAssetGroupName();
+                        const savedGroupIdx = groups.findIndex(g => g?.name === savedGroupName);
+                        const defaultGroupIdx = savedGroupIdx >= 0 ? savedGroupIdx : 0;
+                        const groupOptions = groups.map((g, i) => (
+                            `<option value="${i}"${i === defaultGroupIdx ? " selected" : ""}>${g.name}</option>`
+                        )).join("");
                         
                         const currentKey = this.widgets.find(w => w.name === "key_to_check")?.value || "未命名配置";
                         
@@ -793,6 +817,12 @@ app.registerExtension({
                                     onClick: async () => {
                                         const groupIdx = parseInt(document.getElementById("am-save-group").value);
                                         const title = document.getElementById("am-save-title").value.trim() || "未命名配置";
+                                        const selectedGroup = groups[groupIdx];
+                                        
+                                        if (!selectedGroup) {
+                                            showTopNotification("所选分组无效，请重新选择。", "error");
+                                            return;
+                                        }
                                         
                                         const newItem = {
                                             id: Date.now().toString() + Math.random().toString().slice(2, 6),
@@ -803,7 +833,9 @@ app.registerExtension({
                                             preview_image: ""
                                         };
                                         
-                                        groups[groupIdx].items.push(newItem);
+                                        selectedGroup.items = Array.isArray(selectedGroup.items) ? selectedGroup.items : [];
+                                        selectedGroup.items.push(newItem);
+                                        saveAssetGroupName(selectedGroup.name);
                                         
                                         await api.fetchApi("/a_my_nodes/assets/models", {
                                             method: "POST",

@@ -6,11 +6,10 @@ import { cssStyles } from "./asset_manager_style.js";
 import { PreviewHandler } from "./asset_manager_preview_handler.js";
 import { DataHandler } from "./asset_manager_data_handler.js";
 import { DragSelectHandler } from "./asset_manager_drag_select.js";
-
 import { AssetManagerFAB } from "./asset_manager_fab.js";
 import { AssetManagerQuickMenu } from "./asset_manager_quick_menu.js";
-
 import { tooltipManager } from "./asset_manager_tooltip.js";
+import { AssetManagerWindowController } from "./asset_manager_window.js";
 
 // ================= CSS 注入 =================
 const style = document.createElement("style");
@@ -25,6 +24,11 @@ class AssetManagerUI {
         this.currentTab = 'prompts'; // 'prompts' or 'models'
         this.currentGroupIndex = 0;
         this.viewMode = 'grid'; // 'grid', 'list', 'single'
+        this.sidebarStateStorageKey = "am_sidebar_collapsed";
+        this.isSidebarCollapsed = localStorage.getItem(this.sidebarStateStorageKey) === "1";
+        this.dataLoadPromise = null;
+        this.isDataLoaded = false;
+        this.isLoadingData = false;
         
         // 全局缓存 LoRA 列表，避免每次点击卡顿
         this.cachedLoraList = null;
@@ -35,8 +39,15 @@ class AssetManagerUI {
         
         this.createDOM();
         this.createDrawerDOM();
-        this.loadData();
-        this.preloadLoraList();
+        this.scheduleDeferredTasks();
+    }
+
+    scheduleDeferredTasks() {
+        setTimeout(() => this.loadData(), 0);
+        const idleCallback = window.requestIdleCallback || ((callback) => setTimeout(callback, 300));
+        idleCallback(() => {
+            if (!this.cachedLoraList) this.preloadLoraList();
+        });
     }
 
     async preloadLoraList() {
@@ -88,6 +99,26 @@ class AssetManagerUI {
                             onclick: (e) => this.switchTab('models', e.target)
                         })
                     ]),
+                    $el("div", { className: "am-window-controls" }, [
+                        $el("button", {
+                            className: "am-window-btn",
+                            textContent: "📌",
+                            title: "置顶",
+                            dataset: { amWindowAction: "pin" }
+                        }),
+                        $el("button", {
+                            className: "am-window-btn",
+                            textContent: "🗕",
+                            title: "最小化",
+                            dataset: { amWindowAction: "minimize" }
+                        }),
+                        $el("button", {
+                            className: "am-window-btn",
+                            textContent: "🗖",
+                            title: "最大化",
+                            dataset: { amWindowAction: "maximize" }
+                        })
+                    ]),
                     $el("div", { 
                         className: "am-close", 
                         textContent: "✖",
@@ -107,6 +138,13 @@ class AssetManagerUI {
                             })
                         ])
                     ]),
+                    $el("button", {
+                        className: "am-sidebar-toggle",
+                        id: "am-sidebar-toggle",
+                        textContent: this.isSidebarCollapsed ? "▶" : "◀",
+                        title: this.isSidebarCollapsed ? "展开分组栏" : "折叠分组栏",
+                        onclick: () => this.toggleSidebar()
+                    }),
                     // Content
                     $el("div", { className: "am-content" }, [
                         $el("div", { className: "am-toolbar" }, [
@@ -205,22 +243,61 @@ class AssetManagerUI {
             ])
         ]);
         document.body.appendChild(this.modal);
+        this.container = this.modal.querySelector(".am-container");
+        this.windowController = new AssetManagerWindowController(this.modal, this.container, this.modal.querySelector(".am-header"), this.modal.querySelector(".am-body"));
+        this.applySidebarState();
         this.initSelectionAndClipboard();
     }
 
-    async loadData() {
-        try {
-            const resP = await api.fetchApi("/a_my_nodes/assets/prompts");
-            this.promptsData = await resP.json();
-            if (!this.promptsData.groups) this.promptsData.groups = [];
+    async loadData(force = false) {
+        if (this.dataLoadPromise && !force) return this.dataLoadPromise;
+        this.isLoadingData = true;
+        this.renderLoadingState();
+        this.dataLoadPromise = (async () => {
+            try {
+                const [resP, resM] = await Promise.all([
+                    api.fetchApi("/a_my_nodes/assets/prompts"),
+                    api.fetchApi("/a_my_nodes/assets/models")
+                ]);
+                this.promptsData = await resP.json();
+                this.modelsData = await resM.json();
+                if (!this.promptsData.groups) this.promptsData.groups = [];
+                if (!this.modelsData.groups) this.modelsData.groups = [];
+                this.isDataLoaded = true;
+                this.renderGroups();
+            } catch (e) {
+                console.error("[AssetManager] Failed to load data:", e);
+            } finally {
+                this.isLoadingData = false;
+                this.dataLoadPromise = null;
+            }
+        })();
+        return this.dataLoadPromise;
+    }
 
-            const resM = await api.fetchApi("/a_my_nodes/assets/models");
-            this.modelsData = await resM.json();
-            if (!this.modelsData.groups) this.modelsData.groups = [];
-            
-            this.renderGroups();
-        } catch (e) {
-            console.error("[AssetManager] Failed to load data:", e);
+    applySidebarState() {
+        const bodyEl = this.modal?.querySelector(".am-body");
+        const toggleEl = this.modal?.querySelector("#am-sidebar-toggle");
+        if (!bodyEl || !toggleEl) return;
+        bodyEl.classList.toggle("am-sidebar-collapsed", this.isSidebarCollapsed);
+        toggleEl.textContent = this.isSidebarCollapsed ? "▶" : "◀";
+        toggleEl.title = this.isSidebarCollapsed ? "展开分组栏" : "折叠分组栏";
+    }
+
+    toggleSidebar() {
+        this.isSidebarCollapsed = !this.isSidebarCollapsed;
+        localStorage.setItem(this.sidebarStateStorageKey, this.isSidebarCollapsed ? "1" : "0");
+        this.applySidebarState();
+    }
+
+    renderLoadingState() {
+        const groupList = document.getElementById("am-group-list");
+        const itemList = document.getElementById("am-item-list");
+        if (groupList && !this.isDataLoaded) {
+            groupList.innerHTML = `<div style="color:#888; padding:10px; text-align:center;">加载中...</div>`;
+        }
+        if (itemList && !this.isDataLoaded) {
+            itemList.innerHTML = `<div style="color:#888; padding:20px; text-align:center;">正在异步加载资产数据...</div>`;
         }
     }
 
@@ -273,6 +350,18 @@ class AssetManagerUI {
         listEl.innerHTML = "";
         
         const data = this.currentTab === 'prompts' ? this.promptsData : this.modelsData;
+        if (this.isLoadingData && (!data.groups || data.groups.length === 0)) {
+            listEl.innerHTML = `<div style="color:#888; padding:10px; text-align:center;">加载中...</div>`;
+            const itemList = document.getElementById("am-item-list");
+            if (itemList) itemList.innerHTML = `<div style="color:#888; padding:20px; text-align:center;">正在异步加载资产数据...</div>`;
+            return;
+        }
+        if (!data.groups || data.groups.length === 0) {
+            listEl.innerHTML = `<div style="color:#888; padding:10px; text-align:center;">暂无分组</div>`;
+            const itemList = document.getElementById("am-item-list");
+            if (itemList) itemList.innerHTML = `<div style="color:#888; padding:20px; text-align:center;">请先创建分组</div>`;
+            return;
+        }
         
         data.groups.forEach((group, index) => {
             const el = $el("div", {
@@ -1245,11 +1334,13 @@ class AssetManagerUI {
     exportData() { DataHandler.exportData(this); }
 
     async showModal() {
-        await this.loadData(); // 每次打开时重新加载最新数据
-        this.modal.style.display = "flex";
+        this.modal.style.display = "block";
+        this.windowController?.onShow();
+        if (!this.isDataLoaded) this.renderLoadingState();
+        this.loadData();
     }
-
     hideModal() {
+        this.windowController?.onHide?.();
         this.modal.style.display = "none";
     }
 
@@ -1301,13 +1392,8 @@ class AssetManagerUI {
             return oldClose.apply(this, args);
         };
     }
-    async alert(msg) {
-        return AMDialog.alert(msg);
-    }
-
-    async confirm(msg) {
-        return AMDialog.confirm(msg);
-    }
+    async alert(msg) { return AMDialog.alert(msg); }
+    async confirm(msg) { return AMDialog.confirm(msg); }
 
     // ========== 抽屉 (Drawer) 相关 ==========
     async showDrawer(node, tabType, callback) {

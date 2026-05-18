@@ -2,12 +2,117 @@ import { app } from "../../../scripts/app.js";
 import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, isLowQuality, } from "./utils/utils_canvas.js";
 import { RgthreeBaseWidget, RgthreeBetterButtonWidget, RgthreeDividerWidget, } from "./utils/utils_widgets.js";
 import { moveArrayItem, removeArrayItem, showTopNotification } from "./utils/shared_utils.js";
+import { modal } from "./utils/modal.js";
 import { rgthree } from "./core/rgthree.js";
 import { rgthreeApi } from "./core/rgthree_api.js";
 
 console.log("Loaded load_lora_merge.js");
 
 import { api } from "../../../scripts/api.js";
+
+const ASSET_SAVE_GROUP_STORAGE_KEY = "load_lora_merge_asset_save_group_name";
+const ASSET_SAVE_TARGET_STORAGE_KEY = "load_lora_merge_asset_save_target";
+const ASSET_SAVE_MODE_STORAGE_KEY = "load_lora_merge_asset_save_mode";
+const ASSET_SAVE_ITEM_STORAGE_KEY = "load_lora_merge_asset_save_item_keyword";
+
+function getStoredValue(storageKey, defaultValue = "") {
+    try {
+        return localStorage.getItem(storageKey) || defaultValue;
+    } catch (error) {
+        console.warn("[LoadLoraMerge] Failed to read localStorage:", error);
+        return defaultValue;
+    }
+}
+
+function setStoredValue(storageKey, value) {
+    if (value === undefined || value === null || value === "") return;
+    try {
+        localStorage.setItem(storageKey, value);
+    } catch (error) {
+        console.warn("[LoadLoraMerge] Failed to write localStorage:", error);
+    }
+}
+
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+}
+
+function getAssetGroupItems(group) {
+    return Array.isArray(group?.items) ? group.items : [];
+}
+
+function buildAssetItemOptions(items, selectedKeyword = "") {
+    if (!items.length) {
+        return `<option value="">当前分组暂无可追加模型组</option>`;
+    }
+    const matchedIndex = items.findIndex(item => (item?.keyword || "") === selectedKeyword);
+    const defaultIndex = matchedIndex >= 0 ? matchedIndex : 0;
+    return items.map((item, index) => {
+        const label = item?.keyword || `未命名模型组 ${index + 1}`;
+        return `<option value="${index}"${index === defaultIndex ? " selected" : ""}>${escapeHtml(label)}</option>`;
+    }).join("");
+}
+
+function mergeUniqueLoras(existingLoras, incomingLoras) {
+    const merged = Array.isArray(existingLoras) ? existingLoras.map(item => ({ ...item })) : [];
+    const seenLoras = new Set(
+        merged
+            .map(item => String(item?.lora || "").trim())
+            .filter(Boolean)
+    );
+
+    for (const item of incomingLoras || []) {
+        const loraName = String(item?.lora || "").trim();
+        if (!loraName || loraName === "None" || seenLoras.has(loraName)) continue;
+        merged.push({ ...item });
+        seenLoras.add(loraName);
+    }
+
+    return merged;
+}
+
+function getCurrentNodeLoraValues(node) {
+    return (node.widgets || [])
+        .filter(widget => widget.name?.startsWith("LORA_"))
+        .map(widget => ({ ...widget.value }))
+        .filter(value => value && value.lora && value.lora !== "None");
+}
+
+function clearNodeLoraWidgets(node) {
+    node.widgets = (node.widgets || []).filter(widget => !widget.name?.startsWith("LORA_"));
+    node.loraWidgetsCounter = 0;
+}
+
+function addLoraValuesToNode(node, loraValues) {
+    for (const loraValue of loraValues || []) {
+        const widget = node.addNewLoraWidget();
+        widget.value = {
+            on: true,
+            lora: null,
+            strength: 1,
+            ...loraValue
+        };
+    }
+    const newSize = node.computeSize?.();
+    if (newSize) {
+        node.setSize([node.size[0], newSize[1]]);
+    }
+    node.setDirtyCanvas(true, true);
+}
+
+function getImportLorasFromAssetItem(assetItem, sourceType) {
+    const highLoras = Array.isArray(assetItem?.high_loras) ? assetItem.high_loras : [];
+    const lowLoras = Array.isArray(assetItem?.low_loras) ? assetItem.low_loras : [];
+
+    if (sourceType === "high") return mergeUniqueLoras([], highLoras);
+    if (sourceType === "low") return mergeUniqueLoras([], lowLoras);
+    return mergeUniqueLoras(highLoras, lowLoras);
+}
 
 // Helper function to show the LoRA chooser menu
 async function showLoraChooser(event, callback, parentMenu, loras, buttonNode) {
@@ -186,6 +291,60 @@ class LoadLoraMergeTripleToggleWidget extends RgthreeBaseWidget {
     }
     onToggle2Down() { this._value2 = !this._value2; this.cancelMouseDown(); return true; }
     onToggle3Down() { this._value3 = !this._value3; this.cancelMouseDown(); return true; }
+}
+
+class LoadLoraMergeButtonRowWidget extends RgthreeBaseWidget {
+    constructor(name, buttons) {
+        super(name);
+        this.type = "custom";
+        this.buttons = buttons;
+        this.hitAreas = {};
+        buttons.forEach((button, index) => {
+            this.hitAreas[`btn${index}`] = {
+                bounds: [0, 0],
+                onDown: (event, pos, node) => {
+                    button.onClick?.(event, pos, node || this.node);
+                    return true;
+                }
+            };
+        });
+    }
+
+    draw(ctx, node, w, posY, height) {
+        this.node = node;
+        ctx.save();
+
+        const margin = 10;
+        const innerMargin = 5;
+        const buttonCount = this.buttons.length || 1;
+        const buttonWidth = (w - margin * 2 - innerMargin * (buttonCount - 1)) / buttonCount;
+
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = "11px Arial";
+
+        this.buttons.forEach((button, index) => {
+            const btnX = margin + index * (buttonWidth + innerMargin);
+            ctx.fillStyle = button.bgColor || "#333";
+            ctx.beginPath();
+            ctx.roundRect(btnX, posY + 2, buttonWidth, height - 4, 4);
+            ctx.fill();
+
+            ctx.strokeStyle = button.borderColor || "#555";
+            ctx.stroke();
+
+            ctx.fillStyle = button.textColor || "#fff";
+            const label = fitString(ctx, button.label, buttonWidth - 10);
+            ctx.fillText(label, btnX + buttonWidth / 2, posY + height / 2);
+            this.hitAreas[`btn${index}`].bounds = [btnX, buttonWidth];
+        });
+
+        ctx.restore();
+    }
+
+    serializeValue() {
+        return undefined;
+    }
 }
 
 
@@ -389,13 +548,309 @@ app.registerExtension({
                 }
             };
             this.addCustomWidget(new RgthreeDividerWidget({ marginTop: 1, marginBottom: 0, thickness: 0 }));
-            const addButton = new RgthreeBetterButtonWidget("➕ Add LoRA", (e,p,n) => {
+            const handleAddLora = (e) => {
                 showLoraChooser(rgthree.lastCanvasMouseEvent || e, (value) => {
                     if (typeof value === "string" && value && value !== "None") this.addNewLoraWidget(value);
-                }, null, null, this, addButton);
-            });
-            addButton.serializeValue = () => undefined;
-            this.addCustomWidget(addButton);
+                }, null, null, this, this);
+            };
+
+            const handleImportAsset = async () => {
+                if (!window.AssetManager) {
+                    if (window.AMDialog) {
+                        window.AMDialog.alert("资产管理系统未就绪！");
+                    } else {
+                        alert("资产管理系统未就绪！");
+                    }
+                    return;
+                }
+
+                window.AssetManager.showDrawer(this, "models", async (selectedModels) => {
+                    const assetItem = Array.isArray(selectedModels) ? selectedModels[0] : null;
+                    if (!assetItem) return;
+
+                    const hasHigh = Array.isArray(assetItem.high_loras) && assetItem.high_loras.length > 0;
+                    const hasLow = Array.isArray(assetItem.low_loras) && assetItem.low_loras.length > 0;
+
+                    if (!hasHigh && !hasLow) {
+                        showTopNotification("所选模型组没有可导入的 LoRA。", "warning");
+                        return;
+                    }
+
+                    let importSource = "all";
+                    if (hasHigh && hasLow) {
+                        importSource = await new Promise(resolve => {
+                            modal.show({
+                                title: "选择导入来源",
+                                content: "当前模型组同时包含 High 和 Low LoRA，请选择导入哪一侧：",
+                                width: "400px",
+                                buttons: [
+                                    { text: "导入 High", type: "primary", onClick: () => { resolve("high"); modal.close(); } },
+                                    { text: "导入 Low", type: "secondary", onClick: () => { resolve("low"); modal.close(); } },
+                                    { text: "全部导入", onClick: () => { resolve("all"); modal.close(); } },
+                                    { text: "取消", onClick: () => { resolve("cancel"); modal.close(); } }
+                                ]
+                            });
+                        });
+                        if (importSource === "cancel") return;
+                    } else {
+                        importSource = hasHigh ? "high" : "low";
+                    }
+
+                    const importedLoras = getImportLorasFromAssetItem(assetItem, importSource);
+                    if (importedLoras.length === 0) {
+                        showTopNotification("所选来源中没有可导入的 LoRA。", "warning");
+                        return;
+                    }
+
+                    const currentLoras = getCurrentNodeLoraValues(this);
+                    let importMode = "append";
+
+                    if (currentLoras.length > 0) {
+                        importMode = await new Promise(resolve => {
+                            modal.show({
+                                title: "检测到已有配置",
+                                content: "当前节点已有 LoRA 配置，请选择导入模式：<br><br><b>追加</b>：保留现有 LoRA，并自动去重后追加新 LoRA。<br><b>覆盖</b>：清空当前节点 LoRA，然后导入所选模板。",
+                                width: "400px",
+                                buttons: [
+                                    { text: "追加 (保留现有)", type: "primary", onClick: () => { resolve("append"); modal.close(); } },
+                                    { text: "覆盖 (清空现有)", type: "secondary", onClick: () => { resolve("override"); modal.close(); } },
+                                    { text: "取消", onClick: () => { resolve("cancel"); modal.close(); } }
+                                ]
+                            });
+                        });
+                        if (importMode === "cancel") return;
+                    }
+
+                    if (importMode === "override") {
+                        clearNodeLoraWidgets(this);
+                        addLoraValuesToNode(this, importedLoras);
+                        showTopNotification(`已覆盖导入 ${importedLoras.length} 个 LoRA`, "success");
+                        return;
+                    }
+
+                    const mergedLoras = mergeUniqueLoras(currentLoras, importedLoras);
+                    const addedLoras = mergedLoras.slice(currentLoras.length);
+                    if (addedLoras.length === 0) {
+                        showTopNotification("没有新的 LoRA 可导入，已自动去重。", "warning");
+                        return;
+                    }
+
+                    addLoraValuesToNode(this, addedLoras);
+                    showTopNotification(`已追加导入 ${addedLoras.length} 个 LoRA`, "success");
+                });
+            };
+
+            const handleSaveAsset = async () => {
+                const loraWidgets = this.widgets.filter(w => w.name?.startsWith("LORA_"));
+                const loraValues = loraWidgets
+                    .map(w => ({ ...w.value }))
+                    .filter(v => v && v.lora && v.lora !== "None");
+
+                if (loraValues.length === 0) {
+                    showTopNotification("请先添加至少一个有效的 LoRA。", "warning");
+                    return;
+                }
+
+                try {
+                    const res = await api.fetchApi("/a_my_nodes/assets/models");
+                    const modelsData = await res.json();
+                    const groups = modelsData.groups || [];
+
+                    if (groups.length === 0) {
+                        alert("资产库中没有模型分组，请先在资产库中创建分组！");
+                        return;
+                    }
+
+                    const savedGroupName = getStoredValue(ASSET_SAVE_GROUP_STORAGE_KEY);
+                    const savedTarget = getStoredValue(ASSET_SAVE_TARGET_STORAGE_KEY, "high");
+                    const savedMode = getStoredValue(ASSET_SAVE_MODE_STORAGE_KEY, "create");
+                    const savedItemKeyword = getStoredValue(ASSET_SAVE_ITEM_STORAGE_KEY);
+                    const savedGroupIdx = groups.findIndex(g => g?.name === savedGroupName);
+                    const defaultGroupIdx = savedGroupIdx >= 0 ? savedGroupIdx : 0;
+                    const groupOptions = groups.map((g, i) => (
+                        `<option value="${i}"${i === defaultGroupIdx ? " selected" : ""}>${escapeHtml(g.name)}</option>`
+                    )).join("");
+                    const defaultGroupItems = getAssetGroupItems(groups[defaultGroupIdx]);
+                    const initialMode = defaultGroupItems.length > 0
+                        ? (savedMode === "append" ? "append" : "create")
+                        : "create";
+                    const existingItemOptions = buildAssetItemOptions(defaultGroupItems, savedItemKeyword);
+
+                    const defaultTitle = loraValues
+                        .map(v => String(v.lora || "").split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") || "")
+                        .filter(Boolean)
+                        .slice(0, 3)
+                        .join(" + ") || "未命名配置";
+
+                    const content = `
+                        <div style="display:flex; flex-direction:column; gap:10px; color:white;">
+                            <label>保存到分组:</label>
+                            <select id="am-save-group" style="background:#333; color:white; padding:5px; border:1px solid #555; border-radius:4px;">
+                                ${groupOptions}
+                            </select>
+                            <label>保存到流类型:</label>
+                            <select id="am-save-target" style="background:#333; color:white; padding:5px; border:1px solid #555; border-radius:4px;">
+                                <option value="high"${savedTarget === "high" ? " selected" : ""}>High LoRAs</option>
+                                <option value="low"${savedTarget === "low" ? " selected" : ""}>Low LoRAs</option>
+                            </select>
+                            <label>保存方式:</label>
+                            <select id="am-save-mode" style="background:#333; color:white; padding:5px; border:1px solid #555; border-radius:4px;">
+                                <option value="append"${initialMode === "append" ? " selected" : ""}>追加到已有模型组</option>
+                                <option value="create"${initialMode === "create" ? " selected" : ""}>新建模型组</option>
+                            </select>
+                            <div id="am-existing-item-wrap" style="display:${initialMode === "append" ? "flex" : "none"}; flex-direction:column; gap:6px;">
+                                <label>已有模型组名:</label>
+                                <select id="am-existing-item" style="background:#333; color:white; padding:5px; border:1px solid #555; border-radius:4px;">
+                                    ${existingItemOptions}
+                                </select>
+                                <div id="am-existing-item-tip" style="font-size:12px; color:#aaa;">
+                                    ${defaultGroupItems.length > 0 ? `当前分组共有 ${defaultGroupItems.length} 个模型组可追加` : "当前分组暂无可追加模型组"}
+                                </div>
+                            </div>
+                            <div id="am-new-item-wrap" style="display:${initialMode === "create" ? "flex" : "none"}; flex-direction:column; gap:6px;">
+                                <label>模型组名:</label>
+                                <input type="text" id="am-save-title" value="${escapeHtml(defaultTitle)}" style="background:#333; color:white; padding:5px; border:1px solid #555; border-radius:4px;">
+                            </div>
+                        </div>
+                    `;
+
+                    modal.show({
+                        title: "保存到资产库",
+                        content: content,
+                        width: "400px",
+                        buttons: [
+                            {
+                                text: "保存",
+                                type: "primary",
+                                onClick: async () => {
+                                    const groupIdx = parseInt(document.getElementById("am-save-group").value, 10);
+                                    const targetType = document.getElementById("am-save-target").value === "low" ? "low" : "high";
+                                    const saveMode = document.getElementById("am-save-mode").value === "append" ? "append" : "create";
+                                    const titleInput = document.getElementById("am-save-title");
+                                    const existingItemSelect = document.getElementById("am-existing-item");
+                                    const selectedGroup = groups[groupIdx];
+
+                                    if (!selectedGroup) {
+                                        showTopNotification("所选分组无效，请重新选择。", "error");
+                                        return;
+                                    }
+
+                                    selectedGroup.items = getAssetGroupItems(selectedGroup);
+                                    const targetField = targetType === "low" ? "low_loras" : "high_loras";
+                                    let resultMessage = "成功保存到资产库！";
+                                    let storedItemKeyword = "";
+
+                                    if (saveMode === "append") {
+                                        const itemIdx = parseInt(existingItemSelect?.value ?? "", 10);
+                                        const existingItem = selectedGroup.items[itemIdx];
+
+                                        if (!existingItem) {
+                                            showTopNotification("当前分组没有可追加的模型组，请切换为新建模型组。", "warning");
+                                            return;
+                                        }
+
+                                        const existingTargetLoras = Array.isArray(existingItem[targetField]) ? existingItem[targetField] : [];
+                                        const mergedTargetLoras = mergeUniqueLoras(existingTargetLoras, loraValues);
+                                        const addedCount = mergedTargetLoras.length - existingTargetLoras.length;
+
+                                        existingItem.high_loras = Array.isArray(existingItem.high_loras) ? existingItem.high_loras : [];
+                                        existingItem.low_loras = Array.isArray(existingItem.low_loras) ? existingItem.low_loras : [];
+                                        existingItem[targetField] = mergedTargetLoras;
+
+                                        storedItemKeyword = existingItem.keyword || "";
+                                        resultMessage = addedCount > 0
+                                            ? `成功追加 ${addedCount} 个 LoRA 到已有模型组！`
+                                            : "目标模型组中没有新增 LoRA，已自动去重。";
+                                    } else {
+                                        const title = titleInput?.value.trim() || defaultTitle;
+                                        let targetItem = selectedGroup.items.find(item => (item?.keyword || "") === title);
+
+                                        if (!targetItem) {
+                                            targetItem = {
+                                                id: Date.now().toString() + Math.random().toString().slice(2, 6),
+                                                keyword: title,
+                                                check_mode: "contains",
+                                                high_loras: [],
+                                                low_loras: [],
+                                                preview_image: ""
+                                            };
+                                            selectedGroup.items.push(targetItem);
+                                            resultMessage = "成功新建模型组并保存到资产库！";
+                                        } else {
+                                            resultMessage = "检测到同名模型组，已自动合并并去重。";
+                                        }
+
+                                        targetItem.high_loras = Array.isArray(targetItem.high_loras) ? targetItem.high_loras : [];
+                                        targetItem.low_loras = Array.isArray(targetItem.low_loras) ? targetItem.low_loras : [];
+                                        targetItem[targetField] = mergeUniqueLoras(targetItem[targetField], loraValues);
+                                        storedItemKeyword = targetItem.keyword || title;
+                                    }
+
+                                    setStoredValue(ASSET_SAVE_GROUP_STORAGE_KEY, selectedGroup.name);
+                                    setStoredValue(ASSET_SAVE_TARGET_STORAGE_KEY, targetType);
+                                    setStoredValue(ASSET_SAVE_MODE_STORAGE_KEY, saveMode);
+                                    setStoredValue(ASSET_SAVE_ITEM_STORAGE_KEY, storedItemKeyword);
+
+                                    await api.fetchApi("/a_my_nodes/assets/models", {
+                                        method: "POST",
+                                        body: JSON.stringify(modelsData),
+                                        headers: { "Content-Type": "application/json" }
+                                    });
+
+                                    if (window.AssetManager) {
+                                        window.AssetManager.loadData();
+                                    }
+
+                                    showTopNotification(resultMessage, "success");
+                                    modal.close();
+                                }
+                            },
+                            { text: "取消", onClick: () => modal.close() }
+                        ]
+                    });
+
+                    const groupSelect = document.getElementById("am-save-group");
+                    const modeSelect = document.getElementById("am-save-mode");
+                    const existingItemWrap = document.getElementById("am-existing-item-wrap");
+                    const existingItemSelect = document.getElementById("am-existing-item");
+                    const existingItemTip = document.getElementById("am-existing-item-tip");
+                    const newItemWrap = document.getElementById("am-new-item-wrap");
+
+                    const refreshExistingItems = () => {
+                        const groupIdx = parseInt(groupSelect.value, 10);
+                        const selectedGroup = groups[groupIdx];
+                        const items = getAssetGroupItems(selectedGroup);
+                        existingItemSelect.innerHTML = buildAssetItemOptions(items, savedItemKeyword);
+                        existingItemSelect.disabled = items.length === 0;
+                        existingItemTip.textContent = items.length > 0
+                            ? `当前分组共有 ${items.length} 个模型组可追加`
+                            : "当前分组暂无可追加模型组";
+                        if (items.length === 0 && modeSelect.value === "append") {
+                            modeSelect.value = "create";
+                        }
+                        updateModeVisibility();
+                    };
+
+                    const updateModeVisibility = () => {
+                        const isAppendMode = modeSelect.value === "append";
+                        existingItemWrap.style.display = isAppendMode ? "flex" : "none";
+                        newItemWrap.style.display = isAppendMode ? "none" : "flex";
+                    };
+
+                    groupSelect?.addEventListener("change", refreshExistingItems);
+                    modeSelect?.addEventListener("change", updateModeVisibility);
+                    refreshExistingItems();
+                } catch (error) {
+                    console.error("[LoadLoraMerge] Failed to save asset:", error);
+                    alert("无法连接到资产库 API！");
+                }
+            };
+
+            this.addCustomWidget(new LoadLoraMergeButtonRowWidget("lora_actions", [
+                { label: "➕ Add", onClick: (e) => handleAddLora(e) },
+                { label: "✨ 导入", onClick: () => handleImportAsset() },
+                { label: "💾 保存", onClick: () => handleSaveAsset() }
+            ]));
         };
 
         // Add a new LoRA widget

@@ -35,17 +35,18 @@ export const cssStyles = `
 #asset-manager-modal {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.7);
+    background: transparent;
     z-index: 10000;
     display: none;
-    justify-content: center;
-    align-items: center;
-    backdrop-filter: blur(5px);
+    pointer-events: none;
 }
 
 .am-container {
-    width: 80vw;
-    height: 80vh;
+    position: fixed;
+    left: 15vw;
+    top: 15vh;
+    width: min(70vw, 1200px);
+    height: min(70vh, 900px);
     background: var(--am-bg);
     border-radius: 10px;
     display: flex;
@@ -56,6 +57,12 @@ export const cssStyles = `
     color: var(--am-text);
     font-family: sans-serif;
     min-height: 0;
+    min-width: 720px;
+    min-height: 480px;
+    max-width: calc(100vw - 20px);
+    max-height: calc(100vh - 20px);
+    resize: both;
+    pointer-events: auto;
 }
 
 .am-header {
@@ -66,6 +73,37 @@ export const cssStyles = `
     align-items: center;
     padding: 0 20px;
     border-bottom: 1px solid var(--am-border);
+    cursor: move;
+    user-select: none;
+}
+
+.am-window-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-right: 8px;
+}
+
+.am-window-btn {
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--am-border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--am-text);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    font-size: 14px;
+}
+
+.am-window-btn:hover,
+.am-window-btn.active {
+    background: var(--am-accent);
+    border-color: var(--am-accent);
+    color: #fff;
 }
 
 .am-tabs {
@@ -90,6 +128,18 @@ export const cssStyles = `
     padding: 10px;
 }
 
+.am-window-minimized {
+    resize: none !important;
+}
+
+.am-window-maximized {
+    border-radius: 8px;
+}
+
+.am-window-pinned {
+    box-shadow: 0 12px 36px rgba(0,0,0,0.9);
+}
+
 .am-body {
     display: flex;
     flex: 1;
@@ -105,6 +155,32 @@ export const cssStyles = `
     display: flex;
     flex-direction: column;
     min-height: 0;
+    transition: width 0.18s ease, min-width 0.18s ease, border-color 0.18s ease;
+}
+
+.am-sidebar-toggle {
+    width: 18px;
+    flex-shrink: 0;
+    border: none;
+    background: transparent;
+    color: #aaa;
+    cursor: pointer;
+    padding: 0;
+    font-size: 12px;
+    box-shadow: none;
+    outline: none;
+}
+
+.am-body.am-sidebar-collapsed .am-sidebar {
+    width: 0;
+    min-width: 0;
+    border-right-color: transparent;
+    overflow: hidden;
+}
+
+.am-body.am-sidebar-collapsed .am-sidebar-footer,
+.am-body.am-sidebar-collapsed .am-groups {
+    visibility: hidden;
 }
 
 .am-groups {
