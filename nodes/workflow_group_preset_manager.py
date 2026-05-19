@@ -2,8 +2,7 @@ import json
 
 from .workflow_group_store import (
     find_group_by_name,
-    get_db_fingerprint,
-    load_workflow_groups_db,
+    load_workflow_groups_from_payload,
 )
 
 
@@ -60,6 +59,14 @@ class WorkflowGroupPresetManager:
                         "tooltip": "是否允许前端“应用当前组到画布”同步更新 UI。该项主要供前端使用。",
                     },
                 ),
+                "groups_payload": (
+                    "STRING",
+                    {
+                        "default": "{\"version\":1,\"groups\":[]}",
+                        "multiline": True,
+                        "tooltip": "当前管理节点私有的分组数据，前端 DOM 管理器会自动维护该 JSON。",
+                    },
+                ),
             },
             "hidden": {
                 "prompt": "PROMPT",
@@ -91,14 +98,14 @@ class WorkflowGroupPresetManager:
     )
 
     @classmethod
-    def IS_CHANGED(cls, group_name="", auto_apply=True, apply_scope="values_only", fallback_mode="warn_missing", sync_ui_preview=True, prompt=None):
+    def IS_CHANGED(cls, group_name="", auto_apply=True, apply_scope="values_only", fallback_mode="warn_missing", sync_ui_preview=True, groups_payload="", prompt=None):
         return (
             str(group_name),
             bool(auto_apply),
             str(apply_scope),
             str(fallback_mode),
             bool(sync_ui_preview),
-            get_db_fingerprint(),
+            str(groups_payload),
         )
 
     @staticmethod
@@ -145,8 +152,8 @@ class WorkflowGroupPresetManager:
             count += len([entry for entry in _iter_value_entries(item) if entry.get("enabled", True)])
         return count
 
-    def describe_group(self, group_name, auto_apply, apply_scope, fallback_mode, sync_ui_preview, prompt=None):
-        workflow_groups_db = load_workflow_groups_db()
+    def describe_group(self, group_name, auto_apply, apply_scope, fallback_mode, sync_ui_preview, groups_payload, prompt=None):
+        workflow_groups_db = load_workflow_groups_from_payload(groups_payload)
         group = find_group_by_name(workflow_groups_db, group_name)
 
         if group is None:

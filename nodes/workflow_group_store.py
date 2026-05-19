@@ -178,6 +178,21 @@ def normalize_workflow_groups_db(data):
     }
 
 
+def load_workflow_groups_from_payload(payload):
+    if isinstance(payload, dict):
+        return normalize_workflow_groups_db(payload)
+    if isinstance(payload, str):
+        text = payload.strip()
+        if not text:
+            return _deepcopy_default_db()
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return _deepcopy_default_db()
+        return normalize_workflow_groups_db(data)
+    return _deepcopy_default_db()
+
+
 def ensure_workflow_groups_db_file():
     db_path = get_workflow_groups_db_path()
     if os.path.exists(db_path):

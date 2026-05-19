@@ -1,7 +1,7 @@
 import copy
 import json
 
-from .workflow_group_store import find_group_by_name, load_workflow_groups_db
+from .workflow_group_store import find_group_by_name, load_workflow_groups_from_payload
 
 
 MANAGER_NODE_CLASS = "WorkflowGroupPresetManager"
@@ -155,7 +155,6 @@ def apply_workflow_groups_to_prompt_payload(json_data):
     if not isinstance(prompt, dict):
         return json_data
 
-    workflow_groups_db = load_workflow_groups_db()
     reports = []
     prompt_changed = False
 
@@ -174,6 +173,8 @@ def apply_workflow_groups_to_prompt_payload(json_data):
         group_name = str(inputs.get("group_name", "") or "").strip()
         fallback_mode = str(inputs.get("fallback_mode", "warn_missing") or "warn_missing").strip()
         apply_scope = str(inputs.get("apply_scope", "values_only") or "values_only").strip()
+        groups_payload = inputs.get("groups_payload", "")
+        workflow_groups_db = load_workflow_groups_from_payload(groups_payload)
 
         report = {
             "manager_node_id": str(node_id),

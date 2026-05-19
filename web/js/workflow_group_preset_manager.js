@@ -1,9 +1,7 @@
 import { app } from "../../../scripts/app.js";
-import { api } from "../../../scripts/api.js";
 import { CustomModal } from "./utils/modal.js";
 
 const NODE_NAME = "WorkflowGroupPresetManager";
-const ENDPOINT = "/a_my_nodes/workflow_groups";
 const STYLE_ID = "a-my-nodes-workflow-group-modern-style";
 const PANEL_OFFSET_Y = 14;
 const confirmModal = new CustomModal();
@@ -628,30 +626,25 @@ function normalizeDb(db) {
     };
 }
 
-async function fetchWorkflowGroupsDb() {
-    const response = await api.fetchApi(ENDPOINT);
-    if (!response.ok) {
-        throw new Error(`读取分组失败: ${response.status}`);
+function serializeDb(db) {
+    try {
+        return JSON.stringify(normalizeDb(db));
+    } catch (error) {
+        console.error("[WorkflowGroupPresetManager] 序列化分组失败", error);
+        return JSON.stringify(DEFAULT_DB);
     }
-    return normalizeDb(await response.json());
 }
 
-async function saveWorkflowGroupsDb(db) {
-    const response = await api.fetchApi(ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(normalizeDb(db)),
-    });
-    let payload = {};
+function loadDbFromWidget(widget) {
+    const rawValue = widget?.value;
     try {
-        payload = await response.json();
+        if (typeof rawValue === "string" && rawValue.trim()) {
+            return normalizeDb(JSON.parse(rawValue));
+        }
     } catch (error) {
-        payload = {};
+        console.warn("[WorkflowGroupPresetManager] 读取节点私有分组失败，已回退为空。", error);
     }
-    if (!response.ok) {
-        throw new Error(payload?.error || `保存分组失败: ${response.status}`);
-    }
-    return normalizeDb(payload.data || DEFAULT_DB);
+    return normalizeDb(DEFAULT_DB);
 }
 
 function getGraph(node) {
@@ -1268,6 +1261,7 @@ function syncBackingWidgets(node) {
     setWidgetValue(state.applyScopeWidget, String(state.applyScope || "values_only"));
     setWidgetValue(state.fallbackModeWidget, String(state.fallbackMode || "warn_missing"));
     setWidgetValue(state.syncUiPreviewWidget, !!state.syncUiPreview);
+    setWidgetValue(state.groupsPayloadWidget, serializeDb(state.db || DEFAULT_DB));
 }
 
 async function refreshGroups(node, options = {}) {
@@ -1281,19 +1275,19 @@ async function refreshGroups(node, options = {}) {
         state.loading = true;
         renderNodePanel(node);
 
-        state.db = await fetchWorkflowGroupsDb();
+        state.db = loadDbFromWidget(state.groupsPayloadWidget);
         if (!state.selectedGroupName || !state.db.groups.some((group) => group.name === state.selectedGroupName)) {
             state.selectedGroupName = state.groupNameWidget.value || state.db.groups[0]?.name || "";
         }
         ensureSelection(state);
         updateEditorDraftFromSelection(state);
-        state.message = silent ? state.message : { type: "success", text: "已从后端刷新分组数据。" };
+        state.message = silent ? state.message : { type: "success", text: "已从当前管理节点重新载入分组数据。" };
         syncBackingWidgets(node);
         return state.db;
     } catch (error) {
-        console.error("[WorkflowGroupPresetManager] 刷新分组失败", error);
+        console.error("[WorkflowGroupPresetManager] 重新载入节点分组失败", error);
         if (!silent) {
-            state.message = { type: "error", text: error.message || "刷新分组失败" };
+            state.message = { type: "error", text: error.message || "重新载入节点分组失败" };
         }
         return state.db;
     } finally {
@@ -1311,7 +1305,7 @@ async function persistDb(node, db, successText = "") {
     try {
         state.loading = true;
         renderNodePanel(node);
-        state.db = await saveWorkflowGroupsDb(db);
+        state.db = normalizeDb(db);
         if (!state.db.groups.some((group) => group.name === state.selectedGroupName)) {
             state.selectedGroupName = state.db.groups[0]?.name || "";
         }
@@ -1320,8 +1314,8 @@ async function persistDb(node, db, successText = "") {
         state.message = successText ? { type: "success", text: successText } : null;
         syncBackingWidgets(node);
     } catch (error) {
-        console.error("[WorkflowGroupPresetManager] 保存分组失败", error);
-        state.message = { type: "error", text: error.message || "保存分组失败" };
+        console.error("[WorkflowGroupPresetManager] 保存当前节点分组失败", error);
+        state.message = { type: "error", text: error.message || "保存当前节点分组失败" };
     } finally {
         state.loading = false;
         renderNodePanel(node);
@@ -2062,7 +2056,7 @@ function buildConfigSection(node, state) {
     syncUiPreview.appendChild(syncUiInput);
     syncUiPreview.appendChild(document.createTextNode("允许前端同步应用到画布"));
 
-    const refreshBtn = createButton("刷新后端分组", "wg-btn", () => refreshGroups(node), state.loading);
+    const refreshBtn = createButton("重载当前节点分组", "wg-btn", () => refreshGroups(node), state.loading);
 
     grid.appendChild(createField("激活组", groupSelect, true));
     grid.appendChild(createField("apply_scope", applyScope));
@@ -2729,14 +2723,15 @@ function ensureWorkflowGroupUI(node) {
     const applyScopeWidget = getWidget(node, "apply_scope");
     const fallbackModeWidget = getWidget(node, "fallback_mode");
     const syncUiPreviewWidget = getWidget(node, "sync_ui_preview");
+    const groupsPayloadWidget = getWidget(node, "groups_payload");
 
-    if (!groupNameWidget || !autoApplyWidget || !applyScopeWidget || !fallbackModeWidget || !syncUiPreviewWidget) {
+    if (!groupNameWidget || !autoApplyWidget || !applyScopeWidget || !fallbackModeWidget || !syncUiPreviewWidget || !groupsPayloadWidget) {
         console.error("[WorkflowGroupPresetManager] 缺少必要控件。");
         return;
     }
 
     removeLegacyWidgets(node);
-    [groupNameWidget, autoApplyWidget, applyScopeWidget, fallbackModeWidget, syncUiPreviewWidget].forEach(hideWidget);
+    [groupNameWidget, autoApplyWidget, applyScopeWidget, fallbackModeWidget, syncUiPreviewWidget, groupsPayloadWidget].forEach(hideWidget);
 
     if (!node._workflowGroupState) {
         const container = document.createElement("div");
@@ -2752,6 +2747,7 @@ function ensureWorkflowGroupUI(node) {
             applyScopeWidget,
             fallbackModeWidget,
             syncUiPreviewWidget,
+            groupsPayloadWidget,
             selectedGroupName: String(groupNameWidget.value || ""),
             groupDraftName: String(groupNameWidget.value || ""),
             selectedItemId: "",
@@ -2759,7 +2755,7 @@ function ensureWorkflowGroupUI(node) {
             applyScope: String(applyScopeWidget.value || "values_only"),
             fallbackMode: String(fallbackModeWidget.value || "warn_missing"),
             syncUiPreview: !!syncUiPreviewWidget.value,
-            db: normalizeDb(DEFAULT_DB),
+            db: loadDbFromWidget(groupsPayloadWidget),
             loading: false,
             message: null,
             editor: defaultItemFromSelection(node),
@@ -2795,10 +2791,12 @@ function ensureWorkflowGroupUI(node) {
     state.applyScopeWidget = applyScopeWidget;
     state.fallbackModeWidget = fallbackModeWidget;
     state.syncUiPreviewWidget = syncUiPreviewWidget;
+    state.groupsPayloadWidget = groupsPayloadWidget;
     state.autoApply = !!autoApplyWidget.value;
     state.applyScope = String(applyScopeWidget.value || state.applyScope || "values_only");
     state.fallbackMode = String(fallbackModeWidget.value || state.fallbackMode || "warn_missing");
     state.syncUiPreview = !!syncUiPreviewWidget.value;
+    state.db = loadDbFromWidget(groupsPayloadWidget);
     if (!state.selectedGroupName) {
         state.selectedGroupName = String(groupNameWidget.value || "");
         state.groupDraftName = state.selectedGroupName;
@@ -2845,7 +2843,7 @@ app.registerExtension({
         nodeType.prototype.getExtraMenuOptions = function(_, options) {
             originalGetExtraMenuOptions?.apply(this, arguments);
             options.push(
-                { content: "刷新 Workflow Groups", callback: () => refreshGroups(this) },
+                { content: "重载当前节点分组", callback: () => refreshGroups(this) },
                 { content: "覆盖采集选中节点", callback: () => captureSelectedNodesToCurrentGroup(this, true) },
                 { content: "追加选中节点到组", callback: () => captureSelectedNodesToCurrentGroup(this, false) },
                 { content: "应用当前组到画布", callback: () => applyCurrentGroupToCanvas(this) }
