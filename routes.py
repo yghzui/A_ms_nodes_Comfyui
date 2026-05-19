@@ -21,6 +21,12 @@ from .nodes.resolutionpreset import (
     sanitize_resolution_presets,
     load_resolution_presets_from_file,
 )
+from .nodes.workflow_group_runtime import apply_workflow_groups_to_prompt_payload
+from .nodes.workflow_group_store import (
+    get_workflow_groups_schema as build_workflow_groups_schema,
+    load_workflow_groups_db,
+    save_workflow_groups_db,
+)
 
 # 全局日志打印控制开关
 ENABLE_DEBUG_PRINT = False
@@ -32,6 +38,7 @@ def printf(*args, force=False, **kwargs):
 
 # 全局标志，用于防止重复注册
 _routes_registered = False
+_workflow_group_prompt_handler_registered = False
 
 
 async def get_resolution_presets(request):
@@ -146,6 +153,47 @@ def _build_resolution_presets_payload(custom_presets):
 def _save_resolution_presets_to_file(presets):
     printf("💾 [ResolutionPreset] 正在保存预设文件")
     save_resolution_presets_to_file(presets)
+
+
+async def get_workflow_groups(request):
+    return web.json_response(load_workflow_groups_db())
+
+
+async def save_workflow_groups(request):
+    try:
+        body = await request.json()
+    except Exception as e:
+        return web.Response(
+            status=400,
+            text=json.dumps({"error": f"invalid json: {e}"}),
+            content_type="application/json",
+        )
+
+    try:
+        saved = save_workflow_groups_db(body)
+        return web.json_response({"success": True, "data": saved})
+    except Exception as e:
+        return web.Response(
+            status=500,
+            text=json.dumps({"error": str(e)}),
+            content_type="application/json",
+        )
+
+
+async def get_workflow_groups_schema(request):
+    return web.json_response(build_workflow_groups_schema())
+
+
+def register_workflow_group_prompt_handler():
+    global _workflow_group_prompt_handler_registered
+
+    if _workflow_group_prompt_handler_registered:
+        return
+
+    if hasattr(PromptServer, "instance") and PromptServer.instance is not None:
+        PromptServer.instance.add_on_prompt_handler(apply_workflow_groups_to_prompt_payload)
+        _workflow_group_prompt_handler_registered = True
+        print("✅ 工作流切换组 on_prompt 处理器注册成功！")
 
 async def serve_output_file(request):
     """处理静态输出文件请求 - 提供实际的文件服务功能"""
@@ -652,6 +700,16 @@ def register_routes():
                 print("✅ 分辨率预设路由 /a_my_nodes/resolution_presets 注册成功！")
             else:
                 print("⚠️ 路由 /a_my_nodes/resolution_presets 已经存在，跳过注册")
+
+            if "/a_my_nodes/workflow_groups" not in existing_routes:
+                PromptServer.instance.routes.get("/a_my_nodes/workflow_groups")(get_workflow_groups)
+                PromptServer.instance.routes.post("/a_my_nodes/workflow_groups")(save_workflow_groups)
+                PromptServer.instance.routes.get("/a_my_nodes/workflow_groups/schema")(get_workflow_groups_schema)
+                print("✅ 工作流切换组路由 /a_my_nodes/workflow_groups 注册成功！")
+            else:
+                print("⚠️ 路由 /a_my_nodes/workflow_groups 已经存在，跳过注册")
+
+            register_workflow_group_prompt_handler()
 
             if "/a_my_nodes/upload_custom_edited_image" not in existing_routes:
                 PromptServer.instance.routes.post("/a_my_nodes/upload_custom_edited_image")(upload_custom_edited_image)

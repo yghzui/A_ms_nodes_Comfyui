@@ -50,6 +50,7 @@ from .nodes.workflow_force_rerun import WorkflowForceRerunPassthrough
 from .nodes.group_switch_any import GroupSwitchAny
 from .nodes.multi_input_state_mapper import MultiInputStateMapper
 from .nodes.multi_image_condition_reference import MultiImageConditionReference
+from .nodes.workflow_group_preset_manager import WorkflowGroupPresetManager
 
 
 # 延迟注册路由 - 确保在ComfyUI完全初始化后注册
@@ -167,6 +168,7 @@ NODE_CLASS_MAPPINGS = {
     "GroupSwitchAny": GroupSwitchAny, # 任意类型分组切换
     "MultiInputStateMapper": MultiInputStateMapper, # 多输入存在状态映射
     "MultiImageConditionReference": MultiImageConditionReference, # 多图条件参考
+    "WorkflowGroupPresetManager": WorkflowGroupPresetManager, # 工作流切换组管理器
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by ms", # 加载并调整图片大小
@@ -243,6 +245,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "GroupSwitchAny": "Group Switch Any by ms", # 任意类型分组切换
     "MultiInputStateMapper": "Multi Input State Mapper by ms", # 多输入存在状态映射
     "MultiImageConditionReference": "Multi Image Conditioning Reference by ms", # 多图条件参考
+    "WorkflowGroupPresetManager": "Workflow Group Preset Manager by ms", # 工作流切换组管理器
 }
 
 WEB_DIRECTORY = "./web/js"

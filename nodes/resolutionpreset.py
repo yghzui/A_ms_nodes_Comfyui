@@ -152,6 +152,15 @@ def parse_custom_presets_text(custom_presets_text):
     return sanitize_resolution_presets(data)
 
 
+def get_available_resolution_preset_names():
+    options = list(BUILTIN_RESOLUTION_PRESETS.keys())
+    custom_presets = load_resolution_presets_from_file()
+    for name in custom_presets.keys():
+        if name not in options:
+            options.append(name)
+    return options
+
+
 class ResolutionPresetNode:
     @classmethod
     def INPUT_TYPES(cls):
@@ -160,7 +169,7 @@ class ResolutionPresetNode:
                 "preset": (
                     "COMBO",
                     {
-                        "options": list(BUILTIN_RESOLUTION_PRESETS.keys()),
+                        "options": get_available_resolution_preset_names(),
                         "default": "512x768",
                         "tooltip": "选择内置或自定义分辨率预设。前端节点面板负责完整的预设管理与保存。",
                     },
