@@ -354,9 +354,9 @@ function injectStyles() {
         }
         .wg-compact-grid {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 8px;
-        }
+        }           
         .wg-manager-root {
             display: flex;
             flex-direction: column;
@@ -1955,9 +1955,23 @@ function buildCompactPanel(node, state, currentGroup) {
     syncPreview.appendChild(syncPreviewInput);
     syncPreview.appendChild(document.createTextNode("sync_ui_preview"));
 
+    const showOutputs = document.createElement("label");
+    showOutputs.className = "wg-check";
+    const showOutputsInput = document.createElement("input");
+    showOutputsInput.type = "checkbox";
+    showOutputsInput.checked = !!state.showOutputs;
+    showOutputsInput.onchange = () => {
+        state.showOutputs = showOutputsInput.checked;
+        if (node.properties) node.properties.showOutputs = state.showOutputs;
+        syncOutputs(node);
+        renderNodePanel(node);
+    };
+    showOutputs.appendChild(showOutputsInput);
+    showOutputs.appendChild(document.createTextNode("show_outputs"));
+
     configGrid.appendChild(autoApply);
     configGrid.appendChild(syncPreview);
-
+    configGrid.appendChild(showOutputs);
     const status = document.createElement("div");
     status.className = "wg-compact-status";
     const badgeText = currentGroup
@@ -2817,7 +2831,6 @@ function ensureWorkflowGroupUI(node) {
 }
 
 injectStyles();
-
 app.registerExtension({
     name: "A_my_nodes.WorkflowGroupPresetManager.DOMUI",
     async beforeRegisterNodeDef(nodeType, nodeData) {
@@ -2829,14 +2842,33 @@ app.registerExtension({
         nodeType.prototype.onNodeCreated = function() {
             const result = originalOnNodeCreated?.apply(this, arguments);
             ensureWorkflowGroupUI(this);
+            setTimeout(() => syncOutputs(this), 50);
             return result;
         };
 
         const originalOnConfigure = nodeType.prototype.onConfigure;
         nodeType.prototype.onConfigure = function() {
             const result = originalOnConfigure?.apply(this, arguments);
-            setTimeout(() => ensureWorkflowGroupUI(this), 50);
+            // 延迟 200ms，等待 LiteGraph 将工作流中的连线关系彻底恢复
+            setTimeout(() => {
+                ensureWorkflowGroupUI(this);
+                syncOutputs(this);
+            }, 200); 
             return result;
+        };
+
+        // 新增：监听连线断开事件
+        const originalOnConnectionsChange = nodeType.prototype.onConnectionsChange;
+        nodeType.prototype.onConnectionsChange = function(connectionType, slotIndex, isConnected, linkInfo, slot) {
+            originalOnConnectionsChange?.apply(this, arguments);
+            // connectionType 2 代表 Output 端口，!isConnected 代表断开连接
+            if (connectionType === 2 && !isConnected) {
+                const state = getState(this);
+                // 如果当前未勾选“显示输出”，断开连线后自动把这个没用的接口删掉
+                if (state && !state.showOutputs) {
+                    setTimeout(() => syncOutputs(this), 50);
+                }
+            }
         };
 
         const originalGetExtraMenuOptions = nodeType.prototype.getExtraMenuOptions;
@@ -2851,3 +2883,58 @@ app.registerExtension({
         };
     },
 });
+// 定义后端期望的标准 6 个输出接口
+const TARGET_OUTPUTS = [
+    { name: "group_name", type: "STRING" },
+    { name: "group_id", type: "STRING" },
+    { name: "group_version", type: "INT" },
+    { name: "item_count", type: "INT" },
+    { name: "status_text", type: "STRING" },
+    { name: "group_payload", type: "STRING" }
+];
+
+function syncOutputs(node) {
+    const state = getState(node);
+    if (!state) return;
+
+    const showOutputs = !!state.showOutputs;
+    const graph = node.graph || app.graph;
+    let changed = false;
+
+    // 确保 outputs 数组存在
+    if (!node.outputs) {
+        node.outputs = [];
+    }
+
+    if (showOutputs) {
+        // 勾选显示时：按照顺序依次补齐缺失的接口
+        const currentCount = node.outputs.length;
+        for (let i = currentCount; i < TARGET_OUTPUTS.length; i++) {
+            node.addOutput(TARGET_OUTPUTS[i].name, TARGET_OUTPUTS[i].type);
+            changed = true;
+        }
+    } else {
+        // 取消勾选时：从下往上找，找到【序号最大】且【存在连线】的接口
+        let highestConnected = -1;
+        for (let i = node.outputs.length - 1; i >= 0; i--) {
+            const output = node.outputs[i];
+            if (output && Array.isArray(output.links) && output.links.length > 0) {
+                highestConnected = i;
+                break;
+            }
+        }
+
+        // 安全修剪：只删除从尾部到 highestConnected 之间【完全没有连线】的接口
+        // 这样可以确保前面接口的 Index 索引绝对不会发生偏移，防止后端返回数据错位
+        for (let i = node.outputs.length - 1; i > highestConnected; i--) {
+            node.removeOutput(i);
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        // 删除了 node.setSize(node.computeSize()); 
+        // 这样切换时节点的宽高将完全保持不变，不会再乱跳缩放
+        graph?.setDirtyCanvas(true, true);
+    }
+}
