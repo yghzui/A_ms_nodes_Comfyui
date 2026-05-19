@@ -42,6 +42,24 @@ function saveAssetGroupName(groupName) {
     }
 }
 
+function normalizeAssetStreamSettings(settings) {
+    if (!settings || typeof settings !== "object") {
+        return { value1: false, value2: false, value3: false };
+    }
+    if (settings.value3 === undefined && (settings.value1 !== undefined || settings.value2 !== undefined)) {
+        return {
+            value1: false,
+            value2: settings.value1 === true,
+            value3: settings.value2 === true,
+        };
+    }
+    return {
+        value1: settings.value1 === true,
+        value2: settings.value2 === true,
+        value3: settings.value3 === true,
+    };
+}
+
 function showStatusLabelSettingsModal() {
     const content = `
         <div style="display:flex; flex-direction:column; gap:10px; color: white;">
@@ -665,7 +683,7 @@ app.registerExtension({
             }));
             
             // Add settings for High Stream
-            const settingsHigh = this.addCustomWidget(new LoadLoraMergeTripleToggleWidget("settings_high", "Toggle All", "Low Mem", "Merge", false, false, true));
+            const settingsHigh = this.addCustomWidget(new LoadLoraMergeTripleToggleWidget("settings_high", "Toggle All", "Low Mem", "Merge", false, false, false));
             settingsHigh.properties = {
                 onToggle1: (value) => {
                     for (const widget of this.highLoraWidgets) {
@@ -726,6 +744,8 @@ app.registerExtension({
                                 this.loraWidgetsCounter = 0;
                             }
 
+                            const shouldApplyAssetSettings = mode === "override" || !hasExistingConfig;
+
                             selectedModels.forEach(m => {
                                 // 1. 处理 key_to_check
                                 if (m.keyword) {
@@ -740,6 +760,17 @@ app.registerExtension({
                                                 wKey.value = currentKeys.join(';');
                                             }
                                         }
+                                    }
+                                }
+
+                                if (shouldApplyAssetSettings) {
+                                    const settingsHighWidget = this.widgets.find(w => w.name === "settings_high");
+                                    const settingsLowWidget = this.widgets.find(w => w.name === "settings_low");
+                                    if (settingsHighWidget) {
+                                        settingsHighWidget.value = normalizeAssetStreamSettings(m.high_settings);
+                                    }
+                                    if (settingsLowWidget) {
+                                        settingsLowWidget.value = normalizeAssetStreamSettings(m.low_settings);
                                     }
                                 }
                                 
@@ -828,6 +859,8 @@ app.registerExtension({
                                             id: Date.now().toString() + Math.random().toString().slice(2, 6),
                                             keyword: title,
                                             check_mode: this.widgets.find(w => w.name === "check_mode")?.value || "contains",
+                                            high_settings: normalizeAssetStreamSettings(this.widgets.find(w => w.name === "settings_high")?.value),
+                                            low_settings: normalizeAssetStreamSettings(this.widgets.find(w => w.name === "settings_low")?.value),
                                             high_loras: this.highLoraWidgets.map(w => w.value).filter(v => v.lora && v.lora !== "None"),
                                             low_loras: this.lowLoraWidgets.map(w => w.value).filter(v => v.lora && v.lora !== "None"),
                                             preview_image: ""
@@ -872,7 +905,7 @@ app.registerExtension({
             }));
 
             // Add settings for Low Stream
-            const settingsLow = this.addCustomWidget(new LoadLoraMergeTripleToggleWidget("settings_low", "Toggle All", "Low Mem", "Merge", false, false, true));
+            const settingsLow = this.addCustomWidget(new LoadLoraMergeTripleToggleWidget("settings_low", "Toggle All", "Low Mem", "Merge", false, false, false));
             settingsLow.properties = {
                 onToggle1: (value) => {
                     for (const widget of this.lowLoraWidgets) {

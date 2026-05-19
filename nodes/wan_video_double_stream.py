@@ -183,15 +183,16 @@ class WanVideoDoubleStream:
         Processes a single stream of LoRA loading.
         """
         has_model_input = model is not None
-        has_wanvideo_input = prev_lora is not None
+        has_prev_lora_input = prev_lora is not None
+        should_collect_wanvideo = has_prev_lora_input or not has_model_input
         print(f"[{stream_name}] model is {'✅' if has_model_input else '❌'}.")
         # Create a copy of the list to prevent modifying the original list in place
         # This is crucial when High and Low streams share the same input list
-        prev_lora = list(prev_lora) if (has_wanvideo_input and prev_lora) else []
+        prev_lora = list(prev_lora) if has_prev_lora_input and prev_lora else []
             
         current_loras = []
         low_mem_load = False
-        merge_loras = True
+        merge_loras = False
         
         try:
             loras_data_raw = json.loads(loras_info)
@@ -207,12 +208,12 @@ class WanVideoDoubleStream:
                 current_loras_list = []
             
             # Parse settings
-            if has_wanvideo_input:
+            if should_collect_wanvideo:
                 settings = loras_data_raw.get("settings", {})
                 if isinstance(settings, dict):
                     # value2 is Low Mem, value3 is Merge
                     low_mem_load = settings.get("value2", False)
-                    merge_loras = settings.get("value3", True)
+                    merge_loras = settings.get("value3", False)
                 
         elif isinstance(loras_data_raw, list):
             current_loras_list = loras_data_raw
@@ -228,7 +229,7 @@ class WanVideoDoubleStream:
         if not merge_loras:
             low_mem_load = False
 
-        if has_wanvideo_input and not has_model_input:
+        if should_collect_wanvideo and not has_model_input:
             print(f"[{stream_name}] Settings: low_mem_load={'✅' if low_mem_load else '❌'}, merge_loras={'✅' if merge_loras else '❌'}")
         
         if not current_loras:
@@ -256,7 +257,7 @@ class WanVideoDoubleStream:
                     # Usually yes, as they might be used separately.
 
             # --- Part 2: Collect LoRA for WANVIDLORA output ---
-            if not has_wanvideo_input:
+            if not should_collect_wanvideo:
                 continue
             try:
                 lora_path = folder_paths.get_full_path_or_raise("loras", lora_name)

@@ -11,7 +11,16 @@ try:
 except ImportError:
     pass
 from folder_paths import get_output_directory
-from .nodes.resolutionpreset import get_resolution_presets_file_path
+from .nodes.resolutionpreset import (
+    RESOLUTION_PRESET_LIMITS,
+    find_default_custom_preset_name,
+    normalize_preset_name,
+    normalize_resolution_value,
+    save_resolution_presets_to_file,
+    serialize_builtin_resolution_presets,
+    sanitize_resolution_presets,
+    load_resolution_presets_from_file,
+)
 
 # 全局日志打印控制开关
 ENABLE_DEBUG_PRINT = False
@@ -26,23 +35,8 @@ _routes_registered = False
 
 
 async def get_resolution_presets(request):
-    file_path = get_resolution_presets_file_path()
-    data = {}
-    if os.path.isfile(file_path):
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-            if isinstance(raw, dict):
-                data = raw
-                printf(f"📖 [ResolutionPreset] 成功读取预设文件: {file_path}, 包含 {len(data)} 个预设")
-            else:
-                printf(f"⚠️ [ResolutionPreset] 预设文件格式错误 (非字典): {type(raw)}")
-        except Exception as e:
-            print(f"❌ [ResolutionPreset] 读取预设文件失败: {e}")
-            data = {}
-    else:
-        printf(f"ℹ️ [ResolutionPreset] 预设文件不存在: {file_path}")
-    return web.json_response({"presets": data})
+    custom_presets = load_resolution_presets_from_file()
+    return web.json_response(_build_resolution_presets_payload(custom_presets))
 
 
 async def save_resolution_presets(request):
@@ -55,19 +49,74 @@ async def save_resolution_presets(request):
             text=json.dumps({"error": "invalid json"}),
             content_type="application/json",
         )
-    presets = body.get("presets")
-    if not isinstance(presets, dict):
-        print(f"❌ [ResolutionPreset] presets格式错误: {type(presets)}")
+    action = str(body.get("action", "") or "").strip().lower()
+    existing = load_resolution_presets_from_file()
+    try:
+        if not action:
+            if "presets" in body:
+                action = "replace"
+            elif "name" in body and "w" in body and "h" in body:
+                action = "upsert"
+            else:
+                action = "replace"
+
+        if action == "replace":
+            presets = body.get("custom_presets", body.get("presets"))
+            if not isinstance(presets, dict):
+                raise ValueError("custom_presets must be an object")
+            result = sanitize_resolution_presets(presets)
+        elif action == "upsert":
+            name = normalize_preset_name(body.get("name"))
+            if not name:
+                raise ValueError("name is required")
+            if name in serialize_builtin_resolution_presets():
+                raise ValueError("builtin preset name cannot be overwritten")
+            step = body.get("step", RESOLUTION_PRESET_LIMITS["default_step"])
+            width = normalize_resolution_value(body.get("w"), step=step, field_name="width")
+            height = normalize_resolution_value(body.get("h"), step=step, field_name="height")
+            choose = bool(body.get("choose", False))
+            result = dict(existing)
+            result[name] = {
+                "w": width,
+                "h": height,
+                "choose": choose,
+            }
+            if choose:
+                for preset_name, item in result.items():
+                    item["choose"] = preset_name == name
+            result = sanitize_resolution_presets(result)
+        elif action == "delete":
+            name = normalize_preset_name(body.get("name"))
+            if not name:
+                raise ValueError("name is required")
+            if name in serialize_builtin_resolution_presets():
+                raise ValueError("builtin preset cannot be deleted")
+            if name not in existing:
+                raise ValueError("preset does not exist")
+            result = dict(existing)
+            del result[name]
+        elif action == "set_default":
+            name = normalize_preset_name(body.get("name"))
+            if not name:
+                raise ValueError("name is required")
+            if name not in existing:
+                raise ValueError("preset does not exist")
+            result = dict(existing)
+            for preset_name, item in result.items():
+                item["choose"] = preset_name == name
+            result = sanitize_resolution_presets(result)
+        else:
+            raise ValueError(f"unsupported action: {action}")
+    except ValueError as e:
+        print(f"❌ [ResolutionPreset] 请求参数错误: {e}")
         return web.Response(
             status=400,
-            text=json.dumps({"error": "presets must be an object"}),
+            text=json.dumps({"error": str(e)}),
             content_type="application/json",
         )
-    file_path = get_resolution_presets_file_path()
+
     try:
-        printf(f"💾 [ResolutionPreset] 正在保存预设到: {file_path}")
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(presets, f, ensure_ascii=False, indent=2)
+        _save_resolution_presets_to_file(result)
         printf(f"✅ [ResolutionPreset] 预设保存成功")
     except Exception as e:
         print(f"❌ [ResolutionPreset] 保存文件失败: {e}")
@@ -76,7 +125,27 @@ async def save_resolution_presets(request):
             text=json.dumps({"error": str(e)}),
             content_type="application/json",
         )
-    return web.json_response({"success": True})
+    payload = _build_resolution_presets_payload(result)
+    payload.update({
+        "success": True,
+        "action": action,
+    })
+    return web.json_response(payload)
+
+
+def _build_resolution_presets_payload(custom_presets):
+    sanitized = sanitize_resolution_presets(custom_presets)
+    return {
+        "builtin_presets": serialize_builtin_resolution_presets(),
+        "custom_presets": sanitized,
+        "constraints": dict(RESOLUTION_PRESET_LIMITS),
+        "default_custom_preset": find_default_custom_preset_name(sanitized),
+    }
+
+
+def _save_resolution_presets_to_file(presets):
+    printf("💾 [ResolutionPreset] 正在保存预设文件")
+    save_resolution_presets_to_file(presets)
 
 async def serve_output_file(request):
     """处理静态输出文件请求 - 提供实际的文件服务功能"""

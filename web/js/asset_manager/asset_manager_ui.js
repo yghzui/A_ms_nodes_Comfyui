@@ -42,6 +42,17 @@ class AssetManagerUI {
         this.scheduleDeferredTasks();
     }
 
+    normalizeModelStreamSettings(settings) {
+        if (!settings || typeof settings !== "object") {
+            return { value1: false, value2: false, value3: false };
+        }
+        return {
+            value1: settings.value1 === true,
+            value2: settings.value2 === true,
+            value3: settings.value3 === true,
+        };
+    }
+
     scheduleDeferredTasks() {
         setTimeout(() => this.loadData(), 0);
         const idleCallback = window.requestIdleCallback || ((callback) => setTimeout(callback, 300));
@@ -658,6 +669,8 @@ class AssetManagerUI {
         } else {
             let displayPath = "";
             let displayStr = "";
+            const highSettings = this.normalizeModelStreamSettings(item.high_settings);
+            const lowSettings = this.normalizeModelStreamSettings(item.low_settings);
             
             let validCount = 0;
             let invalidCount = 0;
@@ -691,6 +704,8 @@ class AssetManagerUI {
             } else {
                 descText = "空配置 (请双击添加模型)";
             }
+            descText += `\n[High: LowMem ${highSettings.value2 ? 'On' : 'Off'} | Merge ${highSettings.value3 ? 'On' : 'Off'}]`;
+            descText += `\n[Low: LowMem ${lowSettings.value2 ? 'On' : 'Off'} | Merge ${lowSettings.value3 ? 'On' : 'Off'}]`;
             
             contentWrapper.appendChild($el("div", { 
                 className: "am-card-desc", 
@@ -842,6 +857,8 @@ class AssetManagerUI {
                 id: Date.now().toString(),
                 keyword: "新模型检查词",
                 check_mode: "contains",
+                high_settings: { value1: false, value2: false, value3: false },
+                low_settings: { value1: false, value2: false, value3: false },
                 high_loras: [],
                 low_loras: [],
                 preview_image: ""
@@ -1013,7 +1030,7 @@ class AssetManagerUI {
             formElements.forEach(fe => editWrapper.appendChild(fe.wrapper));
             
             // --- Custom UI for High/Low Streams ---
-            const createStreamEditor = (streamName, loraArray) => {
+            const createStreamEditor = (streamName, loraArray, streamSettings) => {
                 const wrapper = $el("div", { style: { border: "1px solid var(--am-border)", borderRadius: "6px", padding: "10px", marginTop: "10px", background: "var(--am-bg)" } });
                 const header = $el("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: "10px", alignItems: "center" } });
                 
@@ -1031,6 +1048,33 @@ class AssetManagerUI {
                     }
                 }));
                 wrapper.appendChild(header);
+
+                const settingsRow = $el("div", {
+                    style: {
+                        display: "flex",
+                        gap: "12px",
+                        alignItems: "center",
+                        flexWrap: "wrap",
+                        marginBottom: "10px",
+                        padding: "6px 8px",
+                        borderRadius: "4px",
+                        background: "var(--am-panel-bg)"
+                    }
+                });
+                const createSettingToggle = (label, key, title) => {
+                    const labelEl = $el("label", {
+                        title,
+                        style: { display: "flex", alignItems: "center", gap: "5px", fontSize: "12px", color: "var(--am-text)", cursor: "pointer" }
+                    });
+                    const inputEl = $el("input", { type: "checkbox", checked: streamSettings[key] === true });
+                    inputEl.onchange = (e) => { streamSettings[key] = e.target.checked; };
+                    labelEl.appendChild(inputEl);
+                    labelEl.appendChild($el("span", { textContent: label }));
+                    return labelEl;
+                };
+                settingsRow.appendChild(createSettingToggle("Low Mem", "value2", `${streamName} 流的 Low Mem 设置`));
+                settingsRow.appendChild(createSettingToggle("Merge", "value3", `${streamName} 流的 Merge 设置`));
+                wrapper.appendChild(settingsRow);
 
                 const listContainer = $el("div", { style: { display: "flex", flexDirection: "column", gap: "5px" } });
                 wrapper.appendChild(listContainer);
@@ -1265,9 +1309,11 @@ class AssetManagerUI {
 
             if (!Array.isArray(item.high_loras)) item.high_loras = [];
             if (!Array.isArray(item.low_loras)) item.low_loras = [];
+            item.high_settings = this.normalizeModelStreamSettings(item.high_settings);
+            item.low_settings = this.normalizeModelStreamSettings(item.low_settings);
 
-            editWrapper.appendChild(createStreamEditor("High", item.high_loras));
-            editWrapper.appendChild(createStreamEditor("Low", item.low_loras));
+            editWrapper.appendChild(createStreamEditor("High", item.high_loras, item.high_settings));
+            editWrapper.appendChild(createStreamEditor("Low", item.low_loras, item.low_settings));
 
             const previewFe = createInput("预览图路径 (可选)", item.preview_image || "", "preview_image");
             formElements.push(previewFe);

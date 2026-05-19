@@ -1,5 +1,47 @@
 import { $el } from "../utils/shared_utils.js";
 
+function normalizeModelStreamSettings(settings) {
+    if (!settings || typeof settings !== "object") {
+        return { value1: false, value2: false, value3: false };
+    }
+    if (settings.value3 === undefined && (settings.value1 !== undefined || settings.value2 !== undefined)) {
+        return {
+            value1: false,
+            value2: settings.value1 === true,
+            value3: settings.value2 === true,
+        };
+    }
+    return {
+        value1: settings.value1 === true,
+        value2: settings.value2 === true,
+        value3: settings.value3 === true,
+    };
+}
+
+function normalizeLoraList(loras) {
+    if (!Array.isArray(loras)) return [];
+    return loras
+        .filter((item) => item && typeof item === "object")
+        .map((item) => ({
+            lora: item.lora || "",
+            strength: item.strength ?? 1.0,
+            on: item.on !== false,
+        }))
+        .filter((item) => item.lora && item.lora !== "None");
+}
+
+function normalizeModelAssetItem(item) {
+    return {
+        keyword: item.keyword || item.key_to_check || "未命名配置",
+        check_mode: item.check_mode || "contains",
+        high_settings: normalizeModelStreamSettings(item.high_settings || item.high?.settings),
+        low_settings: normalizeModelStreamSettings(item.low_settings || item.low?.settings),
+        high_loras: normalizeLoraList(item.high_loras || item.high?.loras),
+        low_loras: normalizeLoraList(item.low_loras || item.low?.loras),
+        preview_image: item.preview_image || "",
+    };
+}
+
 export class DataHandler {
     static importData(manager) {
         const data = manager.currentTab === 'prompts' ? manager.promptsData : manager.modelsData;
@@ -71,32 +113,40 @@ export class DataHandler {
                     }
                 } else {
                     if (!Array.isArray(parsed) && (parsed.high || parsed.low || parsed.key_to_check)) {
-                        resolveConflict({
-                            keyword: parsed.key_to_check || parsed.keyword || "未命名配置",
-                            check_mode: parsed.check_mode || "contains",
-                            high_loras: parsed.high?.loras || [],
-                            low_loras: parsed.low?.loras || [],
-                            preview_image: ""
-                        }, false);
+                        resolveConflict(normalizeModelAssetItem(parsed), false);
                     } else if (Array.isArray(parsed)) {
-                        const highLoras = [];
-                        parsed.forEach(loraItem => {
-                            if (loraItem.lora && loraItem.lora !== "None") {
-                                highLoras.push({
-                                    lora: loraItem.lora,
-                                    strength: loraItem.strength || 1.0,
-                                    on: loraItem.on !== false
-                                });
+                        const looksLikeModelAssetArray = parsed.some(item =>
+                            item && typeof item === "object" && (
+                                item.keyword !== undefined ||
+                                item.key_to_check !== undefined ||
+                                item.high_loras !== undefined ||
+                                item.low_loras !== undefined ||
+                                item.high_settings !== undefined ||
+                                item.low_settings !== undefined ||
+                                item.high !== undefined ||
+                                item.low !== undefined
+                            )
+                        );
+
+                        if (looksLikeModelAssetArray) {
+                            parsed.forEach(item => {
+                                if (item && typeof item === "object") {
+                                    resolveConflict(normalizeModelAssetItem(item), false);
+                                }
+                            });
+                        } else {
+                            const highLoras = normalizeLoraList(parsed);
+                            if (highLoras.length > 0) {
+                                resolveConflict({
+                                    keyword: "批量导入的旧模型",
+                                    check_mode: "contains",
+                                    high_settings: { value1: false, value2: false, value3: false },
+                                    low_settings: { value1: false, value2: false, value3: false },
+                                    high_loras: highLoras,
+                                    low_loras: [],
+                                    preview_image: ""
+                                }, false);
                             }
-                        });
-                        if (highLoras.length > 0) {
-                            resolveConflict({
-                                keyword: "批量导入的旧模型",
-                                check_mode: "contains",
-                                high_loras: highLoras,
-                                low_loras: [],
-                                preview_image: ""
-                            }, false);
                         }
                     }
                 }
@@ -167,9 +217,13 @@ export class DataHandler {
             }));
         } else {
             exportObj = group.items.map(item => ({
-                lora: item.model_path,
-                strength: item.strength,
-                on: item.on !== false
+                keyword: item.keyword || "未命名配置",
+                check_mode: item.check_mode || "contains",
+                high_settings: normalizeModelStreamSettings(item.high_settings),
+                low_settings: normalizeModelStreamSettings(item.low_settings),
+                high_loras: normalizeLoraList(item.high_loras),
+                low_loras: normalizeLoraList(item.low_loras),
+                preview_image: item.preview_image || ""
             }));
         }
 

@@ -61,6 +61,22 @@ class WanVideoDoubleStreamAsset:
             print(f"[WanVideoDoubleStreamAsset] Failed to read models data directly: {e}")
             return None
 
+    def _normalize_stream_settings(self, settings):
+        if not isinstance(settings, dict):
+            settings = {}
+
+        return {
+            "value1": bool(settings.get("value1", False)),
+            "value2": bool(settings.get("value2", False)),
+            "value3": bool(settings.get("value3", False)),
+        }
+
+    def _build_loras_info(self, loras, settings):
+        return json.dumps({
+            "loras": loras if isinstance(loras, list) else [],
+            "settings": self._normalize_stream_settings(settings),
+        })
+
     def process(self, global_enable, dict_input, enable_all_in_group="False", selected_assets="[]", current_group="All",
                 model_high=None, model_low=None, 
                 prev_lora_high=None, prev_lora_low=None,
@@ -157,9 +173,11 @@ class WanVideoDoubleStreamAsset:
             # 构建 loras_info
             high_loras = asset.get("high_loras", [])
             low_loras = asset.get("low_loras", [])
-            
-            loras_info_high = json.dumps(high_loras) if high_loras else "[]"
-            loras_info_low = json.dumps(low_loras) if low_loras else "[]"
+            high_settings = asset.get("high_settings", {})
+            low_settings = asset.get("low_settings", {})
+
+            loras_info_high = self._build_loras_info(high_loras, high_settings)
+            loras_info_low = self._build_loras_info(low_loras, low_settings)
 
             # 确保传入的是字典结构给 base_processor，或者是列表
             
