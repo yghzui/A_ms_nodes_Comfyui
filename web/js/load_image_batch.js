@@ -10,6 +10,7 @@ import { modal } from "./utils/modal.js";
 import { chainCallback } from "./utils/common.js";
 import { calculateImageLayout } from "./load_image/layout.js";
 import { 
+    ensureCustomDrawMethod,
     updateWidgetValue, 
     showImages, 
     populate, 
@@ -67,6 +68,10 @@ app.registerExtension({
                     fileInput.click();
                 });
                 uploadWidget.options.serialize = false;
+                node._customTriggerSelectFiles = () => {
+                    isForceAppend = false;
+                    fileInput.click();
+                };
 
                 node._customTriggerAppend = () => {
                     isForceAppend = true;
@@ -310,6 +315,8 @@ app.registerExtension({
 
                 // 将内部处理方法暴露到实例，供右键菜单调用
                 this._customHandleIncomingFiles = handleIncomingFiles; // 处理文件入口
+                showImages(node, []);
+                ensureCustomDrawMethod(node);
                 // 从异步 Clipboard API 读取图片文件
                 this._customReadClipboardImages = async function() {
                     try {
@@ -681,6 +688,17 @@ app.registerExtension({
                 const relX = e.canvasX - this.pos[0];
                 const relY = e.canvasY - this.pos[1];
                 const nodePos = this.pos;
+
+                if (this._customEmptyImageRect && (!this._customImagePaths || this._customImagePaths.length === 0)) {
+                    const rect = this._customEmptyImageRect;
+                    if (relX >= rect.x && relX <= rect.x + rect.width &&
+                        relY >= rect.y && relY <= rect.y + rect.height) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        this._customTriggerSelectFiles?.();
+                        return true;
+                    }
+                }
 
                 // 检查是否点击复选框
                 if (this._customCheckboxRects && this._customCheckboxRects.length > 0) {

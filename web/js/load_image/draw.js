@@ -2,6 +2,50 @@ import { getAdjustedFontSize } from "../utils/common.js";
 import { getCustomButtons } from "./image_manager.js";
 import { computeButtonLayout } from "./layout.js";
 
+function drawEmptyState(node, ctx) {
+    const PADDING = 8;
+    const TOP_MARGIN = 210;
+    const TITLE_HEIGHT = 25;
+    const buttons = getCustomButtons(node);
+    const layout = computeButtonLayout(node, buttons);
+    const bottomControlsHeight = node._customSingleImageMode ? 0 : layout.totalHeight;
+    const rect = {
+        x: PADDING,
+        y: PADDING + TOP_MARGIN,
+        width: Math.max(80, node.size[0] - (PADDING * 2)),
+        height: Math.max(80, node.size[1] - (PADDING * 2) - TOP_MARGIN - TITLE_HEIGHT - bottomControlsHeight),
+    };
+
+    node._customEmptyImageRect = rect;
+
+    const isHovered = node._customMouseX !== undefined && node._customMouseY !== undefined &&
+        node._customMouseX >= rect.x && node._customMouseX <= rect.x + rect.width &&
+        node._customMouseY >= rect.y && node._customMouseY <= rect.y + rect.height;
+
+    ctx.save();
+    ctx.fillStyle = isHovered ? "#303030" : "#262626";
+    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+    ctx.strokeStyle = isHovered ? "#8ab4ff" : "#666";
+    ctx.lineWidth = isHovered ? 2 : 1;
+    ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    ctx.font = "32px Arial";
+    ctx.fillStyle = isHovered ? "#cfe0ff" : "#a0a0a0";
+    ctx.fillText("+", rect.x + rect.width / 2, rect.y + rect.height / 2 - 22);
+
+    ctx.font = "bold 14px Arial";
+    ctx.fillStyle = isHovered ? "#ffffff" : "#d8d8d8";
+    ctx.fillText("点击选择图片", rect.x + rect.width / 2, rect.y + rect.height / 2 + 6);
+
+    ctx.font = "12px Arial";
+    ctx.fillStyle = isHovered ? "#d9e7ff" : "#9a9a9a";
+    ctx.fillText("也支持拖拽 / 粘贴图片到节点", rect.x + rect.width / 2, rect.y + rect.height / 2 + 28);
+    ctx.restore();
+}
+
 /**
  * 在Canvas上绘制图片
  * @param {object} node - LiteGraph节点实例
@@ -9,6 +53,12 @@ import { computeButtonLayout } from "./layout.js";
  */
 export function drawNodeImages(node, ctx) {
     if (!node._customImgs || !node._customImageRects) return;
+
+    if (!node._customImgs.length || !node._customImageRects.length) {
+        drawEmptyState(node, ctx);
+        return;
+    }
+    node._customEmptyImageRect = null;
     
     ctx.save();
     

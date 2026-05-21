@@ -370,24 +370,7 @@ export function populate(imagePaths) {
     
     this._customImagePaths = imagePaths;
     showImages(this, imagePaths);
-    
-    if (!this._customDrawMethodSet) {
-        console.log("设置自定义绘制方法");
-        const originalOnDrawForeground = this.onDrawForeground;
-        
-        const customDrawForeground = function(ctx) {
-            if (originalOnDrawForeground) {
-                originalOnDrawForeground.call(this, ctx);
-            }
-            if (this.type === "LoadImageBatchAdvanced" && this._customImgs && this._customImageRects) {
-                drawNodeImages(this, ctx);
-            }
-        };
-        
-        this.onDrawForeground = customDrawForeground;
-        this._customDrawMethodSet = true;
-        console.log("自定义绘制方法设置完成");
-    }
+    ensureCustomDrawMethod(this);
     
     // 原有的鼠标事件绑定逻辑已经移到 load_image_batch.js 中以避免循环依赖或过度耦合
     // 在这里触发一次重绘
@@ -395,6 +378,28 @@ export function populate(imagePaths) {
         console.log("延迟后的节点尺寸:", this.size);
         app.graph.setDirtyCanvas(true, false);
     }, 100);
+}
+
+export function ensureCustomDrawMethod(node) {
+    if (node._customDrawMethodSet) {
+        return;
+    }
+
+    console.log("设置自定义绘制方法");
+    const originalOnDrawForeground = node.onDrawForeground;
+
+    const customDrawForeground = function(ctx) {
+        if (originalOnDrawForeground) {
+            originalOnDrawForeground.call(this, ctx);
+        }
+        if (this.type === "LoadImageBatchAdvanced" && this._customImgs && this._customImageRects) {
+            drawNodeImages(this, ctx);
+        }
+    };
+
+    node.onDrawForeground = customDrawForeground;
+    node._customDrawMethodSet = true;
+    console.log("自定义绘制方法设置完成");
 }
 
 /**
