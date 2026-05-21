@@ -51,7 +51,13 @@ class BackgroundRemovalColorize:
                     "multiline": False,
                     "tooltip": "主体填充颜色，支持 #RRGGBB 或 R,G,B 格式。前端会把该输入显示为可点击的实时色块。"
                 }),
-            }
+            },
+            "optional": {
+                "mask": ("MASK", {
+                    "default": None,
+                    "tooltip": "可选遮罩。若传入且尺寸有效，则直接使用该 mask 作为主体遮罩，不再调用背景移除模型。"
+                }),
+            },
         }
 
     @classmethod
@@ -102,7 +108,34 @@ class BackgroundRemovalColorize:
         color_image[..., 2] = b
         return color_image
 
-    def process(self, image, enable_bg_removal, bg_removal_name, background_color, fill_color):
+    @classmethod
+    def _prepare_optional_mask(cls, mask, image_rgb: torch.Tensor):
+        if mask is None or not isinstance(mask, torch.Tensor) or mask.numel() == 0:
+            return None
+
+        try:
+            normalized_mask = cls._normalize_mask(mask).to(device=image_rgb.device, dtype=image_rgb.dtype)
+        except Exception:
+            return None
+
+        image_batch, image_height, image_width = image_rgb.shape[:3]
+        mask_batch, mask_height, mask_width = normalized_mask.shape
+
+        if mask_height != image_height or mask_width != image_width:
+            return None
+
+        if mask_batch == image_batch:
+            if torch.count_nonzero(normalized_mask).item() == 0:
+                return None
+            return normalized_mask
+        if mask_batch == 1:
+            repeated_mask = normalized_mask.repeat(image_batch, 1, 1)
+            if torch.count_nonzero(repeated_mask).item() == 0:
+                return None
+            return repeated_mask
+        return None
+
+    def process(self, image, enable_bg_removal, bg_removal_name, background_color, fill_color, mask=None):
         image_rgb = self._ensure_rgb(image)
         if not enable_bg_removal:
             empty_mask = torch.zeros(
@@ -117,21 +150,25 @@ class BackgroundRemovalColorize:
                 image_rgb.clamp(0.0, 1.0),
             )
 
-        if load_background_removal_model is None:
-            self._warn_unavailable_once()
-            raise RuntimeError("background_removal 模块不可用，当前节点无法执行。")
+        prepared_mask = self._prepare_optional_mask(mask, image_rgb)
+        if prepared_mask is not None:
+            mask = prepared_mask
+        else:
+            if load_background_removal_model is None:
+                self._warn_unavailable_once()
+                raise RuntimeError("background_removal 模块不可用，当前节点无法执行。")
 
-        if bg_removal_name == UNAVAILABLE_MODEL_OPTION:
-            raise RuntimeError("background_removal 模块不可用，当前节点无法执行。")
-        if bg_removal_name == NO_MODEL_OPTION:
-            raise RuntimeError("未找到 background_removal 模型文件，请先放入对应模型后再使用。")
+            if bg_removal_name == UNAVAILABLE_MODEL_OPTION:
+                raise RuntimeError("background_removal 模块不可用，当前节点无法执行。")
+            if bg_removal_name == NO_MODEL_OPTION:
+                raise RuntimeError("未找到 background_removal 模型文件，请先放入对应模型后再使用。")
 
-        model_path = folder_paths.get_full_path_or_raise("background_removal", bg_removal_name)
-        bg_model = load_background_removal_model(model_path)
-        if bg_model is None:
-            raise RuntimeError("背景移除模型文件无效，无法加载为可用的 background removal 模型。")
+            model_path = folder_paths.get_full_path_or_raise("background_removal", bg_removal_name)
+            bg_model = load_background_removal_model(model_path)
+            if bg_model is None:
+                raise RuntimeError("背景移除模型文件无效，无法加载为可用的 background removal 模型。")
 
-        mask = self._normalize_mask(bg_model.encode_image(image_rgb))
+            mask = self._normalize_mask(bg_model.encode_image(image_rgb))
         mask_4d = mask.unsqueeze(-1)
 
         background_image = self._solid_color_image_like(image_rgb, background_color)
