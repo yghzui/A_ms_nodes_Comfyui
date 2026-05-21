@@ -68,6 +68,19 @@ function setSourceWidgetValue(node, widgetName, colorValue) {
     node.setDirtyCanvas(true, true);
 }
 
+function ensureValidColorValue(node, widgetName, fallbackColor) {
+    const sourceWidget = getWidget(node, widgetName);
+    if (!sourceWidget) {
+        return fallbackColor;
+    }
+
+    const normalized = normalizeColorString(sourceWidget.value) || fallbackColor;
+    if (sourceWidget.value !== normalized) {
+        setSourceWidgetValue(node, widgetName, normalized);
+    }
+    return normalized;
+}
+
 function buildColorPickerElement(node, widgetName, label, fallbackColor) {
     const sourceWidget = getWidget(node, widgetName);
     if (!sourceWidget) {
@@ -126,7 +139,7 @@ function buildColorPickerElement(node, widgetName, label, fallbackColor) {
     });
 
     const syncView = () => {
-        const colorValue = normalizeColorString(sourceWidget.value) || fallbackColor;
+        const colorValue = ensureValidColorValue(node, widgetName, fallbackColor);
         wrapper.style.background = colorValue;
         wrapper.style.boxShadow = "inset 0 0 0 1px rgba(0,0,0,0.10)";
         wrapper.title = `当前颜色: ${colorValue}`;
@@ -160,6 +173,9 @@ function ensureColorDomWidgets(node) {
     if (!backgroundWidget || !fillWidget || typeof node.addDOMWidget !== "function") {
         return;
     }
+
+    ensureValidColorValue(node, "background_color", "#FFFFFF");
+    ensureValidColorValue(node, "fill_color", "#000000");
 
     backgroundWidget.hidden = true;
     fillWidget.hidden = true;

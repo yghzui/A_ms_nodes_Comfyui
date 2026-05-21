@@ -34,6 +34,10 @@ class BackgroundRemovalColorize:
                 "image": ("IMAGE", {
                     "tooltip": "要执行抠图的输入图像。若输入包含 alpha，只会使用其 RGB 部分参与抠图。"
                 }),
+                "enable_bg_removal": ("BOOLEAN", {
+                    "default": True,
+                    "tooltip": "是否执行抠图。关闭时直接返回原图到第一个输出，其余三个输出返回 None。"
+                }),
                 "bg_removal_name": (cls._get_model_options(), {
                     "tooltip": "背景移除模型。列表获取方式与 ComfyUI 原生 Load Background Removal Model 节点一致。"
                 }),
@@ -98,7 +102,21 @@ class BackgroundRemovalColorize:
         color_image[..., 2] = b
         return color_image
 
-    def process(self, image, bg_removal_name, background_color, fill_color):
+    def process(self, image, enable_bg_removal, bg_removal_name, background_color, fill_color):
+        image_rgb = self._ensure_rgb(image)
+        if not enable_bg_removal:
+            empty_mask = torch.zeros(
+                (image_rgb.shape[0], image_rgb.shape[1], image_rgb.shape[2]),
+                dtype=image_rgb.dtype,
+                device=image_rgb.device,
+            )
+            return (
+                image_rgb.clamp(0.0, 1.0),
+                empty_mask,
+                image_rgb.clamp(0.0, 1.0),
+                image_rgb.clamp(0.0, 1.0),
+            )
+
         if load_background_removal_model is None:
             self._warn_unavailable_once()
             raise RuntimeError("background_removal 模块不可用，当前节点无法执行。")
@@ -113,7 +131,6 @@ class BackgroundRemovalColorize:
         if bg_model is None:
             raise RuntimeError("背景移除模型文件无效，无法加载为可用的 background removal 模型。")
 
-        image_rgb = self._ensure_rgb(image)
         mask = self._normalize_mask(bg_model.encode_image(image_rgb))
         mask_4d = mask.unsqueeze(-1)
 
