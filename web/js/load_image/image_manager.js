@@ -125,43 +125,14 @@ export function getCustomButtons(node) {
         {
             text: '复制选中',
             width: 90,
-            tooltip: '复制选中图片路径到剪贴板',
+            tooltip: '复制选中图片，供同类节点粘贴',
             callback: () => {
-                if (node._customImagePaths && node._customSelectedImages) {
-                    const selectedPaths = [];
-                    for (let i = 0; i < node._customImagePaths.length; i++) {
-                        if (node._customSelectedImages[i]) {
-                            selectedPaths.push(node._customImagePaths[i]);
-                        }
-                    }
-                    
-                    if (selectedPaths.length > 0) {
-                        const textToCopy = selectedPaths.join('\n');
-                        if (navigator.clipboard && navigator.clipboard.writeText) {
-                            navigator.clipboard.writeText(textToCopy).then(() => {
-                                modal.show({ title: '成功', content: `已复制 ${selectedPaths.length} 个文件路径到剪贴板` });
-                            }).catch(err => {
-                                console.error('无法复制文本: ', err);
-                                modal.show({ title: '错误', content: '复制失败，请查看控制台错误' });
-                            });
-                        } else {
-                            const textArea = document.createElement("textarea");
-                            textArea.value = textToCopy;
-                            document.body.appendChild(textArea);
-                            textArea.select();
-                            try {
-                                document.execCommand('copy');
-                                modal.show({ title: '成功', content: `已复制 ${selectedPaths.length} 个文件路径到剪贴板` });
-                            } catch (err) {
-                                console.error('无法复制文本: ', err);
-                                modal.show({ title: '错误', content: '复制失败' });
-                            }
-                            document.body.removeChild(textArea);
-                        }
-                    } else {
-                        modal.show({ title: '提示', content: '没有选中的图片' });
-                    }
+                if (node._customCopySelectedPaths) {
+                    node._customCopySelectedPaths();
+                    return;
                 }
+
+                modal.show({ title: '提示', content: '节点尚未完全初始化或不支持该操作' });
             }
         },
         {
@@ -176,7 +147,7 @@ export function getCustomButtons(node) {
                 }
                 app.graph.setDirtyCanvas(true, false);
             }
-        },
+        }, 
         {
             text: '追加图片',
             width: 90,

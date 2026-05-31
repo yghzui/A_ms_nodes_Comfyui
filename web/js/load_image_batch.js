@@ -133,6 +133,166 @@ app.registerExtension({
                     return tagName === "input" || tagName === "textarea" || tagName === "select";
                 }
 
+                const CUSTOM_PATH_CLIPBOARD_PREFIX = "__A_MY_NODES_LOAD_IMAGE_BATCH_PATHS__:";
+
+                function buildCustomPathsClipboardText(paths) {
+                    return `${CUSTOM_PATH_CLIPBOARD_PREFIX}${JSON.stringify(paths)}`;
+                }
+
+                function extractCustomPathsFromText(text) {
+                    if (typeof text !== "string") return [];
+                    const trimmed = text.trim();
+                    if (!trimmed.startsWith(CUSTOM_PATH_CLIPBOARD_PREFIX)) return [];
+                    try {
+                        const parsed = JSON.parse(trimmed.slice(CUSTOM_PATH_CLIPBOARD_PREFIX.length));
+                        if (!Array.isArray(parsed)) return [];
+                        return parsed
+                            .map(path => typeof path === "string" ? path.trim() : "")
+                            .filter(Boolean);
+                    } catch (err) {
+                        console.warn("解析自定义剪贴板路径失败:", err);
+                        return [];
+                    }
+                }
+
+                function getCustomPathsFromClipboardData(clipboardData) {
+                    if (!clipboardData || typeof clipboardData.getData !== "function") return [];
+                    return extractCustomPathsFromText(clipboardData.getData("text/plain"));
+                }
+
+                function normalizeIncomingPaths(paths) {
+                    if (!Array.isArray(paths)) return [];
+                    return paths
+                        .map(path => typeof path === "string" ? path.trim() : "")
+                        .filter(Boolean);
+                }
+
+                function resolveImagePathInfo(imagePath) {
+                    let normalizedPath = typeof imagePath === "string" ? imagePath.trim() : "";
+                    let type = "input";
+                    let subfolder = "";
+                    if (!normalizedPath) return null;
+
+                    const typeMatch = normalizedPath.match(/^(.*)\s+\[(input|output|temp)\]$/);
+                    if (typeMatch) {
+                        normalizedPath = typeMatch[1];
+                        type = typeMatch[2];
+                    }
+
+                    let filename = normalizedPath;
+                    const lastSlash = filename.lastIndexOf("/");
+                    const lastBackslash = filename.lastIndexOf("\\");
+                    const splitIndex = Math.max(lastSlash, lastBackslash);
+                    if (splitIndex !== -1) {
+                        subfolder = filename.substring(0, splitIndex);
+                        filename = filename.substring(splitIndex + 1);
+                    }
+
+                    return {
+                        originalPath: imagePath,
+                        normalizedPath,
+                        filename,
+                        subfolder,
+                        type,
+                    };
+                }
+
+                function getViewUrlForImagePath(imagePath) {
+                    const info = resolveImagePathInfo(imagePath);
+                    if (!info) return "";
+                    const params = new URLSearchParams({
+                        filename: info.filename,
+                        type: info.type,
+                        subfolder: info.subfolder,
+                    });
+                    return info.type === "input"
+                        ? api.apiURL(`/a_my_nodes/view_input?${params.toString()}`)
+                        : api.apiURL(`/view?${params.toString()}`);
+                }
+
+                async function writeTextToClipboard(text) {
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        await navigator.clipboard.writeText(text);
+                        return;
+                    }
+
+                    const textArea = document.createElement("textarea");
+                    textArea.value = text;
+                    textArea.style.position = "fixed";
+                    textArea.style.opacity = "0";
+                    document.body.appendChild(textArea);
+                    textArea.focus();
+                    textArea.select();
+                    try {
+                        document.execCommand("copy");
+                    } finally {
+                        document.body.removeChild(textArea);
+                    }
+                }
+
+                function getSelectedPathsForNode(targetNode) {
+                    if (!targetNode?._customImagePaths || !targetNode._customSelectedImages) {
+                        return [];
+                    }
+                    const selectedPaths = [];
+                    for (let i = 0; i < targetNode._customImagePaths.length; i++) {
+                        if (targetNode._customSelectedImages[i]) {
+                            selectedPaths.push(targetNode._customImagePaths[i]);
+                        }
+                    }
+                    return selectedPaths;
+                }
+
+                async function copySelectedPathsToClipboard() {
+                    const selectedPaths = getSelectedPathsForNode(node);
+                    if (!selectedPaths.length) {
+                        modal.show({ title: "提示", content: "没有选中的图片" });
+                        return;
+                    }
+
+                    try {
+                        await writeTextToClipboard(buildCustomPathsClipboardText(selectedPaths));
+                        modal.show({ title: "成功", content: `已复制 ${selectedPaths.length} 张图片，可在同类节点中直接粘贴` });
+                    } catch (err) {
+                        console.error("复制选中图片失败:", err);
+                        modal.show({ title: "错误", content: "复制失败，请检查浏览器剪贴板权限" });
+                    }
+                }
+
+                async function copySingleImageToClipboard(imagePath) {
+                    if (!imagePath) {
+                        modal.show({ title: "提示", content: "当前没有可复制的图片" });
+                        return;
+                    }
+
+                    if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
+                        modal.show({ title: "提示", content: "当前环境不支持复制图片到系统剪贴板" });
+                        return;
+                    }
+
+                    try {
+                        const imageUrl = getViewUrlForImagePath(imagePath);
+                        if (!imageUrl) {
+                            modal.show({ title: "错误", content: "无法解析当前图片路径" });
+                            return;
+                        }
+
+                        const response = await fetch(imageUrl, { credentials: "same-origin" });
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}`);
+                        }
+
+                        const blob = await response.blob();
+                        const mimeType = blob.type && blob.type.startsWith("image/") ? blob.type : "image/png";
+                        const finalBlob = blob.type === mimeType ? blob : new Blob([await blob.arrayBuffer()], { type: mimeType });
+                        await navigator.clipboard.write([new ClipboardItem({ [mimeType]: finalBlob })]);
+                        modal.show({ title: "成功", content: "已复制当前图片，可在官方和自定义节点中粘贴" });
+                    } catch (err) {
+                        console.error("复制图片到剪贴板失败:", err);
+                        modal.show({ title: "错误", content: "复制图片失败，请检查浏览器权限或图片是否可访问" });
+                    }
+                }
+
                 // 获取本次粘贴应由哪些自定义节点接管
                 function getPasteTargetNodes(canvas) {
                     const targets = [];
@@ -206,6 +366,29 @@ app.registerExtension({
                     populate.call(node, finalList);
                 }
 
+                async function handleIncomingPaths(paths, forceAppend = false) {
+                    const newPaths = normalizeIncomingPaths(paths);
+                    if (!newPaths.length) return;
+
+                    try {
+                        const oldStr = (pathWidget?.value || "").trim();
+                        const oldList = oldStr ? oldStr.split(",").filter(s => s.trim()) : [];
+                        let mode = "replace";
+                        if (oldList.length > 0) {
+                            if (forceAppend) {
+                                mode = "append";
+                            } else {
+                                const choice = await askAppendOrReplaceIfNeeded(node, oldList, newPaths.length);
+                                if (choice === "cancel") return;
+                                mode = choice === "append" ? "append" : "replace";
+                            }
+                        }
+                        applyPathsToNode(newPaths, mode);
+                    } catch (err) {
+                        console.error("处理路径粘贴时出错:", err);
+                    }
+                }
+
                 // 处理拖拽/粘贴得到的文件，含"追加/替换"选择
                 async function handleIncomingFiles(files, forceAppend = false) {
                     if (!files || files.length === 0) return;
@@ -271,6 +454,20 @@ app.registerExtension({
                             const targets = getPasteTargetNodes(canvas);
                             if (!targets.length) return;
 
+                            const customPaths = getCustomPathsFromClipboardData(evt.clipboardData);
+                            if (customPaths.length) {
+                                evt.preventDefault();
+                                evt.stopPropagation();
+                                evt.stopImmediatePropagation?.();
+                                await Promise.all(targets.map(t => {
+                                    if (t._customHandleIncomingPaths) {
+                                        return t._customHandleIncomingPaths(customPaths);
+                                    }
+                                    return Promise.resolve();
+                                }));
+                                return;
+                            }
+
                             let files = getImageFilesFromClipboard(evt.clipboardData);
 
                             if (!files || files.length === 0) {
@@ -315,6 +512,9 @@ app.registerExtension({
 
                 // 将内部处理方法暴露到实例，供右键菜单调用
                 this._customHandleIncomingFiles = handleIncomingFiles; // 处理文件入口
+                this._customHandleIncomingPaths = handleIncomingPaths; // 处理路径入口
+                this._customCopySelectedPaths = copySelectedPathsToClipboard;
+                this._customCopySingleImage = copySingleImageToClipboard;
                 showImages(node, []);
                 ensureCustomDrawMethod(node);
                 // 从异步 Clipboard API 读取图片文件
@@ -339,6 +539,18 @@ app.registerExtension({
                         return out;
                     } catch (err) {
                         console.warn('读取剪贴板图片失败:', err);
+                        return [];
+                    }
+                };
+                this._customReadClipboardPaths = async function() {
+                    try {
+                        if (!navigator.clipboard || !navigator.clipboard.readText) {
+                            return [];
+                        }
+                        const text = await navigator.clipboard.readText();
+                        return extractCustomPathsFromText(text);
+                    } catch (err) {
+                        console.warn("读取剪贴板路径失败:", err);
                         return [];
                     }
                 };
@@ -402,6 +614,13 @@ app.registerExtension({
                     }
 
                     if (clickedImageIndex !== -1) {
+                         options.unshift({
+                            content: "复制图片",
+                            callback: async () => {
+                                const imagePath = self._customImagePaths?.[clickedImageIndex];
+                                await self._customCopySingleImage?.(imagePath);
+                            }
+                         });
                          options.unshift({
                             content: "编辑图片 (全屏)",
                             callback: () => {
@@ -518,10 +737,16 @@ app.registerExtension({
                     content: "粘贴图像",
                     callback: async () => {
                         try {
+                            const customPaths = (await self._customReadClipboardPaths?.()) || [];
+                            if (customPaths.length) {
+                                await self._customHandleIncomingPaths?.(customPaths);
+                                return;
+                            }
+
                             // 优先使用异步 Clipboard API 读取图片
                             const files = (await self._customReadClipboardImages?.()) || [];
                             if (!files.length) {
-                                modal.show({ title: '提示', content: '剪贴板中没有图片或浏览器不支持从右键菜单读取图片，请使用 Ctrl+V 粘贴。' });
+                                modal.show({ title: '提示', content: '剪贴板中没有可用的图片或节点路径数据，请使用 Ctrl+V 粘贴。' });
                                 return;
                             }
                             // 复用与拖拽/全局粘贴一致的处理逻辑（含 追加/替换 选择）
