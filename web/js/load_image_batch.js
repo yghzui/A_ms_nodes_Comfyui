@@ -167,49 +167,6 @@ app.registerExtension({
                         .filter(Boolean);
                 }
 
-                function resolveImagePathInfo(imagePath) {
-                    let normalizedPath = typeof imagePath === "string" ? imagePath.trim() : "";
-                    let type = "input";
-                    let subfolder = "";
-                    if (!normalizedPath) return null;
-
-                    const typeMatch = normalizedPath.match(/^(.*)\s+\[(input|output|temp)\]$/);
-                    if (typeMatch) {
-                        normalizedPath = typeMatch[1];
-                        type = typeMatch[2];
-                    }
-
-                    let filename = normalizedPath;
-                    const lastSlash = filename.lastIndexOf("/");
-                    const lastBackslash = filename.lastIndexOf("\\");
-                    const splitIndex = Math.max(lastSlash, lastBackslash);
-                    if (splitIndex !== -1) {
-                        subfolder = filename.substring(0, splitIndex);
-                        filename = filename.substring(splitIndex + 1);
-                    }
-
-                    return {
-                        originalPath: imagePath,
-                        normalizedPath,
-                        filename,
-                        subfolder,
-                        type,
-                    };
-                }
-
-                function getViewUrlForImagePath(imagePath) {
-                    const info = resolveImagePathInfo(imagePath);
-                    if (!info) return "";
-                    const params = new URLSearchParams({
-                        filename: info.filename,
-                        type: info.type,
-                        subfolder: info.subfolder,
-                    });
-                    return info.type === "input"
-                        ? api.apiURL(`/a_my_nodes/view_input?${params.toString()}`)
-                        : api.apiURL(`/view?${params.toString()}`);
-                }
-
                 async function writeTextToClipboard(text) {
                     if (navigator.clipboard && navigator.clipboard.writeText) {
                         await navigator.clipboard.writeText(text);
@@ -271,19 +228,22 @@ app.registerExtension({
                     }
 
                     try {
-                        const imageUrl = getViewUrlForImagePath(imagePath);
-                        if (!imageUrl) {
-                            modal.show({ title: "错误", content: "无法解析当前图片路径" });
-                            return;
-                        }
-
-                        const response = await fetch(imageUrl, { credentials: "same-origin" });
+                        const response = await api.fetchApi("/a_my_nodes/clipboard_image", {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                            },
+                            body: JSON.stringify({ image_path: imagePath }),
+                        });
                         if (!response.ok) {
-                            throw new Error(`HTTP ${response.status}`);
+                            throw new Error(`HTTP ${response.status}: ${await response.text()}`);
                         }
 
                         const blob = await response.blob();
-                        const mimeType = blob.type && blob.type.startsWith("image/") ? blob.type : "image/png";
+                        const responseContentType = response.headers.get("content-type") || "";
+                        const mimeType = responseContentType.startsWith("image/")
+                            ? responseContentType.split(";")[0]
+                            : (blob.type && blob.type.startsWith("image/") ? blob.type : "image/png");
                         const finalBlob = blob.type === mimeType ? blob : new Blob([await blob.arrayBuffer()], { type: mimeType });
                         await navigator.clipboard.write([new ClipboardItem({ [mimeType]: finalBlob })]);
                         modal.show({ title: "成功", content: "已复制当前图片，可在官方和自定义节点中粘贴" });

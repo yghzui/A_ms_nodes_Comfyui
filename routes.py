@@ -1,6 +1,7 @@
 import os
 import json
 import io
+import mimetypes
 from aiohttp import web
 from PIL import Image
 from server import PromptServer
@@ -264,6 +265,71 @@ async def view_input_file(request):
             return web.FileResponse(full_path)
     else:
         return web.FileResponse(full_path)
+
+
+def _resolve_annotated_image_path(image_path):
+    """将节点中的图片路径解析为安全的绝对路径。"""
+    raw_path = str(image_path or "").strip()
+    if not raw_path:
+        raise ValueError("Missing image_path")
+
+    relative_path, annotated_base_dir = folder_paths.annotated_filepath(raw_path)
+    base_dir = annotated_base_dir or folder_paths.get_input_directory()
+    base_dir = os.path.abspath(os.path.normpath(base_dir))
+    full_path = os.path.abspath(os.path.normpath(os.path.join(base_dir, relative_path)))
+
+    if full_path != base_dir and not full_path.startswith(base_dir + os.sep):
+        raise PermissionError("Forbidden")
+    if not os.path.isfile(full_path):
+        raise FileNotFoundError("File not found")
+
+    return full_path
+
+
+def _load_image_bytes_for_response(full_path):
+    """读取图片字节，必要时在服务端将 HEIC 转为 PNG。"""
+    is_heic = False
+    try:
+        with open(full_path, "rb") as file_obj:
+            header = file_obj.read(16)
+            if b"ftypheic" in header or b"ftypmif1" in header:
+                is_heic = True
+    except Exception as exc:
+        printf(f"⚠️ [_load_image_bytes_for_response] 读取文件头失败: {exc}")
+
+    if is_heic:
+        img = Image.open(full_path)
+        output = io.BytesIO()
+        img.save(output, format="PNG")
+        return output.getvalue(), "image/png"
+
+    with open(full_path, "rb") as file_obj:
+        data = file_obj.read()
+    mime_type = mimetypes.guess_type(full_path)[0] or "application/octet-stream"
+    return data, mime_type
+
+
+async def get_image_binary_for_clipboard(request):
+    """按节点图片路径返回二进制图片数据，供前端写入系统剪贴板。"""
+    try:
+        data = await request.json()
+    except Exception as exc:
+        return web.Response(status=400, text=f"Invalid JSON: {exc}")
+
+    image_path = data.get("image_path")
+    try:
+        full_path = _resolve_annotated_image_path(image_path)
+        body, content_type = _load_image_bytes_for_response(full_path)
+        return web.Response(body=body, content_type=content_type)
+    except ValueError as exc:
+        return web.Response(status=400, text=str(exc))
+    except PermissionError:
+        return web.Response(status=403, text="Forbidden")
+    except FileNotFoundError:
+        return web.Response(status=404, text="File not found")
+    except Exception as exc:
+        print(f"❌ [get_image_binary_for_clipboard] 读取图片失败: {exc}")
+        return web.Response(status=500, text=f"Failed to load image: {exc}")
 
 # 删除文件API处理函数
 async def delete_output_file(request):
@@ -689,6 +755,14 @@ def register_routes():
                 print("✅ 视图服务路由 /a_my_nodes/view_input 注册成功！")
             else:
                 print("⚠️ 路由 /a_my_nodes/view_input 已经存在，跳过注册")
+
+            if "/a_my_nodes/clipboard_image" not in existing_routes:
+                PromptServer.instance.routes.post("/a_my_nodes/clipboard_image")(
+                    get_image_binary_for_clipboard
+                )
+                print("✅ 剪贴板图片路由 /a_my_nodes/clipboard_image 注册成功！")
+            else:
+                print("⚠️ 路由 /a_my_nodes/clipboard_image 已经存在，跳过注册")
 
             if "/a_my_nodes/resolution_presets" not in existing_routes:
                 PromptServer.instance.routes.get("/a_my_nodes/resolution_presets")(

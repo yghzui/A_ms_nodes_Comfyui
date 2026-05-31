@@ -18,6 +18,8 @@ class WanVideoDoubleStreamAsset:
                 "global_enable": (["Auto", "True", "False"], {"default": "Auto"}),
                 "dict_input": ("STRING", {"default": "{}", "tooltip": "输入包含标题、内容、启用状态的字典，或直接输入字符串"}),
                 "enable_all_in_group": (["False", "True"], {"default": "False", "tooltip": "如果开启，将始终强制应用当前选中组内的所有条目，忽略单独的勾选"}),
+                "fix_low_mem": (["Auto", "True", "False"], {"default": "Auto", "tooltip": "统一修正 High/Low 两路的 Low Mem 设置，仅影响当前节点运行时的 WAN LoRA 收集结果，不修改资产管理器中的原始设置"}),
+                "fix_merge_loras": (["Auto", "True", "False"], {"default": "Auto", "tooltip": "统一修正 High/Low 两路的 Merge 设置，仅影响当前节点运行时的 WAN LoRA 收集结果，不修改资产管理器中的原始设置"}),
             },
             "optional": {
                 "model_high": ("MODEL",),
@@ -38,6 +40,34 @@ class WanVideoDoubleStreamAsset:
     FUNCTION = "process"
     CATEGORY = "A_my_nodes/video"
 
+    @staticmethod
+    def _get_assets_db_path():
+        my_nodes_dir = os.path.dirname(os.path.dirname(__file__))
+        return os.path.join(my_nodes_dir, "models_db.json")
+
+    @classmethod
+    def IS_CHANGED(cls, global_enable="Auto", dict_input="{}", enable_all_in_group="False", fix_low_mem="Auto",
+                   fix_merge_loras="Auto", selected_assets="[]", current_group="All", **kwargs):
+        assets_path = cls._get_assets_db_path()
+        assets_signature = "missing"
+
+        try:
+            stat = os.stat(assets_path)
+            assets_signature = f"{stat.st_mtime_ns}:{stat.st_size}"
+        except OSError:
+            pass
+
+        return (
+            str(global_enable),
+            str(dict_input),
+            str(enable_all_in_group),
+            str(fix_low_mem),
+            str(fix_merge_loras),
+            str(selected_assets),
+            str(current_group),
+            assets_signature,
+        )
+
     def _get_assets_from_manager(self):
         try:
             import urllib.request
@@ -49,8 +79,7 @@ class WanVideoDoubleStreamAsset:
             # 假设存储路径为 custom_nodes/A_my_nodes/models_db.json
             import os
             import folder_paths
-            my_nodes_dir = os.path.dirname(os.path.dirname(__file__))
-            assets_path = os.path.join(my_nodes_dir, "models_db.json")
+            assets_path = self._get_assets_db_path()
             if os.path.exists(assets_path):
                 with open(assets_path, 'r', encoding='utf-8') as f:
                     return json.load(f)
@@ -71,13 +100,28 @@ class WanVideoDoubleStreamAsset:
             "value3": bool(settings.get("value3", False)),
         }
 
+    def _apply_runtime_stream_settings_fix(self, settings, fix_low_mem="Auto", fix_merge_loras="Auto"):
+        fixed_settings = self._normalize_stream_settings(settings)
+
+        if fix_low_mem in ("True", "False"):
+            fixed_settings["value2"] = fix_low_mem == "True"
+
+        if fix_merge_loras in ("True", "False"):
+            fixed_settings["value3"] = fix_merge_loras == "True"
+
+        if not fixed_settings["value3"]:
+            fixed_settings["value2"] = False
+
+        return fixed_settings
+
     def _build_loras_info(self, loras, settings):
         return json.dumps({
             "loras": loras if isinstance(loras, list) else [],
             "settings": self._normalize_stream_settings(settings),
         })
 
-    def process(self, global_enable, dict_input, enable_all_in_group="False", selected_assets="[]", current_group="All",
+    def process(self, global_enable, dict_input, enable_all_in_group="False", fix_low_mem="Auto", fix_merge_loras="Auto",
+                selected_assets="[]", current_group="All",
                 model_high=None, model_low=None, 
                 prev_lora_high=None, prev_lora_low=None,
                 blocks_high=None, blocks_low=None):
@@ -173,8 +217,16 @@ class WanVideoDoubleStreamAsset:
             # 构建 loras_info
             high_loras = asset.get("high_loras", [])
             low_loras = asset.get("low_loras", [])
-            high_settings = asset.get("high_settings", {})
-            low_settings = asset.get("low_settings", {})
+            high_settings = self._apply_runtime_stream_settings_fix(
+                asset.get("high_settings", {}),
+                fix_low_mem=fix_low_mem,
+                fix_merge_loras=fix_merge_loras,
+            )
+            low_settings = self._apply_runtime_stream_settings_fix(
+                asset.get("low_settings", {}),
+                fix_low_mem=fix_low_mem,
+                fix_merge_loras=fix_merge_loras,
+            )
 
             loras_info_high = self._build_loras_info(high_loras, high_settings)
             loras_info_low = self._build_loras_info(low_loras, low_settings)
