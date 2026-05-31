@@ -286,8 +286,8 @@ def _resolve_annotated_image_path(image_path):
     return full_path
 
 
-def _load_image_bytes_for_response(full_path):
-    """读取图片字节，必要时在服务端将 HEIC 转为 PNG。"""
+def _load_image_bytes_for_response(full_path, force_png=False):
+    """读取图片字节，必要时在服务端转为 PNG。"""
     is_heic = False
     try:
         with open(full_path, "rb") as file_obj:
@@ -297,7 +297,9 @@ def _load_image_bytes_for_response(full_path):
     except Exception as exc:
         printf(f"⚠️ [_load_image_bytes_for_response] 读取文件头失败: {exc}")
 
-    if is_heic:
+    mime_type = mimetypes.guess_type(full_path)[0] or "application/octet-stream"
+
+    if is_heic or force_png:
         img = Image.open(full_path)
         output = io.BytesIO()
         img.save(output, format="PNG")
@@ -305,7 +307,6 @@ def _load_image_bytes_for_response(full_path):
 
     with open(full_path, "rb") as file_obj:
         data = file_obj.read()
-    mime_type = mimetypes.guess_type(full_path)[0] or "application/octet-stream"
     return data, mime_type
 
 
@@ -319,7 +320,7 @@ async def get_image_binary_for_clipboard(request):
     image_path = data.get("image_path")
     try:
         full_path = _resolve_annotated_image_path(image_path)
-        body, content_type = _load_image_bytes_for_response(full_path)
+        body, content_type = _load_image_bytes_for_response(full_path, force_png=True)
         return web.Response(body=body, content_type=content_type)
     except ValueError as exc:
         return web.Response(status=400, text=str(exc))

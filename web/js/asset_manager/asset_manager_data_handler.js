@@ -1,4 +1,4 @@
-import { $el } from "../utils/shared_utils.js";
+import { $el, showTopNotification } from "../utils/shared_utils.js";
 
 function normalizeModelStreamSettings(settings) {
     if (!settings || typeof settings !== "object") {
@@ -46,7 +46,7 @@ export class DataHandler {
     static importData(manager) {
         const data = manager.currentTab === 'prompts' ? manager.promptsData : manager.modelsData;
         if (!data.groups || data.groups.length === 0) {
-            alert("请先创建一个分组！");
+            showTopNotification("请先创建一个分组！", "warning");
             return;
         }
 
@@ -153,10 +153,10 @@ export class DataHandler {
 
                 manager.saveData();
                 manager.renderItems();
-                alert(`导入完成！\n新增: ${addCount} 条\n跳过(完全重复): ${skipCount} 条`);
+                showTopNotification(`导入完成！新增: ${addCount} 条，跳过(完全重复): ${skipCount} 条`, "success");
                 document.body.removeChild(overlay);
             } catch (err) {
-                alert("JSON 解析失败，请检查格式是否正确。\n" + err.message);
+                showTopNotification("JSON 解析失败，请检查格式是否正确。 " + err.message, "error");
             }
         };
 
@@ -189,7 +189,7 @@ export class DataHandler {
             $el("div", { style: { display: "flex", gap: "10px", justifyContent: "flex-end" } }, [
                 $el("button", { textContent: "✔️ 确认导入", style: { background: "var(--am-accent)", color: "white" }, onclick: () => {
                     const text = document.getElementById("am-import-textarea").value.trim();
-                    if (!text) { alert("请先粘贴内容或选择文件"); return; }
+                    if (!text) { showTopNotification("请先粘贴内容或选择文件", "warning"); return; }
                     processImportContent(text);
                 } }),
                 $el("button", { textContent: "取消", onclick: () => document.body.removeChild(overlay) })
@@ -204,7 +204,7 @@ export class DataHandler {
         const data = manager.currentTab === 'prompts' ? manager.promptsData : manager.modelsData;
         const group = data.groups[manager.currentGroupIndex];
         if (!group || !group.items || group.items.length === 0) {
-            alert("当前分组为空，没有可导出的数据！");
+            showTopNotification("当前分组为空，没有可导出的数据！", "warning");
             return;
         }
 
@@ -241,7 +241,7 @@ export class DataHandler {
             $el("div", { style: { display: "flex", gap: "10px", justifyContent: "flex-end" } }, [
                 $el("button", { textContent: "📋 复制到剪贴板", onclick: () => {
                     navigator.clipboard.writeText(jsonStr).then(() => {
-                        alert("已复制到剪贴板！");
+                        showTopNotification("已复制到剪贴板！", "success");
                         document.body.removeChild(overlay);
                     });
                 } }),

@@ -4,10 +4,10 @@ console.log("Loading custom node: A_my_nodes/web/js/load_image_batch.js");
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 import { showImageEditor } from "./image_editor/image_editor.js";
-import { modal } from "./utils/modal.js";
 
 // 导入提取的模块
 import { chainCallback } from "./utils/common.js";
+import { showTopNotification } from "./utils/shared_utils.js";
 import { calculateImageLayout } from "./load_image/layout.js";
 import { 
     ensureCustomDrawMethod,
@@ -203,27 +203,27 @@ app.registerExtension({
                 async function copySelectedPathsToClipboard() {
                     const selectedPaths = getSelectedPathsForNode(node);
                     if (!selectedPaths.length) {
-                        modal.show({ title: "提示", content: "没有选中的图片" });
+                        showTopNotification("没有选中的图片", "warning");
                         return;
                     }
 
                     try {
                         await writeTextToClipboard(buildCustomPathsClipboardText(selectedPaths));
-                        modal.show({ title: "成功", content: `已复制 ${selectedPaths.length} 张图片，可在同类节点中直接粘贴` });
+                        showTopNotification(`已复制 ${selectedPaths.length} 张图片，可在同类节点中直接粘贴`, "success");
                     } catch (err) {
                         console.error("复制选中图片失败:", err);
-                        modal.show({ title: "错误", content: "复制失败，请检查浏览器剪贴板权限" });
+                        showTopNotification("复制失败，请检查浏览器剪贴板权限", "error");
                     }
                 }
 
                 async function copySingleImageToClipboard(imagePath) {
                     if (!imagePath) {
-                        modal.show({ title: "提示", content: "当前没有可复制的图片" });
+                        showTopNotification("当前没有可复制的图片", "warning");
                         return;
                     }
 
                     if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
-                        modal.show({ title: "提示", content: "当前环境不支持复制图片到系统剪贴板" });
+                        showTopNotification("当前环境不支持复制图片到系统剪贴板", "warning");
                         return;
                     }
 
@@ -246,10 +246,10 @@ app.registerExtension({
                             : (blob.type && blob.type.startsWith("image/") ? blob.type : "image/png");
                         const finalBlob = blob.type === mimeType ? blob : new Blob([await blob.arrayBuffer()], { type: mimeType });
                         await navigator.clipboard.write([new ClipboardItem({ [mimeType]: finalBlob })]);
-                        modal.show({ title: "成功", content: "已复制当前图片，可在官方和自定义节点中粘贴" });
+                        showTopNotification("已复制当前图片，可在官方和自定义节点中粘贴", "success");
                     } catch (err) {
                         console.error("复制图片到剪贴板失败:", err);
-                        modal.show({ title: "错误", content: "复制图片失败，请检查浏览器权限或图片是否可访问" });
+                        showTopNotification("复制图片失败，请检查浏览器权限或图片是否可访问", "error");
                     }
                 }
 
@@ -706,7 +706,7 @@ app.registerExtension({
                             // 优先使用异步 Clipboard API 读取图片
                             const files = (await self._customReadClipboardImages?.()) || [];
                             if (!files.length) {
-                                modal.show({ title: '提示', content: '剪贴板中没有可用的图片或节点路径数据，请使用 Ctrl+V 粘贴。' });
+                                showTopNotification("剪贴板中没有可用的图片或节点路径数据，请使用 Ctrl+V 粘贴。", "warning");
                                 return;
                             }
                             // 复用与拖拽/全局粘贴一致的处理逻辑（含 追加/替换 选择）

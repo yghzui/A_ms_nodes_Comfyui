@@ -3,6 +3,7 @@ console.log("Loading custom node: A_my_nodes/web/js/en_load_latent.js");
 
 import { app } from '../../../scripts/app.js'
 import { api } from '../../../scripts/api.js'
+import { showTopNotification } from './utils/shared_utils.js'
 
 /**
  * 从 VideoHelperSuite 示例中借鉴的健壮的回调链函数。
@@ -143,7 +144,7 @@ async function uploadLatentFiles(files) {
             }
         } catch (error) {
             console.error(`上传文件 ${file.name} 失败:`, error);
-            alert(`上传文件 ${file.name} 失败: ${error.message}`);
+            showTopNotification(`上传文件 ${file.name} 失败: ${error.message}`, "error");
         }
     }
     
@@ -159,7 +160,7 @@ async function handleIncomingFiles(files, node) {
     const latentFiles = files.filter(file => file.name.toLowerCase().endsWith('.latent'));
     
     if (latentFiles.length === 0) {
-        alert("请选择.latent文件");
+        showTopNotification("请选择.latent文件", "warning");
         return;
     }
     
@@ -190,7 +191,7 @@ async function handleIncomingFiles(files, node) {
          }
     } catch (error) {
         console.error('处理文件时出错:', error);
-        alert(`处理文件时出错: ${error.message}`);
+        showTopNotification(`处理文件时出错: ${error.message}`, "error");
     } finally {
         // 恢复按钮原始文字
         if (uploadButton && originalButtonText) {

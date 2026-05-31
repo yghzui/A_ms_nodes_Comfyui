@@ -77,7 +77,7 @@ export class DragSelectHandler {
                     if (err.message.includes("没有发现图片文件")) {
                         DragSelectHandler.pasteClipboard(manager);
                     } else {
-                        manager.alert(err.message);
+                        manager.alert(err.message, "error");
                     }
                 }
             } else if (manager.selectedIndices.size === 0) {
@@ -152,7 +152,7 @@ export class DragSelectHandler {
         const sample = window.amClipboard[0];
         const isPrompt = sample.hasOwnProperty('content');
         if ((manager.currentTab === 'prompts' && !isPrompt) || (manager.currentTab === 'models' && isPrompt)) {
-            manager.alert("剪贴板数据类型与当前标签页不匹配！");
+            manager.alert("剪贴板数据类型与当前标签页不匹配！", "warning");
             return;
         }
         
@@ -219,7 +219,7 @@ export class DragSelectHandler {
             if (!uri && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
                 const file = e.dataTransfer.files[0];
                 if (!file.type.startsWith("image/")) {
-                    manager.alert("请拖拽有效的图片文件！");
+                    manager.alert("请拖拽有效的图片文件！", "warning");
                     return;
                 }
                 uri = await PreviewHandler.processPreviewSource(null, file);
@@ -233,7 +233,7 @@ export class DragSelectHandler {
                 manager.renderItems();
             }
         } catch (err) {
-            manager.alert(err.message);
+            manager.alert(err.message, "error");
         }
     }
 

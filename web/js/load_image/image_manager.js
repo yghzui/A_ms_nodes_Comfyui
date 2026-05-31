@@ -2,6 +2,7 @@ import { app } from "../../../../scripts/app.js";
 import { api } from "../../../../scripts/api.js";
 import { showImageEditor } from "../image_editor/image_editor.js";
 import { modal } from "../utils/modal.js";
+import { showTopNotification } from "../utils/shared_utils.js";
 import { calculateImageLayout } from "./layout.js";
 import { drawNodeImages } from "./draw.js";
 
@@ -109,7 +110,7 @@ export function getCustomButtons(node) {
             callback: () => {
                 if (!node._customShowOnlySelected) {
                     if (!node._customSelectedImages || !node._customSelectedImages.some(v => v)) {
-                        modal.show({ title: '提示', content: '当前没有勾选的图片，无法仅显示勾选。' });
+                        showTopNotification("当前没有勾选的图片，无法仅显示勾选。", "warning");
                         return;
                     }
                     node._customShowOnlySelected = true;
@@ -132,7 +133,7 @@ export function getCustomButtons(node) {
                     return;
                 }
 
-                modal.show({ title: '提示', content: '节点尚未完全初始化或不支持该操作' });
+                showTopNotification("节点尚未完全初始化或不支持该操作", "warning");
             }
         },
         {
@@ -156,7 +157,7 @@ export function getCustomButtons(node) {
                 if (node._customTriggerAppend) {
                     node._customTriggerAppend();
                 } else {
-                    modal.show({ title: '提示', content: '节点尚未完全初始化或不支持该操作' });
+                    showTopNotification("节点尚未完全初始化或不支持该操作", "warning");
                 }
             }
         }
@@ -470,14 +471,14 @@ export function openMaskEditorForImage(imageUrl, onSave) {
     const ext = app.extensions.find(e => e.name === "Comfy.MaskEditor");
     if (!ext) {
         console.error("Comfy.MaskEditor extension not found");
-        modal.show({ title: '错误', content: '未找到 MaskEditor 插件，请先安装。' });
+        showTopNotification("未找到 MaskEditor 插件，请先安装。", "error");
         return;
     }
 
     const cmd = ext.commands.find(c => c.id === "Comfy.MaskEditor.OpenMaskEditor");
     if (!cmd) {
         console.error("OpenMaskEditor command not found");
-        modal.show({ title: '错误', content: 'MaskEditor 插件未注册打开命令。' });
+        showTopNotification("MaskEditor 插件未注册打开命令。", "error");
         return;
     }
 
@@ -488,7 +489,7 @@ export function openMaskEditorForImage(imageUrl, onSave) {
         cmd.function();
     } catch (e) {
         console.error("Failed to open MaskEditor:", e);
-        modal.show({ title: '错误', content: "打开编辑器失败: " + e.message });
+        showTopNotification("打开编辑器失败: " + e.message, "error");
     } finally {
         app.canvas.selected_nodes = originalSelection;
     }

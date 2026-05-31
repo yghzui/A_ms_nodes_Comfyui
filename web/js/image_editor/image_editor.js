@@ -1,4 +1,5 @@
 import { api } from "../../../scripts/api.js";
+import { showTopNotification } from "../utils/shared_utils.js";
 
 const MAX_DIM = 1536;
 
@@ -1706,7 +1707,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
             }
         } catch (err) {
             console.error(err);
-            alert("保存失败: " + err.message);
+            showTopNotification("保存失败: " + err.message, "error");
             saveBtn.textContent = "保存";
             saveBtn.disabled = false;
         }

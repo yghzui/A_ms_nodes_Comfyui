@@ -1,6 +1,6 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
-import { $el } from "../utils/shared_utils.js";
+import { $el, showTopNotification } from "../utils/shared_utils.js";
 import { AMDialog } from "./am_dialog.js";
 import { cssStyles } from "./asset_manager_style.js";
 import { PreviewHandler } from "./asset_manager_preview_handler.js";
@@ -330,7 +330,7 @@ class AssetManagerUI {
             return true;
         } catch (e) {
             console.error("[AssetManager] Failed to save data:", e);
-            await this.alert("保存失败！\n" + (e?.message || e));
+            await this.alert("保存失败！\n" + (e?.message || e), "error");
             return false;
         }
     }
@@ -517,7 +517,7 @@ class AssetManagerUI {
             return true;
         } catch (e) {
             console.error("[AssetManager] Failed to save other data:", e);
-            await this.alert("保存失败！\n" + (e?.message || e));
+            await this.alert("保存失败！\n" + (e?.message || e), "error");
             return false;
         }
     }
@@ -840,7 +840,7 @@ class AssetManagerUI {
     async addItem() {
         const data = this.currentTab === 'prompts' ? this.promptsData : this.modelsData;
         if (!data.groups || data.groups.length === 0) {
-            await this.alert("请先创建一个分组！");
+            await this.alert("请先创建一个分组！", "warning");
             return;
         }
         
@@ -1334,7 +1334,7 @@ class AssetManagerUI {
                         item[key] = val; // 原生赋值，UI列表直接修改了数组，无需序列化
                     });
                 } catch (e) {
-                    await this.alert("保存失败！\n" + e.message);
+                    await this.alert("保存失败！\n" + e.message, "error");
                     return;
                 }
                 
@@ -1438,7 +1438,10 @@ class AssetManagerUI {
             return oldClose.apply(this, args);
         };
     }
-    async alert(msg) { return AMDialog.alert(msg); }
+    async alert(msg, type = "error") {
+        showTopNotification(String(msg || "").replace(/\n+/g, " "), type);
+        return Promise.resolve();
+    }
     async confirm(msg) { return AMDialog.confirm(msg); }
 
     // ========== 抽屉 (Drawer) 相关 ==========

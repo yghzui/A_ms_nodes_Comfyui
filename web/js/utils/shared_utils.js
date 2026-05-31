@@ -439,34 +439,45 @@ export function broadcastOnChannel(channel, action, payload) {
  * @param {string} type - 消息类型：'success', 'error', 'info', 'warning'
  */
 export function showTopNotification(message, type = 'info') {
-    // 移除已存在的通知
-    const existingNotification = document.getElementById('top-notification');
-    if (existingNotification) {
-        existingNotification.remove();
+    let container = document.getElementById('top-notification-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'top-notification-container';
+        Object.assign(container.style, {
+            position: 'fixed',
+            top: '20px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: '10000',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '10px',
+            width: 'min(80vw, 720px)',
+            pointerEvents: 'none',
+        });
+        document.body.appendChild(container);
     }
 
     // 创建通知元素
     const notification = document.createElement('div');
-    notification.id = 'top-notification';
     notification.textContent = message;
     
     // 设置样式
     const baseStyles = {
-        position: 'fixed',
-        top: '20px',
-        left: '50%',
-        transform: 'translateX(-50%)',
         padding: '12px 24px',
         borderRadius: '6px',
         color: '#fff',
         fontSize: '14px',
         fontWeight: '500',
-        zIndex: '10000',
         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
         transition: 'all 0.3s ease',
-        maxWidth: '80%',
+        width: '100%',
         textAlign: 'center',
-        wordBreak: 'break-word'
+        wordBreak: 'break-word',
+        opacity: '1',
+        transform: 'translateY(0)',
+        pointerEvents: 'auto',
     };
     
     // 根据类型设置背景色
@@ -485,16 +496,19 @@ export function showTopNotification(message, type = 'info') {
     });
     
     // 添加到页面
-    document.body.appendChild(notification);
+    container.appendChild(notification);
     
     // 3秒后自动移除
     setTimeout(() => {
         if (notification && notification.parentNode) {
             notification.style.opacity = '0';
-            notification.style.transform = 'translateX(-50%) translateY(-20px)';
+            notification.style.transform = 'translateY(-20px)';
             setTimeout(() => {
                 if (notification.parentNode) {
                     notification.remove();
+                }
+                if (container && container.childElementCount === 0) {
+                    container.remove();
                 }
             }, 300);
         }

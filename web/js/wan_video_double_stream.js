@@ -799,11 +799,7 @@ app.registerExtension({
                             this.setSize([this.size[0], newSize[1]]);
                         });
                     } else {
-                        if (window.AMDialog) {
-                            window.AMDialog.alert("资产管理系统未就绪！");
-                        } else {
-                            alert("资产管理系统未就绪！");
-                        }
+                        showTopNotification("资产管理系统未就绪！", "error");
                     }
                 },
                 async (e,p,n) => {
@@ -813,7 +809,7 @@ app.registerExtension({
                         const groups = modelsData.groups || [];
                         
                         if (groups.length === 0) {
-                            alert("资产库中没有模型分组，请先在资产库中创建分组！");
+                            showTopNotification("资产库中没有模型分组，请先在资产库中创建分组！", "warning");
                             return;
                         }
                         
@@ -890,7 +886,7 @@ app.registerExtension({
                         
                     } catch (err) {
                         console.error(err);
-                        alert("无法连接到资产库 API！");
+                        showTopNotification("无法连接到资产库 API！", "error");
                     }
                 }
             ));

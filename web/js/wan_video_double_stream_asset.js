@@ -1,5 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
+import { showTopNotification } from "./utils/shared_utils.js";
 
 // 生成UUID的简单实现
 function generateUUID() {
@@ -709,7 +710,7 @@ app.registerExtension({
                                     }
                                 }
                             } else {
-                                alert("资产管理器未加载");
+                                showTopNotification("资产管理器未加载", "error");
                             }
                         };
                         menu.appendChild(editBtn);
