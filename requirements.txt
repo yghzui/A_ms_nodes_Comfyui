@@ -1,1 +1,19 @@
+
+# Windows 提示音节点
+comtypes
+pycaw
+
+# 视频加载与音频提取
+moviepy
+
+# 中文转拼音（资产管理/排序路由使用）
+pypinyin
+
+# 遮罩与图像处理
+scipy
+
+# 人脸/人体相关 ONNX 推理
+onnxruntime-gpu
+
+# 历史兼容依赖（当前主流程未直接检索到使用点，先保留避免影响旧功能）
 piexif
