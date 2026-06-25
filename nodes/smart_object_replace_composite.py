@@ -24,6 +24,18 @@ def _resize_mask_if_needed(mask, width, height):
     return cv2.resize(mask, (width, height), interpolation=cv2.INTER_LINEAR)
 
 
+def _prepare_optional_mask(mask, batch_index, batch_size, width, height):
+    if mask is None:
+        return None
+
+    try:
+        prepared_mask = _to_numpy_mask(mask, batch_index, batch_size)
+    except Exception:
+        return None
+
+    return np.clip(_resize_mask_if_needed(prepared_mask, width, height), 0.0, 1.0)
+
+
 def _dilate_mask(mask, radius):
     if radius <= 0:
         return mask
@@ -105,14 +117,21 @@ class SmartObjectReplaceComposite:
     RETURN_TYPES = ("IMAGE", "MASK", "MASK", "MASK", "MASK")
     RETURN_NAMES = (
         "result_image",
-        "weight_original",
-        "safe_bg_mask",
-        "edit_core_mask",
-        "transition_mask",
+        "original_image_weight",
+        "safe_background_mask",
+        "edited_priority_mask",
+        "blend_transition_mask",
+    )
+    OUTPUT_TOOLTIPS = (
+        "最终智能融合后的输出图像。",
+        "原图参与融合的权重图。值越高，越偏向使用 original_image。",
+        "确认可安全回贴 original_image 背景的区域遮罩。",
+        "必须优先保留 edited_image 内容的核心区域遮罩。",
+        "安全背景区与编辑优先区之间的混合过渡区域遮罩。",
     )
     DESCRIPTION = (
-        "基于总编辑遮罩、原对象遮罩和新对象遮罩做智能回贴合成。"
-        "节点会尽量回贴原图背景，在对象附近保留编辑结果，并输出调试遮罩方便观察融合区域。"
+        "基于编辑区域遮罩、原主体遮罩和新主体遮罩做智能回贴合成。"
+        "支持主体遮罩缺省时的降级逻辑，并输出调试遮罩方便观察融合区域。"
     )
 
     @classmethod
@@ -125,21 +144,15 @@ class SmartObjectReplaceComposite:
                 "edited_image": ("IMAGE", {
                     "tooltip": "局部编辑后的图 E。对象附近区域优先保留该图内容。"
                 }),
-                "mask_A": ("MASK", {
-                    "tooltip": "总编辑遮罩 A。定义允许发生融合的整体区域。"
-                }),
-                "mask_A_P": ("MASK", {
-                    "tooltip": "原对象遮罩 A_P。通常是原人物或原物体分割结果。"
-                }),
-                "mask_B_P": ("MASK", {
-                    "tooltip": "新对象遮罩 B_P。通常是替换后新人物或新物体分割结果。"
+                "edit_region_mask": ("MASK", {
+                    "tooltip": "编辑区域总遮罩。定义允许发生融合和回贴的整体区域。"
                 }),
                 "edit_expand": ("INT", {
                     "default": 24,
                     "min": 0,
                     "max": 256,
                     "step": 1,
-                    "tooltip": "对 A_P 与 B_P 的联合区域做外扩，得到必须使用编辑图的核心区。"
+                    "tooltip": "对主体联合区域做外扩，得到必须使用编辑图的核心区。"
                 }),
                 "transition_width": ("INT", {
                     "default": 64,
@@ -170,6 +183,14 @@ class SmartObjectReplaceComposite:
                     "step": 1,
                     "tooltip": "新对象保护区腐蚀半径。值越大，颜色匹配越不容易进入主体内部。"
                 }),
+            },
+            "optional": {
+                "original_subject_mask": ("MASK", {
+                    "tooltip": "可选，原图主体遮罩。只有它存在时，节点会按原主体边界附近优先保留编辑图。"
+                }),
+                "edited_subject_mask": ("MASK", {
+                    "tooltip": "可选，编辑结果中的新主体遮罩。只有它存在时，节点会按新主体边界附近优先保留编辑图，并优先用它保护新主体颜色。"
+                }),
             }
         }
 
@@ -187,15 +208,15 @@ class SmartObjectReplaceComposite:
         self,
         original_image,
         edited_image,
-        mask_A,
-        mask_A_P,
-        mask_B_P,
+        edit_region_mask,
         edit_expand,
         transition_width,
         final_blur,
         color_match,
         protect_new_object,
         new_object_protect_erode,
+        original_subject_mask=None,
+        edited_subject_mask=None,
     ):
         original_image = self._ensure_image_batch(original_image, "original_image")
         edited_image = self._ensure_image_batch(edited_image, "edited_image")
@@ -219,45 +240,72 @@ class SmartObjectReplaceComposite:
             original_rgb = original_batch[batch_index]
             edited_rgb = edited_batch[batch_index]
 
-            mask_a = _to_numpy_mask(mask_A, batch_index, batch_size)
-            mask_ap = _to_numpy_mask(mask_A_P, batch_index, batch_size)
-            mask_bp = _to_numpy_mask(mask_B_P, batch_index, batch_size)
+            edit_region_mask_array = _to_numpy_mask(edit_region_mask, batch_index, batch_size)
+            original_subject_mask_array = _prepare_optional_mask(
+                original_subject_mask, batch_index, batch_size, width, height
+            )
+            edited_subject_mask_array = _prepare_optional_mask(
+                edited_subject_mask, batch_index, batch_size, width, height
+            )
 
-            mask_a = np.clip(_resize_mask_if_needed(mask_a, width, height), 0.0, 1.0)
-            mask_ap = np.clip(_resize_mask_if_needed(mask_ap, width, height), 0.0, 1.0)
-            mask_bp = np.clip(_resize_mask_if_needed(mask_bp, width, height), 0.0, 1.0)
+            edit_region_mask_array = np.clip(
+                _resize_mask_if_needed(edit_region_mask_array, width, height), 0.0, 1.0
+            )
+            edit_region_mask_binary = (edit_region_mask_array > 0.5).astype(np.float32)
+            original_subject_mask_binary = (
+                (original_subject_mask_array > 0.5).astype(np.float32)
+                if original_subject_mask_array is not None
+                else None
+            )
+            edited_subject_mask_binary = (
+                (edited_subject_mask_array > 0.5).astype(np.float32)
+                if edited_subject_mask_array is not None
+                else None
+            )
 
-            mask_a_bin = (mask_a > 0.5).astype(np.float32)
-            mask_ap_bin = (mask_ap > 0.5).astype(np.float32)
-            mask_bp_bin = (mask_bp > 0.5).astype(np.float32)
+            subject_masks = []
+            if original_subject_mask_binary is not None:
+                subject_masks.append(original_subject_mask_binary)
+            if edited_subject_mask_binary is not None:
+                subject_masks.append(edited_subject_mask_binary)
 
-            union_mask = np.maximum(mask_ap_bin, mask_bp_bin)
+            if subject_masks:
+                union_mask = np.maximum.reduce(subject_masks)
 
-            edit_core = _dilate_mask(union_mask, edit_expand) * mask_a_bin
-            edit_core = np.clip(edit_core, 0.0, 1.0)
+                edit_core = _dilate_mask(union_mask, edit_expand) * edit_region_mask_binary
+                edit_core = np.clip(edit_core, 0.0, 1.0)
 
-            safe_radius = edit_expand + transition_width
-            unsafe_bg = _dilate_mask(union_mask, safe_radius)
-            safe_bg = mask_a_bin * (1.0 - unsafe_bg)
-            safe_bg = np.clip(safe_bg, 0.0, 1.0)
+                safe_radius = edit_expand + transition_width
+                unsafe_bg = _dilate_mask(union_mask, safe_radius)
+                safe_bg = edit_region_mask_binary * (1.0 - unsafe_bg)
+                safe_bg = np.clip(safe_bg, 0.0, 1.0)
 
-            weight_original = _distance_weight(edit_core, safe_bg, mask_a_bin)
+                weight_original = _distance_weight(edit_core, safe_bg, edit_region_mask_binary)
 
-            if final_blur > 0:
-                weight_original = _blur_mask(weight_original, final_blur)
+                if final_blur > 0:
+                    weight_original = _blur_mask(weight_original, final_blur)
 
-            weight_original[edit_core > 0.5] = 0.0
-            weight_original[safe_bg > 0.5] = 1.0
-            weight_original[mask_a_bin < 0.5] = 1.0
-            weight_original = np.clip(weight_original, 0.0, 1.0)
+                weight_original[edit_core > 0.5] = 0.0
+                weight_original[safe_bg > 0.5] = 1.0
+                weight_original[edit_region_mask_binary < 0.5] = 1.0
+                weight_original = np.clip(weight_original, 0.0, 1.0)
+            else:
+                # 没有主体遮罩时，无法可靠区分背景和主体，保守地在编辑区域内完全采用编辑图。
+                union_mask = edit_region_mask_binary
+                edit_core = edit_region_mask_binary.copy()
+                safe_bg = np.zeros_like(edit_region_mask_binary, dtype=np.float32)
+                weight_original = np.ones_like(edit_region_mask_binary, dtype=np.float32)
+                weight_original[edit_region_mask_binary > 0.5] = 0.0
 
             edited_used = edited_rgb.copy()
             if color_match:
-                if protect_new_object:
-                    protected_new_object = _erode_mask(mask_bp_bin, new_object_protect_erode)
-                    color_apply = mask_a_bin * (1.0 - protected_new_object)
+                if protect_new_object and edited_subject_mask_binary is not None:
+                    protected_new_object = _erode_mask(
+                        edited_subject_mask_binary, new_object_protect_erode
+                    )
+                    color_apply = edit_region_mask_binary * (1.0 - protected_new_object)
                 else:
-                    color_apply = mask_a_bin
+                    color_apply = edit_region_mask_binary
 
                 color_apply = _blur_mask(color_apply, 8)
                 color_apply = np.clip(color_apply, 0.0, 1.0)
@@ -272,7 +320,7 @@ class SmartObjectReplaceComposite:
             result = original_rgb * weight_rgb + edited_used * (1.0 - weight_rgb)
             result = np.clip(result, 0.0, 1.0).astype(np.float32)
 
-            transition = mask_a_bin * (1.0 - edit_core) * (1.0 - safe_bg)
+            transition = edit_region_mask_binary * (1.0 - edit_core) * (1.0 - safe_bg)
             transition = np.clip(transition, 0.0, 1.0).astype(np.float32)
 
             results.append(result)
