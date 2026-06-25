@@ -91,8 +91,19 @@ def _distance_weight(edit_core, safe_bg, edit_mask):
         weight[edit_mask_bin == 1] = 0.0
         return weight
 
-    d_edit = cv2.distanceTransform(1 - edit_bin, cv2.DIST_L2, 5)
-    d_safe = cv2.distanceTransform(1 - safe_bin, cv2.DIST_L2, 5)
+    # 当 ROI 较大时降采样计算距离变换，减少计算量
+    h, w = edit_bin.shape
+    if h * w > 40000:
+        small_h, small_w = max(1, h // 2), max(1, w // 2)
+        small_edit = cv2.resize(edit_bin, (small_w, small_h), interpolation=cv2.INTER_NEAREST)
+        small_safe = cv2.resize(safe_bin, (small_w, small_h), interpolation=cv2.INTER_NEAREST)
+        d_edit = cv2.distanceTransform(1 - small_edit, cv2.DIST_L2, 5)
+        d_safe = cv2.distanceTransform(1 - small_safe, cv2.DIST_L2, 5)
+        d_edit = cv2.resize(d_edit, (w, h), interpolation=cv2.INTER_LINEAR)
+        d_safe = cv2.resize(d_safe, (w, h), interpolation=cv2.INTER_LINEAR)
+    else:
+        d_edit = cv2.distanceTransform(1 - edit_bin, cv2.DIST_L2, 5)
+        d_safe = cv2.distanceTransform(1 - safe_bin, cv2.DIST_L2, 5)
 
     weight_inside = d_edit / (d_edit + d_safe + 1e-6)
     weight_inside[edit_bin == 1] = 0.0
@@ -124,9 +135,10 @@ def _match_color_mean_std(original_rgb, edited_rgb, ref_mask, apply_mask, eps=1e
     alpha = np.clip(apply_mask[apply_region], 0.0, 1.0)[:, None]
     edited_pixels = edited_rgb[apply_region]
     corrected_pixels = (edited_pixels - edited_mean) / (edited_std + eps) * original_std + original_mean
-    corrected_pixels = np.clip(corrected_pixels, 0.0, 1.0)
+    np.clip(corrected_pixels, 0.0, 1.0, out=corrected_pixels)
     output[apply_region] = edited_pixels * (1.0 - alpha) + corrected_pixels * alpha
-    return np.clip(output, 0.0, 1.0)
+    np.clip(output, 0.0, 1.0, out=output)
+    return output
 
 
 class SmartObjectReplaceComposite:
@@ -253,11 +265,18 @@ class SmartObjectReplaceComposite:
         device = original_image.device
         dtype = original_image.dtype
 
-        results = []
-        weight_outputs = []
-        safe_outputs = []
-        edit_outputs = []
-        transition_outputs = []
+        # 批量 GPU→CPU 传输，避免循环内重复传输
+        original_cpu = original_image.detach().cpu().float().numpy()
+        edited_cpu = edited_image.detach().cpu().float().numpy()
+
+        # 预分配输出 tensor，循环内只填充 ROI
+        result_tensor = original_image.clone()
+        weight_tensor = torch.ones((batch_size, height, width), device=device, dtype=dtype)
+        safe_tensor = torch.zeros((batch_size, height, width), device=device, dtype=dtype)
+        edit_tensor = torch.zeros((batch_size, height, width), device=device, dtype=dtype)
+        transition_tensor = torch.zeros((batch_size, height, width), device=device, dtype=dtype)
+
+        has_any_roi = False
 
         for batch_index in range(batch_size):
             batch_start_time = perf_counter()
@@ -271,9 +290,7 @@ class SmartObjectReplaceComposite:
                 original_subject_mask, batch_index, batch_size, width, height
             )
 
-            edit_region_mask_array = np.clip(
-                _resize_mask_if_needed(edit_region_mask_array, width, height), 0.0, 1.0
-            )
+            edit_region_mask_array = _resize_mask_if_needed(edit_region_mask_array, width, height)
             edit_region_mask_binary = (edit_region_mask_array > 0.5).astype(np.float32)
             original_subject_mask_binary = (
                 (original_subject_mask_array > 0.5).astype(np.float32)
@@ -298,17 +315,15 @@ class SmartObjectReplaceComposite:
             mask_prepare_ms = (perf_counter() - stage_start) * 1000.0
 
             if roi_bounds is None:
-                results.append(edited_image[batch_index].clone().clamp(0.0, 1.0))
-                weight_outputs.append(None)
-                safe_outputs.append(None)
-                edit_outputs.append(None)
-                transition_outputs.append(None)
+                # roi 为空时，result_tensor 已预填充 original_image，无需修改
                 batch_total_ms = (perf_counter() - batch_start_time) * 1000.0
                 print(
                     f"[SmartObjectReplaceComposite] batch={batch_index} roi=empty "
                     f"mask_prepare={mask_prepare_ms:.1f}ms total={batch_total_ms:.1f}ms"
                 )
                 continue
+
+            has_any_roi = True
 
             y_min, y_max, x_min, x_max = roi_bounds
             roi_slice = np.s_[y_min:y_max, x_min:x_max]
@@ -317,12 +332,9 @@ class SmartObjectReplaceComposite:
 
             stage_start = perf_counter()
 
-            original_rgb = original_image[
-                batch_index, y_min:y_max, x_min:x_max, :3
-            ].detach().cpu().float().numpy()
-            edited_rgb = edited_image[
-                batch_index, y_min:y_max, x_min:x_max, :3
-            ].detach().cpu().float().numpy()
+            # 使用预传输的 CPU 数组，避免重复 GPU→CPU 传输
+            original_rgb = original_cpu[batch_index, y_min:y_max, x_min:x_max, :3]
+            edited_rgb = edited_cpu[batch_index, y_min:y_max, x_min:x_max, :3]
 
             edit_region_mask_binary = edit_region_mask_binary[roi_slice]
             if original_subject_mask_binary is not None:
@@ -398,35 +410,23 @@ class SmartObjectReplaceComposite:
             blend_ms = (perf_counter() - stage_start) * 1000.0
 
             stage_start = perf_counter()
-            result_frame = original_image[batch_index].clone()
-            result_frame[y_min:y_max, x_min:x_max, :3] = torch.from_numpy(result).to(
+            # 直接写入预分配的 tensor，避免重复创建和 stack
+            result_tensor[batch_index, y_min:y_max, x_min:x_max, :3] = torch.from_numpy(result).to(
                 device=device, dtype=dtype
             )
-
-            weight_frame = torch.ones((height, width), device=device, dtype=dtype)
-            safe_frame = torch.zeros((height, width), device=device, dtype=dtype)
-            edit_frame = torch.zeros((height, width), device=device, dtype=dtype)
-            transition_frame = torch.zeros((height, width), device=device, dtype=dtype)
-
-            weight_frame[y_min:y_max, x_min:x_max] = torch.from_numpy(weight_original).to(
+            weight_tensor[batch_index, y_min:y_max, x_min:x_max] = torch.from_numpy(weight_original).to(
                 device=device, dtype=dtype
             )
-            safe_frame[y_min:y_max, x_min:x_max] = torch.from_numpy(safe_bg).to(
+            safe_tensor[batch_index, y_min:y_max, x_min:x_max] = torch.from_numpy(safe_bg).to(
                 device=device, dtype=dtype
             )
-            edit_frame[y_min:y_max, x_min:x_max] = torch.from_numpy(edit_core).to(
+            edit_tensor[batch_index, y_min:y_max, x_min:x_max] = torch.from_numpy(edit_core).to(
                 device=device, dtype=dtype
             )
-            transition_frame[y_min:y_max, x_min:x_max] = torch.from_numpy(transition).to(
+            transition_tensor[batch_index, y_min:y_max, x_min:x_max] = torch.from_numpy(transition).to(
                 device=device, dtype=dtype
             )
             assemble_ms = (perf_counter() - stage_start) * 1000.0
-
-            results.append(result_frame)
-            weight_outputs.append(weight_frame)
-            safe_outputs.append(safe_frame)
-            edit_outputs.append(edit_frame)
-            transition_outputs.append(transition_frame)
 
             batch_total_ms = (perf_counter() - batch_start_time) * 1000.0
             print(
@@ -441,24 +441,8 @@ class SmartObjectReplaceComposite:
                 f"total={batch_total_ms:.1f}ms"
             )
 
-        if any(item is None for item in weight_outputs):
-            if all(item is None for item in weight_outputs):
-                return (edited_image.clamp(0.0, 1.0), None, None, None, None)
-
-            fallback_shape = (height, width)
-            for index in range(batch_size):
-                if weight_outputs[index] is not None:
-                    continue
-                weight_outputs[index] = torch.zeros(fallback_shape, device=device, dtype=dtype)
-                safe_outputs[index] = torch.zeros(fallback_shape, device=device, dtype=dtype)
-                edit_outputs[index] = torch.zeros(fallback_shape, device=device, dtype=dtype)
-                transition_outputs[index] = torch.zeros(fallback_shape, device=device, dtype=dtype)
-
-        result_tensor = torch.stack(results, dim=0)
-        weight_tensor = torch.stack(weight_outputs, dim=0)
-        safe_tensor = torch.stack(safe_outputs, dim=0)
-        edit_tensor = torch.stack(edit_outputs, dim=0)
-        transition_tensor = torch.stack(transition_outputs, dim=0)
+        if not has_any_roi:
+            return (edited_image.clamp(0.0, 1.0), None, None, None, None)
 
         return (
             result_tensor,
