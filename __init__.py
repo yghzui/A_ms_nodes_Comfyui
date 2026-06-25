@@ -52,6 +52,7 @@ from .nodes.multi_input_state_mapper import MultiInputStateMapper
 from .nodes.multi_image_condition_reference import MultiImageConditionReference
 from .nodes.workflow_group_preset_manager import WorkflowGroupPresetManager
 from .nodes.bg_removal_colorize import BackgroundRemovalColorize
+from .nodes.smart_object_replace_composite import SmartObjectReplaceComposite
 
 
 # 延迟注册路由 - 确保在ComfyUI完全初始化后注册
@@ -171,6 +172,7 @@ NODE_CLASS_MAPPINGS = {
     "MultiImageConditionReference": MultiImageConditionReference, # 多图条件参考
     "WorkflowGroupPresetManager": WorkflowGroupPresetManager, # 工作流切换组管理器
     "BackgroundRemovalColorize": BackgroundRemovalColorize, # 背景移除换色增强
+    "SmartObjectReplaceComposite": SmartObjectReplaceComposite, # 智能对象替换合成
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by ms", # 加载并调整图片大小
@@ -249,6 +251,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "MultiImageConditionReference": "Multi Image Conditioning Reference by ms", # 多图条件参考
     "WorkflowGroupPresetManager": "Workflow Group Preset Manager by ms", # 工作流切换组管理器
     "BackgroundRemovalColorize": "Background Removal Colorize by ms", # 背景移除换色增强
+    "SmartObjectReplaceComposite": "Smart Object Replace Composite by ms", # 智能对象替换合成
 }
 
 WEB_DIRECTORY = "./web/js"
