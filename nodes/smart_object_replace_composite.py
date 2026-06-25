@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import torch
+from time import perf_counter
 
 
 def _to_numpy_mask(mask, batch_index, batch_size):
@@ -34,6 +35,18 @@ def _prepare_optional_mask(mask, batch_index, batch_size, width, height):
         return None
 
     return np.clip(_resize_mask_if_needed(prepared_mask, width, height), 0.0, 1.0)
+
+
+def _compute_roi_bounds(mask_binary, padding, width, height):
+    ys, xs = np.where(mask_binary > 0.5)
+    if ys.size == 0 or xs.size == 0:
+        return None
+
+    y_min = max(int(ys.min()) - padding, 0)
+    y_max = min(int(ys.max()) + padding + 1, height)
+    x_min = max(int(xs.min()) - padding, 0)
+    x_max = min(int(xs.max()) + padding + 1, width)
+    return y_min, y_max, x_min, x_max
 
 
 def _dilate_mask(mask, radius):
@@ -95,6 +108,10 @@ def _match_color_mean_std(original_rgb, edited_rgb, ref_mask, apply_mask, eps=1e
     if ref_region.sum() < 64:
         return edited_rgb
 
+    apply_region = apply_mask > eps
+    if apply_region.sum() == 0:
+        return edited_rgb
+
     original_ref = original_rgb[ref_region]
     edited_ref = edited_rgb[ref_region]
 
@@ -103,11 +120,12 @@ def _match_color_mean_std(original_rgb, edited_rgb, ref_mask, apply_mask, eps=1e
     original_std = original_ref.std(axis=0)
     edited_std = edited_ref.std(axis=0)
 
-    corrected = (edited_rgb - edited_mean) / (edited_std + eps) * original_std + original_mean
-    corrected = np.clip(corrected, 0.0, 1.0)
-
-    alpha = np.clip(apply_mask, 0.0, 1.0)[..., None]
-    output = edited_rgb * (1.0 - alpha) + corrected * alpha
+    output = edited_rgb.copy()
+    alpha = np.clip(apply_mask[apply_region], 0.0, 1.0)[:, None]
+    edited_pixels = edited_rgb[apply_region]
+    corrected_pixels = (edited_pixels - edited_mean) / (edited_std + eps) * original_std + original_mean
+    corrected_pixels = np.clip(corrected_pixels, 0.0, 1.0)
+    output[apply_region] = edited_pixels * (1.0 - alpha) + corrected_pixels * alpha
     return np.clip(output, 0.0, 1.0)
 
 
@@ -143,9 +161,6 @@ class SmartObjectReplaceComposite:
                 }),
                 "edited_image": ("IMAGE", {
                     "tooltip": "局部编辑后的图 E。对象附近区域优先保留该图内容。"
-                }),
-                "edit_region_mask": ("MASK", {
-                    "tooltip": "编辑区域总遮罩。定义允许发生融合和回贴的整体区域。"
                 }),
                 "edit_expand": ("INT", {
                     "default": 24,
@@ -185,11 +200,14 @@ class SmartObjectReplaceComposite:
                 }),
             },
             "optional": {
-                "original_subject_mask": ("MASK", {
-                    "tooltip": "可选，原图主体遮罩。只有它存在时，节点会按原主体边界附近优先保留编辑图。"
+                "edit_region_mask": ("MASK", {
+                    "tooltip": "可选，编辑区域总遮罩。存在时节点只在该区域附近做 ROI 融合；未连接时直接输出 edited_image。"
                 }),
                 "edited_subject_mask": ("MASK", {
                     "tooltip": "可选，编辑结果中的新主体遮罩。只有它存在时，节点会按新主体边界附近优先保留编辑图，并优先用它保护新主体颜色。"
+                }),
+                "original_subject_mask": ("MASK", {
+                    "tooltip": "可选，原图主体遮罩。只有它存在时，节点会按原主体边界附近优先保留编辑图。"
                 }),
             }
         }
@@ -208,16 +226,17 @@ class SmartObjectReplaceComposite:
         self,
         original_image,
         edited_image,
-        edit_region_mask,
         edit_expand,
         transition_width,
         final_blur,
         color_match,
         protect_new_object,
         new_object_protect_erode,
-        original_subject_mask=None,
+        edit_region_mask=None,
         edited_subject_mask=None,
+        original_subject_mask=None,
     ):
+        node_start_time = perf_counter()
         original_image = self._ensure_image_batch(original_image, "original_image")
         edited_image = self._ensure_image_batch(edited_image, "edited_image")
 
@@ -226,9 +245,13 @@ class SmartObjectReplaceComposite:
                 "original_image and edited_image must share the same batch, height and width"
             )
 
-        original_batch = original_image.detach().cpu().float().numpy()
-        edited_batch = edited_image.detach().cpu().float().numpy()
-        batch_size, height, width, _ = original_batch.shape
+        if edit_region_mask is None:
+            print("[SmartObjectReplaceComposite] bypass: edit_region_mask is not connected")
+            return (edited_image.clamp(0.0, 1.0), None, None, None, None)
+
+        batch_size, height, width, _ = original_image.shape
+        device = original_image.device
+        dtype = original_image.dtype
 
         results = []
         weight_outputs = []
@@ -237,15 +260,15 @@ class SmartObjectReplaceComposite:
         transition_outputs = []
 
         for batch_index in range(batch_size):
-            original_rgb = original_batch[batch_index]
-            edited_rgb = edited_batch[batch_index]
+            batch_start_time = perf_counter()
 
+            stage_start = perf_counter()
             edit_region_mask_array = _to_numpy_mask(edit_region_mask, batch_index, batch_size)
-            original_subject_mask_array = _prepare_optional_mask(
-                original_subject_mask, batch_index, batch_size, width, height
-            )
             edited_subject_mask_array = _prepare_optional_mask(
                 edited_subject_mask, batch_index, batch_size, width, height
+            )
+            original_subject_mask_array = _prepare_optional_mask(
+                original_subject_mask, batch_index, batch_size, width, height
             )
 
             edit_region_mask_array = np.clip(
@@ -263,6 +286,52 @@ class SmartObjectReplaceComposite:
                 else None
             )
 
+            roi_padding = max(
+                edit_expand + transition_width,
+                final_blur,
+                new_object_protect_erode if protect_new_object else 0,
+                8 if color_match else 0,
+            )
+            roi_bounds = _compute_roi_bounds(
+                edit_region_mask_binary, roi_padding, width, height
+            )
+            mask_prepare_ms = (perf_counter() - stage_start) * 1000.0
+
+            if roi_bounds is None:
+                results.append(edited_image[batch_index].clone().clamp(0.0, 1.0))
+                weight_outputs.append(None)
+                safe_outputs.append(None)
+                edit_outputs.append(None)
+                transition_outputs.append(None)
+                batch_total_ms = (perf_counter() - batch_start_time) * 1000.0
+                print(
+                    f"[SmartObjectReplaceComposite] batch={batch_index} roi=empty "
+                    f"mask_prepare={mask_prepare_ms:.1f}ms total={batch_total_ms:.1f}ms"
+                )
+                continue
+
+            y_min, y_max, x_min, x_max = roi_bounds
+            roi_slice = np.s_[y_min:y_max, x_min:x_max]
+            roi_height = y_max - y_min
+            roi_width = x_max - x_min
+
+            stage_start = perf_counter()
+
+            original_rgb = original_image[
+                batch_index, y_min:y_max, x_min:x_max, :3
+            ].detach().cpu().float().numpy()
+            edited_rgb = edited_image[
+                batch_index, y_min:y_max, x_min:x_max, :3
+            ].detach().cpu().float().numpy()
+
+            edit_region_mask_binary = edit_region_mask_binary[roi_slice]
+            if original_subject_mask_binary is not None:
+                original_subject_mask_binary = original_subject_mask_binary[roi_slice]
+            if edited_subject_mask_binary is not None:
+                edited_subject_mask_binary = edited_subject_mask_binary[roi_slice]
+            roi_extract_ms = (perf_counter() - stage_start) * 1000.0
+
+            stage_start = perf_counter()
             subject_masks = []
             if original_subject_mask_binary is not None:
                 subject_masks.append(original_subject_mask_binary)
@@ -296,8 +365,10 @@ class SmartObjectReplaceComposite:
                 safe_bg = np.zeros_like(edit_region_mask_binary, dtype=np.float32)
                 weight_original = np.ones_like(edit_region_mask_binary, dtype=np.float32)
                 weight_original[edit_region_mask_binary > 0.5] = 0.0
+            mask_compute_ms = (perf_counter() - stage_start) * 1000.0
 
             edited_used = edited_rgb.copy()
+            stage_start = perf_counter()
             if color_match:
                 if protect_new_object and edited_subject_mask_binary is not None:
                     protected_new_object = _erode_mask(
@@ -315,28 +386,79 @@ class SmartObjectReplaceComposite:
                     ref_mask=safe_bg,
                     apply_mask=color_apply,
                 )
+            color_match_ms = (perf_counter() - stage_start) * 1000.0
 
+            stage_start = perf_counter()
             weight_rgb = weight_original[..., None]
             result = original_rgb * weight_rgb + edited_used * (1.0 - weight_rgb)
             result = np.clip(result, 0.0, 1.0).astype(np.float32)
 
             transition = edit_region_mask_binary * (1.0 - edit_core) * (1.0 - safe_bg)
             transition = np.clip(transition, 0.0, 1.0).astype(np.float32)
+            blend_ms = (perf_counter() - stage_start) * 1000.0
 
-            results.append(result)
-            weight_outputs.append(weight_original.astype(np.float32))
-            safe_outputs.append(safe_bg.astype(np.float32))
-            edit_outputs.append(edit_core.astype(np.float32))
-            transition_outputs.append(transition)
+            stage_start = perf_counter()
+            result_frame = original_image[batch_index].clone()
+            result_frame[y_min:y_max, x_min:x_max, :3] = torch.from_numpy(result).to(
+                device=device, dtype=dtype
+            )
 
-        device = original_image.device
-        dtype = original_image.dtype
+            weight_frame = torch.ones((height, width), device=device, dtype=dtype)
+            safe_frame = torch.zeros((height, width), device=device, dtype=dtype)
+            edit_frame = torch.zeros((height, width), device=device, dtype=dtype)
+            transition_frame = torch.zeros((height, width), device=device, dtype=dtype)
 
-        result_tensor = torch.from_numpy(np.stack(results, axis=0)).to(device=device, dtype=dtype)
-        weight_tensor = torch.from_numpy(np.stack(weight_outputs, axis=0)).to(device=device, dtype=dtype)
-        safe_tensor = torch.from_numpy(np.stack(safe_outputs, axis=0)).to(device=device, dtype=dtype)
-        edit_tensor = torch.from_numpy(np.stack(edit_outputs, axis=0)).to(device=device, dtype=dtype)
-        transition_tensor = torch.from_numpy(np.stack(transition_outputs, axis=0)).to(device=device, dtype=dtype)
+            weight_frame[y_min:y_max, x_min:x_max] = torch.from_numpy(weight_original).to(
+                device=device, dtype=dtype
+            )
+            safe_frame[y_min:y_max, x_min:x_max] = torch.from_numpy(safe_bg).to(
+                device=device, dtype=dtype
+            )
+            edit_frame[y_min:y_max, x_min:x_max] = torch.from_numpy(edit_core).to(
+                device=device, dtype=dtype
+            )
+            transition_frame[y_min:y_max, x_min:x_max] = torch.from_numpy(transition).to(
+                device=device, dtype=dtype
+            )
+            assemble_ms = (perf_counter() - stage_start) * 1000.0
+
+            results.append(result_frame)
+            weight_outputs.append(weight_frame)
+            safe_outputs.append(safe_frame)
+            edit_outputs.append(edit_frame)
+            transition_outputs.append(transition_frame)
+
+            batch_total_ms = (perf_counter() - batch_start_time) * 1000.0
+            print(
+                f"[SmartObjectReplaceComposite] batch={batch_index} "
+                f"roi={roi_width}x{roi_height} "
+                f"mask_prepare={mask_prepare_ms:.1f}ms "
+                f"roi_extract={roi_extract_ms:.1f}ms "
+                f"mask_compute={mask_compute_ms:.1f}ms "
+                f"color_match={color_match_ms:.1f}ms "
+                f"blend={blend_ms:.1f}ms "
+                f"assemble={assemble_ms:.1f}ms "
+                f"total={batch_total_ms:.1f}ms"
+            )
+
+        if any(item is None for item in weight_outputs):
+            if all(item is None for item in weight_outputs):
+                return (edited_image.clamp(0.0, 1.0), None, None, None, None)
+
+            fallback_shape = (height, width)
+            for index in range(batch_size):
+                if weight_outputs[index] is not None:
+                    continue
+                weight_outputs[index] = torch.zeros(fallback_shape, device=device, dtype=dtype)
+                safe_outputs[index] = torch.zeros(fallback_shape, device=device, dtype=dtype)
+                edit_outputs[index] = torch.zeros(fallback_shape, device=device, dtype=dtype)
+                transition_outputs[index] = torch.zeros(fallback_shape, device=device, dtype=dtype)
+
+        result_tensor = torch.stack(results, dim=0)
+        weight_tensor = torch.stack(weight_outputs, dim=0)
+        safe_tensor = torch.stack(safe_outputs, dim=0)
+        edit_tensor = torch.stack(edit_outputs, dim=0)
+        transition_tensor = torch.stack(transition_outputs, dim=0)
 
         return (
             result_tensor,
