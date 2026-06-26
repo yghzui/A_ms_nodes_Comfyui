@@ -174,6 +174,10 @@ class SmartObjectReplaceComposite:
                 "edited_image": ("IMAGE", {
                     "tooltip": "局部编辑后的图 E。对象附近区域优先保留该图内容。"
                 }),
+                "enabled": ("BOOLEAN", {
+                    "default": True,
+                    "tooltip": "是否启用智能融合。关闭时与未连接 edit_region_mask 相同，直接输出 edited_image。"
+                }),
                 "edit_expand": ("INT", {
                     "default": 24,
                     "min": 0,
@@ -238,6 +242,7 @@ class SmartObjectReplaceComposite:
         self,
         original_image,
         edited_image,
+        enabled,
         edit_expand,
         transition_width,
         final_blur,
@@ -257,8 +262,9 @@ class SmartObjectReplaceComposite:
                 "original_image and edited_image must share the same batch, height and width"
             )
 
-        if edit_region_mask is None:
-            print("[SmartObjectReplaceComposite] bypass: edit_region_mask is not connected")
+        if not enabled or edit_region_mask is None:
+            reason = "disabled" if not enabled else "edit_region_mask is not connected"
+            print(f"[SmartObjectReplaceComposite] bypass: {reason}")
             return (edited_image.clamp(0.0, 1.0), None, None, None, None)
 
         batch_size, height, width, _ = original_image.shape
