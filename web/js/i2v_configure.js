@@ -21,8 +21,9 @@ app.registerExtension({
             const lengthWidget = node.widgets.find(w => w.name === "length");
             const stepsWidget = node.widgets.find(w => w.name === "steps");
             const middleStepsWidget = node.widgets.find(w => w.name === "middle_steps");
+            const useMinimaxFormulaWidget = node.widgets.find(w => w.name === "use_minimax_formula");
 
-            if (!useSecondsWidget || !secondsWidget || !fpsWidget || !lengthWidget || !stepsWidget || !middleStepsWidget) {
+            if (!useSecondsWidget || !secondsWidget || !fpsWidget || !lengthWidget || !stepsWidget || !middleStepsWidget || !useMinimaxFormulaWidget) {
                 console.error("[I2VConfigureNode] UI: 无法找到所有必要的控件。");
                 return;
             }
@@ -35,8 +36,13 @@ app.registerExtension({
                 if (useSeconds) {
                     const seconds = secondsWidget.value;
                     const fps = fpsWidget.value;
-                    // 根据公式计算新的帧数：秒数 * 帧率 + 1
-                    newLength = Math.floor(seconds * fps + 1);
+                    if (useMinimaxFormulaWidget.value) {
+                        const minimaxFrames = Math.max(5, Math.round(seconds * 24));
+                        newLength = minimaxFrames + ((5 - (minimaxFrames % 17)) % 17 + 17) % 17;
+                    } else {
+                        // 根据公式计算新的帧数：秒数 * 帧率 + 1
+                        newLength = Math.floor(seconds * fps + 1);
+                    }
                     lengthWidget.value = newLength;
                     
                     // 使用只读属性而不是disabled，确保数值显示
@@ -123,7 +129,7 @@ app.registerExtension({
                 }
             };
             
-            [useSecondsWidget, secondsWidget, fpsWidget, stepsWidget, middleStepsWidget].forEach(widget => {
+            [useSecondsWidget, secondsWidget, fpsWidget, stepsWidget, middleStepsWidget, useMinimaxFormulaWidget].forEach(widget => {
                 const originalCallback = widget.callback;
                 widget.callback = (value, ...args) => {
                     if(originalCallback) {

@@ -15,6 +15,45 @@ app.registerExtension({
             return;
         }
         console.log("注册Patching node: ShowResultLast3");
+
+        const getPathCacheWidget = (node) => node.widgets?.find(widget => widget.name === "path_cache");
+
+        const hidePathCacheWidget = (node) => {
+            const widget = getPathCacheWidget(node);
+            if (!widget || widget.__showResultLastHidden) {
+                return;
+            }
+            widget.__showResultLastHidden = true;
+            widget.computeSize = () => [0, -4];
+            widget.draw = () => {};
+        };
+
+        const getCachedVideoPaths = (node) => {
+            const widget = getPathCacheWidget(node);
+            if (!widget || !widget.value) {
+                return [];
+            }
+            try {
+                const cacheData = JSON.parse(widget.value);
+                if (Array.isArray(cacheData)) {
+                    return cacheData.filter(path => typeof path === "string" && path.trim());
+                }
+                if (cacheData && Array.isArray(cacheData.display_paths)) {
+                    return cacheData.display_paths.filter(path => typeof path === "string" && path.trim());
+                }
+            } catch (error) {
+                console.warn("ShowResultLast: 无法恢复路径缓存", error);
+            }
+            return [];
+        };
+
+        const updatePathCache = (node, pathCache) => {
+            const widget = getPathCacheWidget(node);
+            const cacheValue = Array.isArray(pathCache) ? pathCache[0] : pathCache;
+            if (widget && typeof cacheValue === "string") {
+                widget.value = cacheValue;
+            }
+        };
         
         /**
          * 计算视频网格布局
@@ -28,7 +67,8 @@ app.registerExtension({
             const PADDING = 8;
             
             // 为顶部输入控件和视频标题预留空间
-            const TOP_MARGIN = 50; // 顶部控件的高度
+            const visibleWidgetCount = (node.widgets || []).filter(widget => widget.name !== "path_cache").length;
+            const TOP_MARGIN = Math.max(50, visibleWidgetCount * 24 + 26); // 顶部控件的高度
             const TITLE_HEIGHT = 25; // 视频标题的高度
             
             const availableWidth = containerWidth - (PADDING * 2);
@@ -1714,6 +1754,7 @@ app.registerExtension({
         const onNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
             onNodeCreated?.apply(this, arguments);
+            hidePathCacheWidget(this);
             console.log("ShowResultLast 节点创建完成");
             
             // 监听输入连接变化
@@ -1732,6 +1773,18 @@ app.registerExtension({
                     }, 100);
                 }
             };
+        };
+
+        const onConfigure = nodeType.prototype.onConfigure;
+        nodeType.prototype.onConfigure = function () {
+            onConfigure?.apply(this, arguments);
+            setTimeout(() => {
+                hidePathCacheWidget(this);
+                const cachedVideoPaths = getCachedVideoPaths(this);
+                if (cachedVideoPaths.length > 0) {
+                    populate.call(this, cachedVideoPaths);
+                }
+            }, 0);
         };
 
         // 添加节点销毁时的清理逻辑
@@ -1784,6 +1837,9 @@ app.registerExtension({
         nodeType.prototype.onExecuted = function (message) {
             onExecuted?.apply(this, arguments);
             console.log("ShowResultLast onExecuted 被调用，message:", message);
+            if (message && message.path_cache) {
+                updatePathCache(this, message.path_cache);
+            }
             
             // 处理Python返回的数据
             if (message && message.text) {

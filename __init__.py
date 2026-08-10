@@ -53,6 +53,7 @@ from .nodes.multi_image_condition_reference import MultiImageConditionReference
 from .nodes.workflow_group_preset_manager import WorkflowGroupPresetManager
 from .nodes.bg_removal_colorize import BackgroundRemovalColorize
 from .nodes.smart_object_replace_composite import SmartObjectReplaceComposite
+from .nodes.preview_image_mask import AnyImageMaskPreview
 
 
 # 延迟注册路由 - 确保在ComfyUI完全初始化后注册
@@ -168,6 +169,7 @@ NODE_CLASS_MAPPINGS = {
     "FluxLatentMaskBinder": FluxLatentMaskBinder, # Flux 潜空间遮罩绑定
     "WorkflowForceRerunPassthrough": WorkflowForceRerunPassthrough, # 强制让工作流每次更新
     "GroupSwitchAny": GroupSwitchAny, # 任意类型分组切换
+    "AnyImageMaskPreview": AnyImageMaskPreview,
     "MultiInputStateMapper": MultiInputStateMapper, # 多输入存在状态映射
     "MultiImageConditionReference": MultiImageConditionReference, # 多图条件参考
     "WorkflowGroupPresetManager": WorkflowGroupPresetManager, # 工作流切换组管理器
@@ -247,6 +249,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "FluxLatentMaskBinder": "Flux Latent Mask Binder by ms", # Flux 潜空间遮罩绑定
     "WorkflowForceRerunPassthrough": "Workflow Force Rerun Passthrough by ms", # 强制让工作流每次更新
     "GroupSwitchAny": "Group Switch Any by ms", # 任意类型分组切换
+    "AnyImageMaskPreview": "Any Image Mask Preview by ms",
     "MultiInputStateMapper": "Multi Input State Mapper by ms", # 多输入存在状态映射
     "MultiImageConditionReference": "Multi Image Conditioning Reference by ms", # 多图条件参考
     "WorkflowGroupPresetManager": "Workflow Group Preset Manager by ms", # 工作流切换组管理器

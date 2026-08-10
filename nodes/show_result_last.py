@@ -18,6 +18,7 @@ class ShowResultLast:
         self.category = "显示工具"
         self.output_node = True
         self.return_type = "STRING"
+        self.display_results = []
     
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("text",)
@@ -32,9 +33,42 @@ class ShowResultLast:
             },
             "optional": {
                 "show_all_files": ("BOOLEAN", {"default": False}),
+                "display_count": ("INT", {"default": -1, "min": -1, "max": 1000, "step": 1, "tooltip": "界面保留的最后视频数量，-1 表示不限制；连接 batch_manager 时忽略此项"}),
+                "path_cache": ("STRING", {"default": "", "multiline": False}),
                 "batch_manager": ("MY_BATCH_MANAGER",),
             }
         }
+
+    def restore_path_cache(self, path_cache):
+        if not path_cache:
+            return []
+        try:
+            cache_data = json.loads(path_cache)
+        except (TypeError, json.JSONDecodeError):
+            return []
+        if isinstance(cache_data, dict):
+            cached_paths = cache_data.get("source_paths", [])
+        elif isinstance(cache_data, list):
+            cached_paths = list(reversed(cache_data))
+        else:
+            return []
+        restored_paths = []
+        for path in cached_paths:
+            if isinstance(path, str) and path.lower().endswith('.mp4'):
+                restored_paths.append(path if os.path.isabs(path) else os.path.join(self.output_dir, path))
+        return restored_paths
+
+    def append_new_results(self, new_paths):
+        def path_key(path):
+            resolved_path = path if os.path.isabs(path) else os.path.join(self.output_dir, path)
+            return os.path.normcase(os.path.abspath(resolved_path))
+
+        known_paths = {path_key(path) for path in self.display_results}
+        for path in new_paths:
+            key = path_key(path)
+            if key not in known_paths:
+                self.display_results.append(path)
+                known_paths.add(key)
     
     def parse_file_paths(self, file_paths_str: str) -> List[str]:
         """解析文件路径字符串，提取MP4文件"""
@@ -117,7 +151,7 @@ class ShowResultLast:
         
         return final_files
     
-    def execute(self, Filenames, show_all_files: bool = False, batch_manager=None):
+    def execute(self, Filenames, show_all_files: bool = False, batch_manager=None, display_count: int = -1, path_cache: str = ""):
         """执行节点逻辑"""
         print(f"ShowResultLast: 接收到文件路径数据: {Filenames}")
         
@@ -157,6 +191,7 @@ class ShowResultLast:
         status_text = ""
         
         if batch_manager:
+            self.display_results = []
             # Add current results to manager
             batch_manager.results.extend(filtered_mp4_files)
             
@@ -185,7 +220,18 @@ class ShowResultLast:
                 batch_manager.is_running = False
                 # Clear results to avoid memory leaks
                 batch_manager.results = []
+        else:
+            if not self.display_results:
+                self.display_results = self.restore_path_cache(path_cache)
+            self.append_new_results(filtered_mp4_files)
+            if display_count == 0:
+                self.display_results = []
+            elif display_count > 0:
+                self.display_results = self.display_results[-display_count:]
+            final_files_to_show = self.display_results.copy()
         # --- Batch Manager Logic End ---
+
+        final_files_to_show.reverse()
         
         # 构建显示文本列表
         if final_files_to_show:
@@ -213,7 +259,8 @@ class ShowResultLast:
         # 返回UI更新数据，让前端能够接收
         return {
             "ui": {
-                "text": return_data  # 作为一个元素的列表返回
+                "text": return_data,  # 作为一个元素的列表返回
+                "path_cache": [json.dumps({"source_paths": list(reversed(final_files_to_show)), "display_paths": return_data}, ensure_ascii=False)],
             },
             "result": (display_text,)
         }
