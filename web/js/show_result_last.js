@@ -16,7 +16,66 @@ app.registerExtension({
         }
         console.log("注册Patching node: ShowResultLast3");
 
+        const PATH_CACHE_PROPERTY = "show_result_last_path_cache";
         const getPathCacheWidget = (node) => node.widgets?.find(widget => widget.name === "path_cache");
+        const getDisplayCountWidget = (node) => node.widgets?.find(widget => widget.name === "display_count");
+
+        const normalizeDisplayCount = (node) => {
+            const widget = getDisplayCountWidget(node);
+            if (widget && Number(widget.value) === 0) {
+                widget.value = 1;
+                if (widget.element) {
+                    widget.element.value = 1;
+                }
+            }
+        };
+
+        const installDisplayCountNormalization = (node) => {
+            const widget = getDisplayCountWidget(node);
+            if (!widget || widget.__showResultLastNormalized) {
+                normalizeDisplayCount(node);
+                return;
+            }
+            widget.__showResultLastNormalized = true;
+            const originalCallback = widget.callback;
+            widget.callback = function (value, ...args) {
+                const normalizedValue = Number(value) === 0 ? 1 : value;
+                widget.value = normalizedValue;
+                if (widget.element) {
+                    widget.element.value = normalizedValue;
+                }
+                return originalCallback?.call(widget, normalizedValue, ...args);
+            };
+            normalizeDisplayCount(node);
+        };
+
+        const getPathCacheValue = (node) => {
+            if (node.properties && Object.prototype.hasOwnProperty.call(node.properties, PATH_CACHE_PROPERTY)) {
+                return typeof node.properties[PATH_CACHE_PROPERTY] === "string" ? node.properties[PATH_CACHE_PROPERTY] : "";
+            }
+            const widget = getPathCacheWidget(node);
+            return typeof widget?.value === "string" ? widget.value : "";
+        };
+
+        const persistPathCache = (node, cacheValue) => {
+            if (typeof cacheValue !== "string") {
+                return;
+            }
+            if (!node.properties) {
+                node.properties = {};
+            }
+            if (node.properties[PATH_CACHE_PROPERTY] !== cacheValue) {
+                if (typeof node.setProperty === "function") {
+                    node.setProperty(PATH_CACHE_PROPERTY, cacheValue);
+                } else {
+                    node.properties[PATH_CACHE_PROPERTY] = cacheValue;
+                }
+            }
+            const widget = getPathCacheWidget(node);
+            if (widget) {
+                widget.value = cacheValue;
+            }
+        };
 
         const hidePathCacheWidget = (node) => {
             const widget = getPathCacheWidget(node);
@@ -28,18 +87,34 @@ app.registerExtension({
             widget.draw = () => {};
         };
 
+        const getUniqueVideoPaths = (paths) => {
+            const uniquePaths = [];
+            const knownPaths = new Set();
+            for (const path of paths || []) {
+                if (typeof path !== "string" || !path.trim()) {
+                    continue;
+                }
+                const key = path.trim().replace(/\\/g, "/").replace(/\/+/g, "/").toLowerCase();
+                if (!knownPaths.has(key)) {
+                    uniquePaths.push(path);
+                    knownPaths.add(key);
+                }
+            }
+            return uniquePaths;
+        };
+
         const getCachedVideoPaths = (node) => {
-            const widget = getPathCacheWidget(node);
-            if (!widget || !widget.value) {
+            const cacheValue = getPathCacheValue(node);
+            if (!cacheValue) {
                 return [];
             }
             try {
-                const cacheData = JSON.parse(widget.value);
+                const cacheData = JSON.parse(cacheValue);
                 if (Array.isArray(cacheData)) {
-                    return cacheData.filter(path => typeof path === "string" && path.trim());
+                    return getUniqueVideoPaths(cacheData);
                 }
                 if (cacheData && Array.isArray(cacheData.display_paths)) {
-                    return cacheData.display_paths.filter(path => typeof path === "string" && path.trim());
+                    return getUniqueVideoPaths(cacheData.display_paths);
                 }
             } catch (error) {
                 console.warn("ShowResultLast: 无法恢复路径缓存", error);
@@ -48,11 +123,22 @@ app.registerExtension({
         };
 
         const updatePathCache = (node, pathCache) => {
-            const widget = getPathCacheWidget(node);
             const cacheValue = Array.isArray(pathCache) ? pathCache[0] : pathCache;
-            if (widget && typeof cacheValue === "string") {
-                widget.value = cacheValue;
-            }
+            persistPathCache(node, cacheValue);
+        };
+
+        const syncPreviewCache = (node, paths) => {
+            const displayPaths = getUniqueVideoPaths(paths);
+            persistPathCache(node, JSON.stringify({
+                source_paths: [...displayPaths].reverse(),
+                display_paths: displayPaths,
+                manual_update: Date.now(),
+            }));
+        };
+
+        const clearAllPreviews = (node) => {
+            populate.call(node, []);
+            syncPreviewCache(node, []);
         };
         
         /**
@@ -172,6 +258,7 @@ app.registerExtension({
                 node.videoPaths = [];
                 node.fileNameRects = []; // 清除文件名区域信息
                 node.deleteButtonRects = []; // 清除删除按钮区域信息
+                node.clearPreviewButtonRects = [];
                 node.singleVideoMode = false; // 清除单视频模式状态
                 node.focusedVideoIndex = -1;
                 node.sizeInitialized = false; // 重置大小初始化标志
@@ -191,6 +278,7 @@ app.registerExtension({
             node.videoPaths = validPaths; // 保存当前视频路径
             node.fileNameRects = []; // 初始化文件名区域数组
             node.deleteButtonRects = []; // 初始化删除按钮区域数组
+            node.clearPreviewButtonRects = [];
             
             // 初始化单视频显示状态
             node.singleVideoMode = false;
@@ -318,25 +406,27 @@ app.registerExtension({
          * 通用工具方法
          */
         
-        // 绘制删除按钮的通用方法
-        function drawDeleteButton(ctx, x, y, size, isHovered = false) {
-            // 按钮背景（悬浮效果）
-            ctx.fillStyle = isHovered ? 'rgba(255, 0, 0, 0.9)' : 'rgba(255, 0, 0, 0.7)';
+        function drawPreviewActionButton(ctx, x, y, size, text, color, hoverColor, isHovered = false) {
+            ctx.fillStyle = isHovered ? hoverColor : color;
             ctx.beginPath();
             ctx.arc(x + size/2, y + size/2, size/2, 0, 2 * Math.PI);
             ctx.fill();
-            
-            // 按钮边框
             ctx.strokeStyle = isHovered ? 'rgba(255, 255, 255, 1)' : 'rgba(255, 255, 255, 0.8)';
             ctx.lineWidth = isHovered ? 2 : 1;
             ctx.stroke();
-            
-            // 绘制删除图标 (×)
             ctx.fillStyle = 'rgba(255, 255, 255, 1)';
-            ctx.font = `${size - 4}px Arial`;
+            ctx.font = `bold ${Math.max(10, size - 6)}px "Microsoft YaHei", SimHei, Arial`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText('×', x + size/2, y + size/2);
+            ctx.fillText(text, x + size/2, y + size/2);
+        }
+
+        function drawDeleteButton(ctx, x, y, size, isHovered = false) {
+            drawPreviewActionButton(ctx, x, y, size, '删', 'rgba(255, 0, 0, 0.7)', 'rgba(255, 0, 0, 0.9)', isHovered);
+        }
+
+        function drawClearPreviewButton(ctx, x, y, size, isHovered = false) {
+            drawPreviewActionButton(ctx, x, y, size, '预', 'rgba(30, 120, 210, 0.75)', 'rgba(30, 140, 240, 0.95)', isHovered);
         }
         
         // 绘制控制按钮的通用方法
@@ -536,6 +626,24 @@ app.registerExtension({
                             width: buttonSize,
                             height: buttonSize
                         };
+
+                        rightOffset += buttonSize + buttonMargin;
+                        const clearPreviewButtonX = rect.x + rect.width - rightOffset - buttonSize;
+                        const clearPreviewButtonY = rect.y + buttonMargin;
+                        const mouseInClearPreviewButton = node.mouseX >= clearPreviewButtonX && node.mouseX <= clearPreviewButtonX + buttonSize &&
+                            node.mouseY >= clearPreviewButtonY && node.mouseY <= clearPreviewButtonY + buttonSize;
+
+                        drawClearPreviewButton(ctx, clearPreviewButtonX, clearPreviewButtonY, buttonSize, mouseInClearPreviewButton);
+
+                        if (!node.clearPreviewButtonRects) {
+                            node.clearPreviewButtonRects = [];
+                        }
+                        node.clearPreviewButtonRects[i] = {
+                            x: clearPreviewButtonX,
+                            y: clearPreviewButtonY,
+                            width: buttonSize,
+                            height: buttonSize
+                        };
                         
                         // 保存文件名区域信息，用于tooltip检测
                         if (!node.fileNameRects) {
@@ -553,6 +661,10 @@ app.registerExtension({
                             node.deleteButtonRects = [];
                         }
                         node.deleteButtonRects[i] = null;
+                        if (!node.clearPreviewButtonRects) {
+                            node.clearPreviewButtonRects = [];
+                        }
+                        node.clearPreviewButtonRects[i] = null;
                         
                         // 保存文件名区域信息
                         if (!node.fileNameRects) {
@@ -566,6 +678,10 @@ app.registerExtension({
                         node.deleteButtonRects = [];
                     }
                     node.deleteButtonRects[i] = null;
+                    if (!node.clearPreviewButtonRects) {
+                        node.clearPreviewButtonRects = [];
+                    }
+                    node.clearPreviewButtonRects[i] = null;
                     
                     // 单视频模式下，文件名区域为空（将在底部绘制）
                     if (!node.fileNameRects) {
@@ -639,6 +755,10 @@ app.registerExtension({
         
         // 检查鼠标是否悬浮在删除按钮上（左下角）
         const mouseInDeleteButton = node.mouseX !== undefined && node.mouseY !== undefined &&
+            node.mouseX >= 10 + buttonSize + buttonSpacing && node.mouseX <= 10 + buttonSize * 2 + buttonSpacing &&
+            node.mouseY >= node.size[1] - buttonSize - 10 && node.mouseY <= node.size[1] - 10;
+
+        const mouseInClearPreviewButton = node.mouseX !== undefined && node.mouseY !== undefined &&
             node.mouseX >= 10 && node.mouseX <= 10 + buttonSize &&
             node.mouseY >= node.size[1] - buttonSize - 10 && node.mouseY <= node.size[1] - 10;
         
@@ -681,21 +801,14 @@ app.registerExtension({
                 // 绘制恢复按钮 (⭯) - 放在视频区域的右上角
                 drawControlButton(ctx, restoreButtonX, restoreButtonY, buttonSize, '⭯', mouseInRestoreButton);
                 
+                const clearPreviewButtonX = 10;
+                const clearPreviewButtonY = node.size[1] - buttonSize - 10;
+                drawClearPreviewButton(ctx, clearPreviewButtonX, clearPreviewButtonY, buttonSize, mouseInClearPreviewButton);
+
                 // 绘制左下角删除按钮
-                const deleteButtonX = 10;
+                const deleteButtonX = 10 + buttonSize + buttonSpacing;
                 const deleteButtonY = node.size[1] - buttonSize - 10;
-                
-                // 使用特殊样式绘制删除按钮（红色背景，方形）
-                ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
-                ctx.fillRect(deleteButtonX, deleteButtonY, buttonSize, buttonSize);
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-                ctx.lineWidth = 1;
-                ctx.strokeRect(deleteButtonX, deleteButtonY, buttonSize, buttonSize);
-                ctx.fillStyle = 'rgba(255, 255, 255, 1)';
-                ctx.font = `${buttonSize - 4}px Arial`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('×', deleteButtonX + buttonSize / 2, deleteButtonY + buttonSize / 2);
+                drawDeleteButton(ctx, deleteButtonX, deleteButtonY, buttonSize, mouseInDeleteButton);
         
                 // 绘制右下角全屏预览按钮
                 const fullscreenButtonX = node.size[0] - buttonSize - 10;
@@ -742,6 +855,12 @@ app.registerExtension({
                     width: buttonSize,
                     height: buttonSize
                 };
+                node.clearPreviewButtonRect = {
+                    x: clearPreviewButtonX,
+                    y: clearPreviewButtonY,
+                    width: buttonSize,
+                    height: buttonSize
+                };
                 node.fullscreenButtonRect = {
                     x: fullscreenButtonX,
                     y: fullscreenButtonY,
@@ -754,6 +873,7 @@ app.registerExtension({
                 node.nextButtonRect = null;
                 node.restoreButtonRect = null;
                 node.deleteButtonRect = null;
+                node.clearPreviewButtonRect = null;
                 node.fullscreenButtonRect = null;
             }
             
@@ -767,7 +887,7 @@ app.registerExtension({
             
             // 检查是否有数据变化
             const oldPaths = this.videoPaths || [];
-            const newPaths = videoPaths || [];
+            const newPaths = getUniqueVideoPaths(videoPaths);
             
             // 比较新旧数据是否相同
             const hasChanged = oldPaths.length !== newPaths.length || 
@@ -781,10 +901,10 @@ app.registerExtension({
             console.log("检测到视频数据变化，开始清除旧数据并加载新数据");
             
             // 保存新的视频路径
-            this.videoPaths = videoPaths;
+            this.videoPaths = newPaths;
             
             // 显示视频
-            showVideos(this, videoPaths);
+            showVideos(this, newPaths);
             
             // 重写节点的绘制方法
             const originalOnDrawForeground = this.onDrawForeground;
@@ -1042,6 +1162,19 @@ app.registerExtension({
                         }
                     }
                     
+                    if (this.clearPreviewButtonRect) {
+                        const rect = this.clearPreviewButtonRect;
+                        const x = nodePos[0] + rect.x;
+                        const y = nodePos[1] + rect.y;
+                        if (e.canvasX >= x && e.canvasX <= x + rect.width &&
+                            e.canvasY >= y && e.canvasY <= y + rect.height) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            this.removeVideoFromList(this.focusedVideoIndex);
+                            return true;
+                        }
+                    }
+
                     // 检查点击左下角删除按钮（单视频模式）
                     if (this.deleteButtonRect) {
                         const absDeleteButtonX = nodePos[0] + this.deleteButtonRect.x;
@@ -1091,6 +1224,24 @@ app.registerExtension({
                     }
                 }
                 
+                if (this.clearPreviewButtonRects && this.clearPreviewButtonRects.length > 0) {
+                    for (let i = 0; i < this.clearPreviewButtonRects.length; i++) {
+                        const rect = this.clearPreviewButtonRects[i];
+                        if (!rect || this.videoRects?.[i]?.visible === false) {
+                            continue;
+                        }
+                        const x = nodePos[0] + rect.x;
+                        const y = nodePos[1] + rect.y;
+                        if (e.canvasX >= x && e.canvasX <= x + rect.width &&
+                            e.canvasY >= y && e.canvasY <= y + rect.height) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            this.removeVideoFromList(i);
+                            return true;
+                        }
+                    }
+                }
+
                 // 检查是否点击删除按钮（多视频模式）
                 if (this.deleteButtonRects && this.deleteButtonRects.length > 0) {
                     for (let i = 0; i < this.deleteButtonRects.length; i++) {
@@ -1456,7 +1607,7 @@ app.registerExtension({
                 confirmMessage += `
                     <div style="display: flex; gap: 10px; justify-content: flex-end;">
                         <button id="cancel-delete-${this.id}" style="${getButtonStyle()}">取消</button>
-                        <button id="confirm-delete-${this.id}" style="${getButtonStyle('#ff6b6b')}">确认删除</button>
+                        <button id="confirm-delete-${this.id}" style="${getButtonStyle('#ff6b6b')}">删除文件</button>
                     </div>
                 `;
                 
@@ -1471,7 +1622,7 @@ app.registerExtension({
                 document.getElementById(`cancel-delete-${this.id}`).onclick = () => {
                     this.removeDeleteDialog();
                 };
-                
+
                 document.getElementById(`confirm-delete-${this.id}`).onclick = () => {
                     this.removeDeleteDialog();
                     this.executeDelete(videoIndex, relatedFiles);
@@ -1698,6 +1849,7 @@ app.registerExtension({
                 if (this.videoRects) this.videoRects.splice(videoIndex, 1);
                 if (this.fileNameRects) this.fileNameRects.splice(videoIndex, 1);
                 if (this.deleteButtonRects) this.deleteButtonRects.splice(videoIndex, 1);
+                if (this.clearPreviewButtonRects) this.clearPreviewButtonRects.splice(videoIndex, 1);
                 
                 // 重新计算布局
                 if (this.videoPaths.length > 0) {
@@ -1733,12 +1885,14 @@ app.registerExtension({
                     this.videoFileNames = [];
                     this.fileNameRects = [];
                     this.deleteButtonRects = [];
+                    this.clearPreviewButtonRects = [];
                     this.singleVideoMode = false;
                     this.focusedVideoIndex = -1;
                     this.sizeInitialized = false; // 重置大小初始化标志
                 }
                 
                 // 触发重绘
+                syncPreviewCache(this, this.videoPaths);
                 app.graph.setDirtyCanvas(true, false);
             };
             
@@ -1755,6 +1909,11 @@ app.registerExtension({
         nodeType.prototype.onNodeCreated = function () {
             onNodeCreated?.apply(this, arguments);
             hidePathCacheWidget(this);
+            installDisplayCountNormalization(this);
+            const initialCacheValue = getPathCacheValue(this);
+            if (initialCacheValue) {
+                persistPathCache(this, initialCacheValue);
+            }
             console.log("ShowResultLast 节点创建完成");
             
             // 监听输入连接变化
@@ -1778,13 +1937,33 @@ app.registerExtension({
         const onConfigure = nodeType.prototype.onConfigure;
         nodeType.prototype.onConfigure = function () {
             onConfigure?.apply(this, arguments);
+            hidePathCacheWidget(this);
+            installDisplayCountNormalization(this);
+            persistPathCache(this, getPathCacheValue(this));
             setTimeout(() => {
-                hidePathCacheWidget(this);
                 const cachedVideoPaths = getCachedVideoPaths(this);
                 if (cachedVideoPaths.length > 0) {
                     populate.call(this, cachedVideoPaths);
                 }
             }, 0);
+        };
+
+        const onSerialize = nodeType.prototype.onSerialize;
+        nodeType.prototype.onSerialize = function (info) {
+            onSerialize?.apply(this, arguments);
+            if (!info.properties) {
+                info.properties = {};
+            }
+            info.properties[PATH_CACHE_PROPERTY] = getPathCacheValue(this);
+        };
+
+        const getExtraMenuOptions = nodeType.prototype.getExtraMenuOptions;
+        nodeType.prototype.getExtraMenuOptions = function (_, options) {
+            getExtraMenuOptions?.apply(this, arguments);
+            options.push(null, {
+                content: "清除全部预览（不删除文件）",
+                callback: () => clearAllPreviews(this),
+            });
         };
 
         // 添加节点销毁时的清理逻辑
@@ -1816,7 +1995,9 @@ app.registerExtension({
             this.videos = null;
             this.videoRects = null;
             this.deleteButtonRects = null;
+            this.clearPreviewButtonRects = null;
                             this.deleteButtonRect = null;
+                this.clearPreviewButtonRect = null;
                 this.fullscreenButtonRect = null;
                 this.videoFileNames = null;
             this.videoPaths = null;

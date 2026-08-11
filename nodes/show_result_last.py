@@ -28,12 +28,11 @@ class ShowResultLast:
     @classmethod
     def INPUT_TYPES(cls):
         return {
-            "required": {
-                "Filenames": ("VHS_FILENAMES", {"multiline": True, "default": ""}),
-            },
+            "required": {},
             "optional": {
+                "Filenames": ("VHS_FILENAMES", {"multiline": True, "default": ""}),
                 "show_all_files": ("BOOLEAN", {"default": False}),
-                "display_count": ("INT", {"default": -1, "min": -1, "max": 1000, "step": 1, "tooltip": "界面保留的最后视频数量，-1 表示不限制；连接 batch_manager 时忽略此项"}),
+                "display_count": ("INT", {"default": -1, "min": -1, "max": 1000, "step": 1, "tooltip": "界面保留的最后视频数量，-1 表示不限制，0 按 1 处理；连接 batch_manager 时忽略此项"}),
                 "path_cache": ("STRING", {"default": "", "multiline": False}),
                 "batch_manager": ("MY_BATCH_MANAGER",),
             }
@@ -56,16 +55,35 @@ class ShowResultLast:
         for path in cached_paths:
             if isinstance(path, str) and path.lower().endswith('.mp4'):
                 restored_paths.append(path if os.path.isabs(path) else os.path.join(self.output_dir, path))
-        return restored_paths
+        return self.deduplicate_paths(restored_paths)
+
+    def is_manual_cache_update(self, path_cache):
+        if not path_cache:
+            return False
+        try:
+            cache_data = json.loads(path_cache)
+        except (TypeError, json.JSONDecodeError):
+            return False
+        return isinstance(cache_data, dict) and bool(cache_data.get("manual_update"))
+
+    def path_key(self, path):
+        resolved_path = path if os.path.isabs(path) else os.path.join(self.output_dir, path)
+        return os.path.normcase(os.path.abspath(resolved_path))
+
+    def deduplicate_paths(self, paths):
+        unique_paths = []
+        known_paths = set()
+        for path in paths:
+            key = self.path_key(path)
+            if key not in known_paths:
+                unique_paths.append(path)
+                known_paths.add(key)
+        return unique_paths
 
     def append_new_results(self, new_paths):
-        def path_key(path):
-            resolved_path = path if os.path.isabs(path) else os.path.join(self.output_dir, path)
-            return os.path.normcase(os.path.abspath(resolved_path))
-
-        known_paths = {path_key(path) for path in self.display_results}
+        known_paths = {self.path_key(path) for path in self.display_results}
         for path in new_paths:
-            key = path_key(path)
+            key = self.path_key(path)
             if key not in known_paths:
                 self.display_results.append(path)
                 known_paths.add(key)
@@ -151,7 +169,7 @@ class ShowResultLast:
         
         return final_files
     
-    def execute(self, Filenames, show_all_files: bool = False, batch_manager=None, display_count: int = -1, path_cache: str = ""):
+    def execute(self, Filenames=None, show_all_files: bool = False, batch_manager=None, display_count: int = -1, path_cache: str = ""):
         """执行节点逻辑"""
         print(f"ShowResultLast: 接收到文件路径数据: {Filenames}")
         
@@ -221,16 +239,19 @@ class ShowResultLast:
                 # Clear results to avoid memory leaks
                 batch_manager.results = []
         else:
-            if not self.display_results:
+            if self.is_manual_cache_update(path_cache):
+                self.display_results = self.restore_path_cache(path_cache)
+            elif not self.display_results:
                 self.display_results = self.restore_path_cache(path_cache)
             self.append_new_results(filtered_mp4_files)
             if display_count == 0:
-                self.display_results = []
-            elif display_count > 0:
+                display_count = 1
+            if display_count > 0:
                 self.display_results = self.display_results[-display_count:]
             final_files_to_show = self.display_results.copy()
         # --- Batch Manager Logic End ---
 
+        final_files_to_show = self.deduplicate_paths(final_files_to_show)
         final_files_to_show.reverse()
         
         # 构建显示文本列表
