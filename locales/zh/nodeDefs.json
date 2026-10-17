@@ -63,6 +63,8 @@
   "AnyValidityChecker": { "display_name": "任意类型数据校验器 by ms" },
   "AnyImageMaskPreview": { "display_name": "图像或遮罩自动预览 by ms" },
   "GetNodeInputValue": { "display_name": "获取节点输入值 by ms" },
+  "LoraApply": { "display_name": "通用 LoRA 条件应用 by ms" },
+  "LoraApplyAsset": { "display_name": "通用 LoRA 资产应用 by ms" },
   "WanVideoDoubleStream": { "display_name": "Wan 视频双流 by ms" },
   "WanVideoDoubleStreamAsset": { "display_name": "Wan 视频双流资产 by ms" },
   "SaveImageWithToggle": { "display_name": "带开关保存图像 by ms" },

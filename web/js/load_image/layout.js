@@ -1,35 +1,29 @@
 import { getCustomButtons } from "./image_manager.js";
 
 /**
- * 计算按钮布局
+ * 计算按钮布局（左侧竖向图标栏）
  */
 export function computeButtonLayout(node, buttons) {
-    const buttonHeight = 25;
-    const buttonSpacing = 10;
-    const rowSpacing = 5;
-    const startX = 10;
-    const nodeWidth = node.size[0];
+    const buttonSize = 24;
+    const buttonSpacing = 5;
+    const railPaddingLeft = 8;
+    const railPaddingRight = 8;
+    const topMargin = 210;
+    const railWidth = railPaddingLeft + buttonSize + railPaddingRight;
 
-    const rows = [];
-    let currentRow = [];
-    let currentRowWidth = startX;
+    const items = buttons.map((btn, index) => ({
+        btn,
+        x: railPaddingLeft,
+        y: topMargin + index * (buttonSize + buttonSpacing),
+        w: buttonSize,
+        h: buttonSize
+    }));
 
-    buttons.forEach(btn => {
-        if (currentRowWidth + btn.width + buttonSpacing > nodeWidth - 10) { // -10 padding right
-            if (currentRow.length > 0) {
-                rows.push(currentRow);
-                currentRow = [];
-                currentRowWidth = startX;
-            }
-        }
-        currentRow.push(btn);
-        currentRowWidth += btn.width + buttonSpacing;
-    });
-    if (currentRow.length > 0) rows.push(currentRow);
+    const contentHeight = buttons.length > 0
+        ? buttons.length * buttonSize + (buttons.length - 1) * buttonSpacing
+        : 0;
 
-    const totalHeight = rows.length * buttonHeight + Math.max(0, rows.length - 1) * rowSpacing + 10; // +10 padding bottom
-    
-    return { rows, totalHeight, buttonHeight, buttonSpacing, rowSpacing, startX };
+    return { items, railWidth, buttonSize, buttonSpacing, railPaddingLeft, topMargin, contentHeight };
 }
 
 /**
@@ -55,18 +49,11 @@ export function calculateImageLayout(node, imageCount) {
     const TOP_MARGIN = 210; // 再向下腾挪空间，容纳新增控件（如"应用透明到图像"开关）
     const TITLE_HEIGHT = 25; // 图片标题的高度
     
-    // 计算底部控制按钮的高度
-    let BOTTOM_CONTROLS_HEIGHT = 0;
-    if (node._customSingleImageMode) {
-        BOTTOM_CONTROLS_HEIGHT = 0; // 单图模式下，底部已经由 PADDING(8) + TITLE_HEIGHT(25) 预留了 33px 的空间，足够显示按钮和文件名
-    } else {
-        const buttons = getCustomButtons(node);
-        const layout = computeButtonLayout(node, buttons);
-        BOTTOM_CONTROLS_HEIGHT = layout.totalHeight; // 底部控制按钮的高度
-    }
+    // 多图模式下，左侧预留竖向图标按钮栏的宽度
+    const RAIL_WIDTH = node._customSingleImageMode ? 0 : computeButtonLayout(node, getCustomButtons(node)).railWidth;
     
-    const availableWidth = containerWidth - (PADDING * 2);
-    const availableHeight = containerHeight - (PADDING * 2) - TOP_MARGIN - TITLE_HEIGHT - BOTTOM_CONTROLS_HEIGHT;
+    const availableWidth = containerWidth - (PADDING * 2) - RAIL_WIDTH;
+    const availableHeight = containerHeight - (PADDING * 2) - TOP_MARGIN - TITLE_HEIGHT;
     
     const visibleIndices = [];
     for (let i = 0; i < imageCount; i++) {
@@ -172,7 +159,7 @@ export function calculateImageLayout(node, imageCount) {
             });
         }
         const totalGridWidth = bestCols * bestSize + GAP * Math.max(0, bestCols - 1);
-        const leftX = PADDING + Math.max(0, (availableWidth - totalGridWidth) / 2);
+        const leftX = PADDING + RAIL_WIDTH + Math.max(0, (availableWidth - totalGridWidth) / 2);
         for (let visibleIndex = 0; visibleIndex < effectiveCount; visibleIndex++) {
             const imageIndex = visibleIndices[visibleIndex];
             const row = Math.floor(visibleIndex / bestCols);

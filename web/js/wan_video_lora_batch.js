@@ -1,6 +1,6 @@
 import { app } from "../../../scripts/app.js";
 import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, isLowQuality, } from "./utils/utils_canvas.js";
-import { RgthreeBaseWidget, RgthreeBetterButtonWidget, RgthreeDividerWidget, } from "./utils/utils_widgets.js";
+import { RgthreeBaseWidget, RgthreeDividerWidget, addIconButtonRow } from "./utils/utils_widgets.js";
 import { rgthreeApi } from "./core/rgthree_api.js";
 import { moveArrayItem, removeArrayItem, showTopNotification } from "./utils/shared_utils.js";
 import { rgthree } from "./core/rgthree.js";
@@ -355,7 +355,7 @@ class WanVideoLoraBatchNode extends LGraphNode {
         //this.widgetButtonSpacer = this.addCustomWidget(new RgthreeDividerWidget({ marginTop: 1, marginBottom: 0, thickness: 0 }));
         
         // 添加增加LoRA按钮
-        const addButton = new RgthreeBetterButtonWidget("➕ 增加LoRA", (event, pos, node) => {
+        const addButton = addIconButtonRow(this, "lora_actions", [{ icon: "+", title: "添加 LoRA", onClick: (event, pos, node) => {
             // 传入节点和按钮控件信息以实现正确的位置定位
             showLoraChooser(rgthree.lastCanvasMouseEvent || event, (value) => {
                 if (typeof value === "string") {
@@ -368,9 +368,8 @@ class WanVideoLoraBatchNode extends LGraphNode {
                 }
             }, null, null, this, addButton); // 传入节点和按钮控件信息
             return true;
-        });
+        } }]);
         addButton.serializeValue = () => undefined; // 阻止按钮被序列化
-        this.addCustomWidget(addButton);
     }
 
     getSlotInPosition(canvasX, canvasY) {

@@ -13,7 +13,7 @@ export function getCustomButtons(node) {
     return [
         {
             text: '全选',
-            width: 60,
+            icon: 'select_all.svg',
             tooltip: '全选所有图片',
             callback: () => {
                 if (node._customSelectedImages && node._customSelectedImages.length > 0) {
@@ -25,7 +25,7 @@ export function getCustomButtons(node) {
         },
         {
             text: '全不选',
-            width: 70,
+            icon: 'deselect_all.svg',
             tooltip: '取消所有选择',
             callback: () => {
                 if (node._customSelectedImages && node._customSelectedImages.length > 0) {
@@ -37,7 +37,7 @@ export function getCustomButtons(node) {
         },
         {
             text: '反选',
-            width: 60,
+            icon: 'invert.svg',
             tooltip: '反转当前选择',
             callback: () => {
                 if (node._customSelectedImages && node._customSelectedImages.length > 0) {
@@ -51,7 +51,7 @@ export function getCustomButtons(node) {
         },
         {
             text: '清除选中',
-            width: 90,
+            icon: 'clear_selected.svg',
             tooltip: '清除选中的图片',
             callback: () => {
                 if (node._customImagePaths && node._customSelectedImages) {
@@ -78,7 +78,7 @@ export function getCustomButtons(node) {
         },
         {
             text: '清除未选',
-            width: 90,
+            icon: 'clear_unselected.svg',
             tooltip: '清除未选中的图片',
             callback: () => {
                 if (node._customImagePaths && node._customSelectedImages) {
@@ -105,7 +105,8 @@ export function getCustomButtons(node) {
         },
         {
             text: node._customShowOnlySelected ? '显示全部' : '仅显示勾选',
-            width: 90,
+            icon: 'show_selected.svg',
+            active: !!node._customShowOnlySelected,
             tooltip: node._customShowOnlySelected ? '恢复显示全部图片' : '仅显示勾选的图片',
             callback: () => {
                 if (!node._customShowOnlySelected) {
@@ -125,7 +126,7 @@ export function getCustomButtons(node) {
         },
         {
             text: '复制选中',
-            width: 90,
+            icon: 'copy_selected.svg',
             tooltip: '复制选中图片，供同类节点粘贴',
             callback: () => {
                 if (node._customCopySelectedPaths) {
@@ -138,7 +139,8 @@ export function getCustomButtons(node) {
         },
         {
             text: node._customMaskReuseEnabled ? '遮罩复用✓' : '遮罩复用',
-            width: 100,
+            icon: 'reuse_mask.svg',
+            active: !!node._customMaskReuseEnabled,
             tooltip: '相同尺寸的图片复用第一个已编辑遮罩',
             callback: () => {
                 node._customMaskReuseEnabled = !node._customMaskReuseEnabled;
@@ -151,7 +153,7 @@ export function getCustomButtons(node) {
         }, 
         {
             text: '追加图片',
-            width: 90,
+            icon: 'append_image.svg',
             tooltip: '选择并直接追加图片',
             callback: () => {
                 if (node._customTriggerAppend) {

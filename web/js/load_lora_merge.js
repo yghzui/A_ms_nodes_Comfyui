@@ -1,6 +1,6 @@
 import { app } from "../../../scripts/app.js";
 import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, isLowQuality, } from "./utils/utils_canvas.js";
-import { RgthreeBaseWidget, RgthreeBetterButtonWidget, RgthreeDividerWidget, } from "./utils/utils_widgets.js";
+import { RgthreeBaseWidget, RgthreeDividerWidget, addIconButtonRow } from "./utils/utils_widgets.js";
 import { moveArrayItem, removeArrayItem, showTopNotification } from "./utils/shared_utils.js";
 import { modal } from "./utils/modal.js";
 import { rgthree } from "./core/rgthree.js";
@@ -106,6 +106,9 @@ function addLoraValuesToNode(node, loraValues) {
 }
 
 function getImportLorasFromAssetItem(assetItem, sourceType) {
+    if (assetItem?.stream_type === "single" || (Array.isArray(assetItem?.loras) && assetItem?.stream_type !== "double")) {
+        return assetItem.loras.map(value => ({ ...value }));
+    }
     const highLoras = Array.isArray(assetItem?.high_loras) ? assetItem.high_loras : [];
     const lowLoras = Array.isArray(assetItem?.low_loras) ? assetItem.low_loras : [];
 
@@ -192,7 +195,7 @@ class LoadLoraMergeDualToggleWidget extends RgthreeBaseWidget {
     }
 
     draw(ctx, node, w, posY, height) {
-        this.node = node; // Save node reference for interaction
+        this._drawNode = node; // Save node reference for interaction
         ctx.save();
         const margin = 10, innerMargin = margin * 0.33, lowQuality = isLowQuality(), midY = posY + height * 0.5;
         let posX = margin;
@@ -292,61 +295,6 @@ class LoadLoraMergeTripleToggleWidget extends RgthreeBaseWidget {
     onToggle2Down() { this._value2 = !this._value2; this.cancelMouseDown(); return true; }
     onToggle3Down() { this._value3 = !this._value3; this.cancelMouseDown(); return true; }
 }
-
-class LoadLoraMergeButtonRowWidget extends RgthreeBaseWidget {
-    constructor(name, buttons) {
-        super(name);
-        this.type = "custom";
-        this.buttons = buttons;
-        this.hitAreas = {};
-        buttons.forEach((button, index) => {
-            this.hitAreas[`btn${index}`] = {
-                bounds: [0, 0],
-                onDown: (event, pos, node) => {
-                    button.onClick?.(event, pos, node || this.node);
-                    return true;
-                }
-            };
-        });
-    }
-
-    draw(ctx, node, w, posY, height) {
-        this.node = node;
-        ctx.save();
-
-        const margin = 10;
-        const innerMargin = 5;
-        const buttonCount = this.buttons.length || 1;
-        const buttonWidth = (w - margin * 2 - innerMargin * (buttonCount - 1)) / buttonCount;
-
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.font = "11px Arial";
-
-        this.buttons.forEach((button, index) => {
-            const btnX = margin + index * (buttonWidth + innerMargin);
-            ctx.fillStyle = button.bgColor || "#333";
-            ctx.beginPath();
-            ctx.roundRect(btnX, posY + 2, buttonWidth, height - 4, 4);
-            ctx.fill();
-
-            ctx.strokeStyle = button.borderColor || "#555";
-            ctx.stroke();
-
-            ctx.fillStyle = button.textColor || "#fff";
-            const label = fitString(ctx, button.label, buttonWidth - 10);
-            ctx.fillText(label, btnX + buttonWidth / 2, posY + height / 2);
-            this.hitAreas[`btn${index}`].bounds = [btnX, buttonWidth];
-        });
-
-        ctx.restore();
-    }
-
-    serializeValue() {
-        return undefined;
-    }
-}
-
 
 // Main Lora Widget
 class LoadLoraMergeWidget extends RgthreeBaseWidget {
@@ -566,8 +514,9 @@ app.registerExtension({
 
                     const hasHigh = Array.isArray(assetItem.high_loras) && assetItem.high_loras.length > 0;
                     const hasLow = Array.isArray(assetItem.low_loras) && assetItem.low_loras.length > 0;
+                    const hasSingle = Array.isArray(assetItem.loras) && assetItem.loras.length > 0 && assetItem.stream_type !== "double";
 
-                    if (!hasHigh && !hasLow) {
+                    if (!hasHigh && !hasLow && !hasSingle) {
                         showTopNotification("所选模型组没有可导入的 LoRA。", "warning");
                         return;
                     }
@@ -686,6 +635,7 @@ app.registerExtension({
                             </select>
                             <label>保存到流类型:</label>
                             <select id="am-save-target" style="background:#333; color:white; padding:5px; border:1px solid #555; border-radius:4px;">
+                                <option value="single"${savedTarget === "single" ? " selected" : ""}>通用单流 LoRAs</option>
                                 <option value="high"${savedTarget === "high" ? " selected" : ""}>High LoRAs</option>
                                 <option value="low"${savedTarget === "low" ? " selected" : ""}>Low LoRAs</option>
                             </select>
@@ -720,7 +670,8 @@ app.registerExtension({
                                 type: "primary",
                                 onClick: async () => {
                                     const groupIdx = parseInt(document.getElementById("am-save-group").value, 10);
-                                    const targetType = document.getElementById("am-save-target").value === "low" ? "low" : "high";
+                                    const targetValue = document.getElementById("am-save-target").value;
+                                    const targetType = ["single", "low"].includes(targetValue) ? targetValue : "high";
                                     const saveMode = document.getElementById("am-save-mode").value === "append" ? "append" : "create";
                                     const titleInput = document.getElementById("am-save-title");
                                     const existingItemSelect = document.getElementById("am-existing-item");
@@ -732,7 +683,7 @@ app.registerExtension({
                                     }
 
                                     selectedGroup.items = getAssetGroupItems(selectedGroup);
-                                    const targetField = targetType === "low" ? "low_loras" : "high_loras";
+                                    const targetField = targetType === "single" ? "loras" : targetType === "low" ? "low_loras" : "high_loras";
                                     let resultMessage = "成功保存到资产库！";
                                     let storedItemKeyword = "";
 
@@ -744,13 +695,21 @@ app.registerExtension({
                                             showTopNotification("当前分组没有可追加的模型组，请切换为新建模型组。", "warning");
                                             return;
                                         }
+                                        const existingSingle = existingItem.stream_type === "single" ||
+                                            (Array.isArray(existingItem.loras) && existingItem.stream_type !== "double");
+                                        if (existingSingle !== (targetType === "single")) {
+                                            showTopNotification("请选择与已有配置一致的流类型。", "warning");
+                                            return;
+                                        }
 
                                         const existingTargetLoras = Array.isArray(existingItem[targetField]) ? existingItem[targetField] : [];
                                         const mergedTargetLoras = mergeUniqueLoras(existingTargetLoras, loraValues);
                                         const addedCount = mergedTargetLoras.length - existingTargetLoras.length;
 
-                                        existingItem.high_loras = Array.isArray(existingItem.high_loras) ? existingItem.high_loras : [];
-                                        existingItem.low_loras = Array.isArray(existingItem.low_loras) ? existingItem.low_loras : [];
+                                        if (targetType !== "single") {
+                                            existingItem.high_loras = Array.isArray(existingItem.high_loras) ? existingItem.high_loras : [];
+                                            existingItem.low_loras = Array.isArray(existingItem.low_loras) ? existingItem.low_loras : [];
+                                        }
                                         existingItem[targetField] = mergedTargetLoras;
 
                                         storedItemKeyword = existingItem.keyword || "";
@@ -759,15 +718,15 @@ app.registerExtension({
                                             : "目标模型组中没有新增 LoRA，已自动去重。";
                                     } else {
                                         const title = titleInput?.value.trim() || defaultTitle;
-                                        let targetItem = selectedGroup.items.find(item => (item?.keyword || "") === title);
+                                        let targetItem = selectedGroup.items.find(item => (item?.keyword || "") === title &&
+                                            (item.stream_type === "single" || (Array.isArray(item.loras) && item.stream_type !== "double")) === (targetType === "single"));
 
                                         if (!targetItem) {
                                             targetItem = {
                                                 id: Date.now().toString() + Math.random().toString().slice(2, 6),
                                                 keyword: title,
                                                 check_mode: "contains",
-                                                high_loras: [],
-                                                low_loras: [],
+                                                ...(targetType === "single" ? { stream_type: "single", loras: [] } : { high_loras: [], low_loras: [] }),
                                                 preview_image: ""
                                             };
                                             selectedGroup.items.push(targetItem);
@@ -776,8 +735,10 @@ app.registerExtension({
                                             resultMessage = "检测到同名模型组，已自动合并并去重。";
                                         }
 
-                                        targetItem.high_loras = Array.isArray(targetItem.high_loras) ? targetItem.high_loras : [];
-                                        targetItem.low_loras = Array.isArray(targetItem.low_loras) ? targetItem.low_loras : [];
+                                        if (targetType !== "single") {
+                                            targetItem.high_loras = Array.isArray(targetItem.high_loras) ? targetItem.high_loras : [];
+                                            targetItem.low_loras = Array.isArray(targetItem.low_loras) ? targetItem.low_loras : [];
+                                        }
                                         targetItem[targetField] = mergeUniqueLoras(targetItem[targetField], loraValues);
                                         storedItemKeyword = targetItem.keyword || title;
                                     }
@@ -842,11 +803,11 @@ app.registerExtension({
                 }
             };
 
-            this.addCustomWidget(new LoadLoraMergeButtonRowWidget("lora_actions", [
-                { label: "➕ Add", onClick: (e) => handleAddLora(e) },
-                { label: "✨ 导入", onClick: () => handleImportAsset() },
-                { label: "💾 保存", onClick: () => handleSaveAsset() }
-            ]));
+            addIconButtonRow(this, "lora_actions", [
+                { icon: "+", title: "添加 LoRA", onClick: (e) => handleAddLora(e) },
+                { icon: "✨", title: "插入模板", onClick: () => handleImportAsset() },
+                { icon: "💾", title: "保存到资产库", onClick: () => handleSaveAsset() }
+            ]);
         };
 
         // Add a new LoRA widget

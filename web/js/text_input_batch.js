@@ -464,6 +464,7 @@ const lifecycleApi = createTextInputBatchLifecycleApi({
     installAddButton,
     getLayoutCells: () => layoutCells,
     getEnsureTextareas: () => ensureTextareas,
+    getWidgetsBottom,
     handleImport: actionsApi.handleImport,
     handleExport: actionsApi.handleExport,
     handleBatchDelete: actionsApi.handleBatchDelete

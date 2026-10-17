@@ -2,18 +2,29 @@ import { getAdjustedFontSize } from "../utils/common.js";
 import { getCustomButtons } from "./image_manager.js";
 import { computeButtonLayout } from "./layout.js";
 
+/**
+ * SVG 图标缓存，避免每帧重复创建 Image
+ */
+const iconImageCache = new Map();
+function getIconImage(fileName) {
+    let img = iconImageCache.get(fileName);
+    if (!img) {
+        img = new Image();
+        img.src = new URL(`./icons/${fileName}`, import.meta.url).href;
+        iconImageCache.set(fileName, img);
+    }
+    return img;
+}
+
 function drawEmptyState(node, ctx) {
     const PADDING = 8;
     const TOP_MARGIN = 210;
     const TITLE_HEIGHT = 25;
-    const buttons = getCustomButtons(node);
-    const layout = computeButtonLayout(node, buttons);
-    const bottomControlsHeight = node._customSingleImageMode ? 0 : layout.totalHeight;
     const rect = {
         x: PADDING,
         y: PADDING + TOP_MARGIN,
         width: Math.max(80, node.size[0] - (PADDING * 2)),
-        height: Math.max(80, node.size[1] - (PADDING * 2) - TOP_MARGIN - TITLE_HEIGHT - bottomControlsHeight),
+        height: Math.max(80, node.size[1] - (PADDING * 2) - TOP_MARGIN - TITLE_HEIGHT),
     };
 
     node._customEmptyImageRect = rect;
@@ -500,7 +511,6 @@ export function drawNodeImages(node, ctx) {
     } else {
         const buttons = getCustomButtons(node);
         const layout = computeButtonLayout(node, buttons);
-        const startY = node.size[1] - layout.totalHeight + 5; 
 
         node._customButtons = [];
         node._customSelectAllButtonRect = null;
@@ -513,49 +523,43 @@ export function drawNodeImages(node, ctx) {
         node._customReuseMaskButtonRect = null;
 
         const r = 6;
-        
-        layout.rows.forEach((row, rowIndex) => {
-            let x = layout.startX;
-            let y = startY + rowIndex * (layout.buttonHeight + layout.rowSpacing);
 
-            row.forEach(btn => {
-                const hover = node._customMouseX >= x && node._customMouseX <= x + btn.width &&
-                              node._customMouseY >= y && node._customMouseY <= y + layout.buttonHeight;
-                
-                const h = layout.buttonHeight;
-                ctx.fillStyle = hover ? 'rgba(235,235,240,0.95)' : 'rgba(235,235,240,0.85)';
-                ctx.strokeStyle = hover ? 'rgba(80,80,90,0.9)' : 'rgba(120,120,130,0.8)';
-                ctx.lineWidth = hover ? 2 : 1;
-                ctx.beginPath();
-                ctx.moveTo(x + r, y);
-                ctx.lineTo(x + btn.width - r, y);
-                ctx.quadraticCurveTo(x + btn.width, y, x + btn.width, y + r);
-                ctx.lineTo(x + btn.width, y + h - r);
-                ctx.quadraticCurveTo(x + btn.width, y + h, x + btn.width - r, y + h);
-                ctx.lineTo(x + r, y + h);
-                ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-                ctx.lineTo(x, y + r);
-                ctx.quadraticCurveTo(x, y, x + r, y);
-                ctx.closePath();
-                ctx.fill();
-                ctx.stroke();
-                
-                ctx.fillStyle = 'rgba(30,30,35,1)';
-                ctx.font = 'bold 13px "Microsoft YaHei", Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(btn.text, x + btn.width / 2, y + h / 2);
+        layout.items.forEach(({ btn, x, y, w, h }) => {
+            const hover = node._customMouseX >= x && node._customMouseX <= x + w &&
+                          node._customMouseY >= y && node._customMouseY <= y + h;
+            const active = !!btn.active;
 
-                node._customButtons.push({
-                    rect: { x, y, w: btn.width, h: layout.buttonHeight },
-                    callback: btn.callback,
-                    tooltip: btn.tooltip
-                });
-                
-                x += btn.width + layout.buttonSpacing;
+            ctx.fillStyle = active ? 'rgba(120,170,255,0.92)' : (hover ? 'rgba(235,235,240,0.95)' : 'rgba(235,235,240,0.85)');
+            ctx.strokeStyle = active ? 'rgba(60,110,200,0.95)' : (hover ? 'rgba(80,80,90,0.9)' : 'rgba(120,120,130,0.8)');
+            ctx.lineWidth = (hover || active) ? 2 : 1;
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.lineTo(x + w - r, y);
+            ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+            ctx.lineTo(x + w, y + h - r);
+            ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+            ctx.lineTo(x + r, y + h);
+            ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+            ctx.lineTo(x, y + r);
+            ctx.quadraticCurveTo(x, y, x + r, y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            const icon = getIconImage(btn.icon);
+            if (icon.complete && icon.naturalWidth > 0) {
+                const iconPadding = 4;
+                const iconSize = w - iconPadding * 2;
+                ctx.drawImage(icon, x + iconPadding, y + iconPadding, iconSize, iconSize);
+            }
+
+            node._customButtons.push({
+                rect: { x, y, w, h },
+                callback: btn.callback,
+                tooltip: btn.tooltip
             });
         });
-        
+
         node._customPrevButtonRect = null;
         node._customNextButtonRect = null;
         node._customRestoreButtonRect = null;

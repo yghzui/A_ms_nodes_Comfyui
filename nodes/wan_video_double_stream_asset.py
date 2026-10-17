@@ -144,6 +144,8 @@ class WanVideoDoubleStreamAsset:
                 group_items_map[g_name] = []
                 if "items" in group:
                     for item in group["items"]:
+                        if item.get("stream_type") == "single" or ("loras" in item and item.get("stream_type") != "double"):
+                            continue
                         item_id = item.get("id")
                         if item_id:
                             all_items_map[item_id] = item

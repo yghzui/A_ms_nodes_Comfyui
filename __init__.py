@@ -17,6 +17,7 @@ from .nodes.image_mix import ImageMaskedColorFill,ImageBlackColorFill,ImageLayer
 from .nodes.load_lora_batch import LoadLoraBatch
 from .nodes.wan_video_lora_batch import WanVideoLoraBatch
 from .nodes.load_lora_merge import LoadLoraMerge
+from .nodes.lora_apply import LoraApply, LoraApplyAsset
 from .nodes.index_selector import IndexSelector
 from .nodes.my_batch_manager import MyBatchManager
 from .nodes.image_batch_accumulator import ImageBatchAccumulator
@@ -54,6 +55,7 @@ from .nodes.workflow_group_preset_manager import WorkflowGroupPresetManager
 from .nodes.bg_removal_colorize import BackgroundRemovalColorize
 from .nodes.smart_object_replace_composite import SmartObjectReplaceComposite
 from .nodes.preview_image_mask import AnyImageMaskPreview
+from .nodes.load_live_photo import LoadLivePhoto
 
 
 # 延迟注册路由 - 确保在ComfyUI完全初始化后注册
@@ -161,6 +163,8 @@ NODE_CLASS_MAPPINGS = {
     "AnyValidityChecker": AnyValidityChecker, # 任意类型数据校验器
     # "AnyDataAnalyzer": AnyDataAnalyzer,
     "GetNodeInputValue": GetNodeInputValue, # 获取节点输入值
+    "LoraApply": LoraApply,
+    "LoraApplyAsset": LoraApplyAsset,
     "WanVideoDoubleStream": WanVideoDoubleStream, # Wan 视频双流
     "WanVideoDoubleStreamAsset": WanVideoDoubleStreamAsset, # Wan 视频双流资产
     "SaveImageWithToggle": SaveImageWithToggle, # 保存带开关的图片
@@ -170,6 +174,7 @@ NODE_CLASS_MAPPINGS = {
     "WorkflowForceRerunPassthrough": WorkflowForceRerunPassthrough, # 强制让工作流每次更新
     "GroupSwitchAny": GroupSwitchAny, # 任意类型分组切换
     "AnyImageMaskPreview": AnyImageMaskPreview,
+    "LoadLivePhoto": LoadLivePhoto, # 加载 Live 图（动态照片）
     "MultiInputStateMapper": MultiInputStateMapper, # 多输入存在状态映射
     "MultiImageConditionReference": MultiImageConditionReference, # 多图条件参考
     "WorkflowGroupPresetManager": WorkflowGroupPresetManager, # 工作流切换组管理器
@@ -241,6 +246,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "AnyStopOnNone": "Any Stop On None by ms", # 遇到空值停止
     "AnyValidityChecker": "Any Validity Checker by ms", # 任意类型数据校验器
     "GetNodeInputValue": "Get Node Input Value by ms", # 获取节点输入值
+    "LoraApply": "LoRA Conditional Apply by ms",
+    "LoraApplyAsset": "LoRA Asset Apply by ms",
     "WanVideoDoubleStream": "Wan Video Double Stream by ms", # Wan 视频双流
     "WanVideoDoubleStreamAsset": "Wan Video Double Stream Asset by ms", # Wan 视频双流资产
     "SaveImageWithToggle": "Save Image With Toggle by ms", # 保存带开关的图片
@@ -250,6 +257,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WorkflowForceRerunPassthrough": "Workflow Force Rerun Passthrough by ms", # 强制让工作流每次更新
     "GroupSwitchAny": "Group Switch Any by ms", # 任意类型分组切换
     "AnyImageMaskPreview": "Any Image Mask Preview by ms",
+    "LoadLivePhoto": "Load Live Photo by ms", # 加载 Live 图（动态照片）
     "MultiInputStateMapper": "Multi Input State Mapper by ms", # 多输入存在状态映射
     "MultiImageConditionReference": "Multi Image Conditioning Reference by ms", # 多图条件参考
     "WorkflowGroupPresetManager": "Workflow Group Preset Manager by ms", # 工作流切换组管理器

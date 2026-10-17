@@ -1,3 +1,9 @@
+import { BUTTON_RAIL_WIDTH, BUTTON_RAIL_HEIGHT, BUTTON_RAIL_MARGIN } from "./text_input_batch_lifecycle.js";
+
+// 内容区起始偏移：图标栏左外边距 + 图标栏宽度。
+// 由于图标栏左外边距 = 图标栏右内边距，图标左右两侧到节点左边/内容左边的间距相等。
+const CONTENT_OFFSET_X = BUTTON_RAIL_WIDTH + BUTTON_RAIL_MARGIN;
+
 export function createTextInputBatchRenderCoreApi({
     app,
     Tooltip,
@@ -588,9 +594,9 @@ function ensureTextareas(node, layout, items) {
             node.__gridScrollContainer = scrollContainer;
         }
         
-        const scrollSx = (node.pos[0] + 8 + ds.offset[0]) * ds.scale + rect.left - parentRect.left;
+        const scrollSx = (node.pos[0] + CONTENT_OFFSET_X + ds.offset[0]) * ds.scale + rect.left - parentRect.left;
         const scrollSy = (node.pos[1] + startY + ds.offset[1]) * ds.scale + rect.top - parentRect.top;
-        const scrollSw = Math.max(0, (node.size[0] - 16)) * ds.scale;
+        const scrollSw = Math.max(0, (node.size[0] - CONTENT_OFFSET_X - 8)) * ds.scale; // 右侧留 8px 边距
         const scrollSh = visibleContentHeight * ds.scale;
         
         scrollContainer.style.left = `${scrollSx}px`;
@@ -914,7 +920,7 @@ function ensureTextareas(node, layout, items) {
         const GAP = 6;
         
         if (useScrollMode && scrollContainer) {
-            sx = cell.x;
+            sx = cell.x - CONTENT_OFFSET_X;
             sy = cell.scrollY;
             sw = cell.w;
             sh = cell.h;
@@ -1216,7 +1222,7 @@ function layoutCells(node, items) {
     const HIDE_PROMPT_H = 36; // 隐藏提示词时只显示标题行的高度
     const MAX_CONTENT_H = 500;
 
-    const BUTTON_AREA_H = 70;
+    const BUTTON_AREA_H = 0; // 按钮改为左侧竖向排列，底部不再预留空间
     const startY = PADDING + getWidgetsBottom(node);
     
     const hidePrompts = !!node.__hidePrompts;
@@ -1234,7 +1240,7 @@ function layoutCells(node, items) {
     }
 
     if (viewMode === "combo") {
-        const minTotalH = startY + MIN_H + PADDING + BUTTON_AREA_H;
+        const minTotalH = Math.max(startY + MIN_H + PADDING + BUTTON_AREA_H, startY + BUTTON_RAIL_HEIGHT + PADDING);
         if (node.size[1] < minTotalH) {
              if (typeof node.setSize === 'function') {
                 node.setSize([node.size[0], minTotalH]);
@@ -1245,9 +1251,9 @@ function layoutCells(node, items) {
         }
         
         const availH = Math.max(MIN_H, node.size[1] - startY - PADDING - BUTTON_AREA_H);
-        const availW = node.size[0] - PADDING * 2;
+        const availW = node.size[0] - CONTENT_OFFSET_X - PADDING;
         
-        return [{ x: PADDING, y: startY, w: availW, h: availH }];
+        return [{ x: CONTENT_OFFSET_X, y: startY, w: availW, h: availH }];
     }
 
     let cols = 2;
@@ -1265,14 +1271,14 @@ function layoutCells(node, items) {
     cols = Math.floor(Math.max(1, Math.min(8, cols)));
     const rows = Math.ceil(n / cols);
     const SCROLL_CONTAINER_PADDING = 12; // 滚动容器内部右边距
-    const availW = node.size[0] - PADDING * 2 - SCROLL_PADDING - SCROLL_CONTAINER_PADDING; // 减去边距和滚动条区域
+    const availW = node.size[0] - CONTENT_OFFSET_X - PADDING - SCROLL_PADDING - SCROLL_CONTAINER_PADDING; // 减去边距和滚动条区域
     const cellW = Math.floor((availW - GAP * (cols - 1)) / cols);
     
     const requiredH = rows * cellH + GAP * Math.max(0, rows - 1);
     const useScrollMode = requiredH > MAX_CONTENT_H;
     
     const contentH = useScrollMode ? MAX_CONTENT_H : requiredH;
-    const minTotalH = startY + contentH + PADDING + BUTTON_AREA_H;
+    const minTotalH = Math.max(startY + contentH + PADDING + BUTTON_AREA_H, startY + BUTTON_RAIL_HEIGHT + PADDING);
     
     // 只在高度不足时自动扩展，不强制固定高度，允许用户手动调整
     if (node.size[1] < minTotalH) {
@@ -1293,7 +1299,7 @@ function layoutCells(node, items) {
     for (let i = 0; i < n; i++) {
         const r = Math.floor(i / cols);
         const c = i % cols;
-        const x = PADDING + SCROLL_PADDING / 2 + c * (cellW + GAP); // 添加边距偏移
+        const x = CONTENT_OFFSET_X + c * (cellW + GAP); // 内容紧贴左侧图标栏右侧
         const y = r * (cellH + GAP);
         cells.push({ x, y, w: cellW, h: cellH, scrollY: y });
     }

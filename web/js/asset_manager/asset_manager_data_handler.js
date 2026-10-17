@@ -30,7 +30,20 @@ function normalizeLoraList(loras) {
         .filter((item) => item.lora && item.lora !== "None");
 }
 
+export function isSingleModelAsset(item) {
+    return item.stream_type === "single" || (Array.isArray(item.loras) && item.stream_type !== "double");
+}
+
 function normalizeModelAssetItem(item) {
+    if (isSingleModelAsset(item)) {
+        return {
+            stream_type: "single",
+            keyword: item.keyword || item.key_to_check || "未命名配置",
+            check_mode: item.check_mode || "contains",
+            loras: normalizeLoraList(item.loras),
+            preview_image: item.preview_image || "",
+        };
+    }
     return {
         keyword: item.keyword || item.key_to_check || "未命名配置",
         check_mode: item.check_mode || "contains",
@@ -112,13 +125,15 @@ export class DataHandler {
                         });
                     }
                 } else {
-                    if (!Array.isArray(parsed) && (parsed.high || parsed.low || parsed.key_to_check)) {
+                    if (!Array.isArray(parsed) && (parsed.high || parsed.low || parsed.key_to_check || parsed.loras || parsed.keyword)) {
                         resolveConflict(normalizeModelAssetItem(parsed), false);
                     } else if (Array.isArray(parsed)) {
                         const looksLikeModelAssetArray = parsed.some(item =>
                             item && typeof item === "object" && (
                                 item.keyword !== undefined ||
                                 item.key_to_check !== undefined ||
+                                item.loras !== undefined ||
+                                item.stream_type !== undefined ||
                                 item.high_loras !== undefined ||
                                 item.low_loras !== undefined ||
                                 item.high_settings !== undefined ||
@@ -138,12 +153,10 @@ export class DataHandler {
                             const highLoras = normalizeLoraList(parsed);
                             if (highLoras.length > 0) {
                                 resolveConflict({
-                                    keyword: "批量导入的旧模型",
+                                    keyword: "批量导入的模型",
                                     check_mode: "contains",
-                                    high_settings: { value1: false, value2: false, value3: false },
-                                    low_settings: { value1: false, value2: false, value3: false },
-                                    high_loras: highLoras,
-                                    low_loras: [],
+                                    stream_type: "single",
+                                    loras: highLoras,
                                     preview_image: ""
                                 }, false);
                             }
@@ -216,15 +229,7 @@ export class DataHandler {
                 enabled: true
             }));
         } else {
-            exportObj = group.items.map(item => ({
-                keyword: item.keyword || "未命名配置",
-                check_mode: item.check_mode || "contains",
-                high_settings: normalizeModelStreamSettings(item.high_settings),
-                low_settings: normalizeModelStreamSettings(item.low_settings),
-                high_loras: normalizeLoraList(item.high_loras),
-                low_loras: normalizeLoraList(item.low_loras),
-                preview_image: item.preview_image || ""
-            }));
+            exportObj = group.items.map(item => normalizeModelAssetItem(item));
         }
 
         const jsonStr = JSON.stringify(exportObj, null, 2);

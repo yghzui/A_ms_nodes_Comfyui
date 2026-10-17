@@ -1,28 +1,15 @@
 import { app } from "../../../scripts/app.js";
-import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, isLowQuality } from "./utils/utils_canvas.js";
-import { RgthreeBaseWidget, RgthreeBetterButtonWidget } from "./utils/utils_widgets.js";
+import { drawRoundedRectangle, drawTogglePart, isLowQuality } from "./utils/utils_canvas.js";
+import { RgthreeBaseWidget, RgthreeBetterButtonWidget, addIconButtonRow } from "./utils/utils_widgets.js";
 import { modal } from "./utils/modal.js";
 import { moveArrayItem, showTopNotification } from "./utils/shared_utils.js";
 import { rgthree } from "./core/rgthree.js";
 import { api } from "../../../scripts/api.js";
-import { rgthreeApi } from "./core/rgthree_api.js";
+import { LabelWidget, LoraWidget, DoubleButtonWidget, showLoraChooser, StatusLabelWidget, showStatusLabelSettingsModal } from "./lora/lora_common.js";
 
 // --- Helper Functions ---
 
-// --- Status Label Settings ---
-let statusLabelSettings = JSON.parse(localStorage.getItem("wan_video_status_label_settings") || "{}");
-statusLabelSettings = {
-    fontSize: statusLabelSettings.fontSize || 24,
-    textColor: statusLabelSettings.textColor || "#ffffff",
-    bgColor: statusLabelSettings.bgColor || "#000000",
-    opacity: statusLabelSettings.opacity !== undefined ? statusLabelSettings.opacity : 0.8
-};
 const ASSET_SAVE_GROUP_STORAGE_KEY = "wan_video_double_stream_asset_save_group_name";
-
-function saveStatusLabelSettings() {
-    localStorage.setItem("wan_video_status_label_settings", JSON.stringify(statusLabelSettings));
-    app.canvas.setDirty(true, true);
-}
 
 function getSavedAssetGroupName() {
     try {
@@ -60,155 +47,7 @@ function normalizeAssetStreamSettings(settings) {
     };
 }
 
-function showStatusLabelSettingsModal() {
-    const content = `
-        <div style="display:flex; flex-direction:column; gap:10px; color: white;">
-            <label>字体大小 (px):</label>
-            <input type="number" id="lbl-fontsize" value="${statusLabelSettings.fontSize}" style="background:#333; color:white; border:1px solid #555; padding:5px;">
-            <label>文字颜色:</label>
-            <input type="color" id="lbl-textcolor" value="${statusLabelSettings.textColor}" style="width:100%; height:30px; padding:0; border:none;">
-            <label>背景颜色:</label>
-            <input type="color" id="lbl-bgcolor" value="${statusLabelSettings.bgColor}" style="width:100%; height:30px; padding:0; border:none;">
-            <label>透明度 (0.0 - 1.0):</label>
-            <input type="number" step="0.1" min="0" max="1" id="lbl-opacity" value="${statusLabelSettings.opacity}" style="background:#333; color:white; border:1px solid #555; padding:5px;">
-        </div>
-    `;
-
-    modal.show({
-        title: "全局标签显示设置",
-        content: content,
-        width: "300px",
-        buttons: [
-            {
-                text: "保存",
-                type: "primary",
-                onClick: () => {
-                    statusLabelSettings.fontSize = parseInt(document.getElementById("lbl-fontsize").value) || 24;
-                    statusLabelSettings.textColor = document.getElementById("lbl-textcolor").value;
-                    statusLabelSettings.bgColor = document.getElementById("lbl-bgcolor").value;
-                    statusLabelSettings.opacity = parseFloat(document.getElementById("lbl-opacity").value);
-                    if (isNaN(statusLabelSettings.opacity)) statusLabelSettings.opacity = 0.8;
-                    saveStatusLabelSettings();
-                    modal.close();
-                }
-            },
-            { text: "取消", onClick: () => modal.close() }
-        ]
-    });
-}
-
-
-// Helper function to show the LoRA chooser menu (From LoadLoraMerge)
-async function showLoraChooser(event, callback, parentMenu, loras, buttonNode) {
-    const canvas = app.canvas;
-    if (!loras) {
-        try {
-            const useOfficial = buttonNode?.properties?.useOfficialLoraList ?? false;
-            if (useOfficial) {
-                const loraFiles = await api.getModels('loras');
-                loras = ["None", ...loraFiles.map((l) => l.name)];
-            } else {
-                loras = ["None", ...(await rgthreeApi.getLoras().then((loras) => loras.map((l) => l.file)))];
-            }
-        } catch (e) {
-            console.error("Failed to fetch LoRAs:", e);
-            loras = ["None"];
-        }
-    }
-
-    const menuItems = loras.map(lora => ({
-        content: lora,
-        callback: () => callback(lora)
-    }));
-    
-    let menuEvent = event;
-    let targetX, targetY;
-
-    if (event && event.clientX !== undefined) {
-        targetX = event.clientX;
-        targetY = event.clientY;
-        menuEvent = new MouseEvent('contextmenu', {
-            clientX: targetX,
-            clientY: targetY,
-            bubbles: true,
-            cancelable: true,
-            view: window
-        });
-    }
-
-    const contextMenu = new LiteGraph.ContextMenu(menuItems, {
-        event: menuEvent,
-        parentMenu: parentMenu || undefined,
-        title: "Select LoRA",
-        scale: Math.max(1, canvas.ds?.scale || 1),
-        className: "dark",
-        callback,
-    });
-
-    // Simple positioning fix if needed, but LiteGraph usually handles it well with event
-    if (contextMenu && contextMenu.root && targetX !== undefined && targetY !== undefined) {
-         // Let LiteGraph handle initial positioning, just ensure it stays on screen if we want
-         // But the previous complex manual positioning might have been fighting with LiteGraph's own logic
-         // or the custom widget's coordinate system.
-         // Let's simplify and rely on the mouse event which is robust.
-    }
-}
-
 // --- Custom Widgets ---
-
-class LabelWidget extends RgthreeBaseWidget {
-    constructor(name, label, toggleCallback) {
-        super(name);
-        this.label = label;
-        this.type = "custom";
-        this.toggleCallback = toggleCallback;
-        this.collapsed = false;
-        this.hitAreas = {
-            toggle: { bounds: [0, 0], onDown: this.onToggleDown.bind(this) }
-        };
-    }
-    draw(ctx, node, w, posY, height) {
-        this.node = node; // Save node reference for interaction
-        ctx.save();
-        ctx.fillStyle = "#888"; 
-        ctx.font = "bold 12px Arial";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(this.label, node.size[0] / 2, posY + height / 2);
-        
-        if (this.toggleCallback) {
-            const icon = this.collapsed ? "🙈" : "👁️";
-            const toggleW = 30;
-            const toggleX = node.size[0] - toggleW;
-            
-            ctx.textAlign = "center";
-            ctx.fillStyle = this.collapsed ? "#666" : "#aaa";
-            ctx.fillText(icon, toggleX + toggleW/2 - 5, posY + height / 2);
-            
-            this.hitAreas.toggle.bounds = [toggleX, toggleW];
-        }
-        
-        ctx.restore();
-    }
-    
-    onToggleDown() {
-        if (this.toggleCallback) {
-            this.collapsed = !this.collapsed;
-            this.toggleCallback(this.collapsed);
-            return true;
-        }
-        return false;
-    }
-
-    setCollapsed(collapsed) {
-        if (this.collapsed !== collapsed) {
-            this.collapsed = collapsed;
-            if (this.toggleCallback) {
-                this.toggleCallback(this.collapsed);
-            }
-        }
-    }
-}
 
 // Triple Toggle Widget for settings (Copied from LoadLoraMerge)
 class LoadLoraMergeTripleToggleWidget extends RgthreeBaseWidget {
@@ -286,212 +125,6 @@ class LoadLoraMergeTripleToggleWidget extends RgthreeBaseWidget {
     }
     onToggle2Down() { this._value2 = !this._value2; this.cancelMouseDown(); return true; }
     onToggle3Down() { this._value3 = !this._value3; this.cancelMouseDown(); return true; }
-}
-
-class WanVideoLoraWidget extends RgthreeBaseWidget {
-    constructor(name, streamType) {
-        super(name);
-        this.streamType = streamType; // "High" or "Low"
-        this.type = "custom";
-        this.hitAreas = {
-            toggle: { bounds: [0, 0], onDown: this.onToggleDown.bind(this) },
-            lora: { bounds: [0, 0], onDown: this.onLoraDown.bind(this) },
-            strengthDec: { bounds: [0, 0], onDown: this.onStrengthDecDown.bind(this) },
-            strengthVal: { bounds: [0, 0], onDown: this.onStrengthValDown.bind(this), onMove: this.onStrengthAnyMove.bind(this) },
-            strengthInc: { bounds: [0, 0], onDown: this.onStrengthIncDown.bind(this) },
-            strengthAny: { bounds: [0, 0], onMove: this.onStrengthAnyMove.bind(this) },
-        };
-        this._value = { on: true, lora: null, strength: 1 };
-    }
-
-    set value(v) { 
-        this._value = v;
-        if (typeof this._value !== "object") {
-            this._value = { on: true, lora: null, strength: 1 };
-        }
-    }
-    get value() { return this._value; }
-    setLora(lora) { this._value.lora = lora; }
-
-    draw(ctx, node, w, posY, height) {
-        ctx.save();
-        const margin = 10, innerMargin = margin * 0.33, lowQuality = isLowQuality(), midY = posY + height * 0.5;
-        let posX = margin;
-        
-        // Background
-        const color = this.streamType === "High" ? "#2a3b4d" : "#4d2a2a"; // Blueish for High, Reddish for Low
-        drawRoundedRectangle(ctx, { pos: [posX, posY], size: [node.size[0] - margin * 2, height], color: color, strokeColor: "#555" });
-        
-        this.hitAreas.toggle.bounds = drawTogglePart(ctx, { posX, posY, height, value: this.value.on });
-        posX += this.hitAreas.toggle.bounds[1] + innerMargin;
-        
-        if (lowQuality) { ctx.restore(); return; }
-        if (!this.value.on) ctx.globalAlpha = app.canvas.editor_alpha * 0.4;
-        
-        ctx.fillStyle = LiteGraph.WIDGET_TEXT_COLOR;
-        const [leftArrow, text, rightArrow] = drawNumberWidgetPart(ctx, { posX: node.size[0] - margin - innerMargin, posY, height, value: this.value.strength || 1, direction: -1 });
-        this.hitAreas.strengthDec.bounds = leftArrow;
-        this.hitAreas.strengthVal.bounds = text;
-        this.hitAreas.strengthInc.bounds = rightArrow;
-        this.hitAreas.strengthAny.bounds = [leftArrow[0], rightArrow[0] + rightArrow[1] - leftArrow[0]];
-        
-        const rposX = leftArrow[0] - innerMargin;
-        const loraWidth = rposX - posX;
-        ctx.textAlign = "left";
-        ctx.textBaseline = "middle";
-        ctx.fillText(fitString(ctx, String(this.value.lora || "None"), loraWidth), posX, midY);
-        this.hitAreas.lora.bounds = [posX, loraWidth];
-        
-        ctx.globalAlpha = app.canvas.editor_alpha;
-        ctx.restore();
-    }
-
-    serializeValue(node, index) { return { ...this.value }; }
-    onToggleDown() { this.value.on = !this.value.on; this.cancelMouseDown(); return true; }
-    onLoraDown(event, pos, node) {
-        const targetNode = node || this.node;
-        showLoraChooser(event, (value) => {
-            if (typeof value === "string") this.value.lora = value;
-            targetNode?.setDirtyCanvas(true, true);
-        }, null, null, targetNode);
-        return true;
-    }
-    onStrengthDecDown() { this.stepStrength(-1); return true;}
-    onStrengthIncDown() { this.stepStrength(1); return true;}
-    onStrengthAnyMove(event) { 
-        if (event.deltaX) { 
-            this.value.strength = (this.value.strength || 1) + event.deltaX * 0.05; 
-            this.value.strength = Math.round(this.value.strength * 100) / 100;
-        } 
-    }
-    onStrengthValDown(event) {
-        const now = Date.now();
-        if (this.lastClickTime && (now - this.lastClickTime < 300)) {
-            app.canvas.prompt("Strength", this.value.strength || 1, (v) => { this.value.strength = Number(v); }, event);
-            this.lastClickTime = 0;
-            return true;
-        }
-        this.lastClickTime = now;
-        return true;
-    }
-    stepStrength(direction) {
-        let step = 0.05;
-        this.value.strength = Math.round(((this.value.strength || 1) + step * direction) * 100) / 100;
-    }
-}
-
-class BigStatusLabelWidget extends RgthreeBaseWidget {
-    constructor(name) {
-        super(name);
-        this.type = "custom";
-    }
-
-    computeSize(width) {
-        return [width, statusLabelSettings.fontSize + 20];
-    }
-
-    draw(ctx, node, w, posY, height) {
-        const wKey = node.widgets.find(w => w.name === "key_to_check");
-        const wStatus = node.widgets.find(w => w.name === "Check Status");
-        
-        const keyText = wKey ? wKey.value : "";
-        const statusText = wStatus ? wStatus.value : "";
-        
-        // Clean up status text for cleaner display
-        let displayStatus = statusText;
-        if (displayStatus.includes("✅")) displayStatus = "✅ 已启用";
-        else if (displayStatus.includes("❌")) displayStatus = "❌ 未启用";
-        else if (displayStatus.includes("🔒 Force True")) displayStatus = "✅ 强制启用";
-        else if (displayStatus.includes("🔒 Force False")) displayStatus = "❌ 强制关闭";
-        
-        const text = `🔍 ${keyText}  |  ${displayStatus}`;
-
-        ctx.save();
-        
-        ctx.globalAlpha = statusLabelSettings.opacity;
-        
-        // Draw background
-        drawRoundedRectangle(ctx, { pos: [0, posY], size: [w, height], color: statusLabelSettings.bgColor, radius: 5 });
-        
-        ctx.globalAlpha = 1.0;
-        ctx.fillStyle = statusLabelSettings.textColor;
-        ctx.font = `bold ${statusLabelSettings.fontSize}px Arial`;
-        ctx.textAlign = "left";
-        ctx.textBaseline = "middle";
-        
-        ctx.fillText(fitString(ctx, text, w - 20), 10, posY + height / 2);
-        
-        ctx.restore();
-        
-        this.last_y = posY;
-    }
-}
-
-class DoubleButtonWidget extends RgthreeBaseWidget {
-    constructor(name, label1, label2, callback1, callback2) {
-        super(name);
-        this.type = "custom";
-        this.label1 = label1;
-        this.label2 = label2;
-        this.callback1 = callback1;
-        this.callback2 = callback2;
-        this.hitAreas = {
-            btn1: { bounds: [0, 0], onDown: this.onBtn1Down.bind(this) },
-            btn2: { bounds: [0, 0], onDown: this.onBtn2Down.bind(this) }
-        };
-    }
-
-    draw(ctx, node, w, posY, height) {
-        this.node = node;
-        ctx.save();
-        
-        const margin = 10;
-        const innerMargin = 5;
-        const btnWidth = (w - margin * 2 - innerMargin) / 2;
-        
-        // Button 1
-        const btn1X = margin;
-        ctx.fillStyle = "#333";
-        ctx.beginPath();
-        ctx.roundRect(btn1X, posY + 2, btnWidth, height - 4, 4);
-        ctx.fill();
-        ctx.strokeStyle = "#555";
-        ctx.stroke();
-        
-        ctx.fillStyle = "#fff";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.font = "12px Arial";
-        ctx.fillText(this.label1, btn1X + btnWidth / 2, posY + height / 2);
-        
-        this.hitAreas.btn1.bounds = [btn1X, btnWidth];
-        
-        // Button 2
-        const btn2X = margin + btnWidth + innerMargin;
-        ctx.fillStyle = "#333";
-        ctx.beginPath();
-        ctx.roundRect(btn2X, posY + 2, btnWidth, height - 4, 4);
-        ctx.fill();
-        ctx.strokeStyle = "#555";
-        ctx.stroke();
-        
-        ctx.fillStyle = "#fff";
-        ctx.fillText(this.label2, btn2X + btnWidth / 2, posY + height / 2);
-        
-        this.hitAreas.btn2.bounds = [btn2X, btnWidth];
-        
-        ctx.restore();
-    }
-
-    onBtn1Down(event, pos, node) {
-        if (this.callback1) this.callback1(event, pos, node || this.node);
-        return true;
-    }
-
-    onBtn2Down(event, pos, node) {
-        if (this.callback2) this.callback2(event, pos, node || this.node);
-        return true;
-    }
 }
 
 // --- Import/Export Helper Functions ---
@@ -656,6 +289,8 @@ app.registerExtension({
             this.highLoraWidgets = [];
             this.lowLoraWidgets = [];
             this.loraWidgetsCounter = 0;
+            this.finalStatusLabel = new StatusLabelWidget("final_status_label");
+            this.assetStreamType = "double";
 
             // 1. Setup Status Widget
             this.statusWidget = this.addWidget("text", "Check Status", "Pending...", () => {}, {});
@@ -699,7 +334,7 @@ app.registerExtension({
             }));
 
             // {{ AURA-X: Add - 资产库全局导入按钮 }}
-            this.btnImportAsset = this.addCustomWidget(new DoubleButtonWidget(
+            this.btnImportAsset = new DoubleButtonWidget(
                 "asset_manager_btns", 
                 "✨ 插入模板", 
                 "💾 保存到资产库", 
@@ -889,7 +524,7 @@ app.registerExtension({
                         showTopNotification("无法连接到资产库 API！", "error");
                     }
                 }
-            ));
+            );
 
             // 3. Setup Low Stream Section
             this.labelLow = this.addCustomWidget(new LabelWidget("label_low", "🔽 Low Stream", (collapsed) => {
@@ -917,13 +552,19 @@ app.registerExtension({
             }));
 
             // Add Import/Export Buttons
-            this.btnImportExport = this.addCustomWidget(new DoubleButtonWidget(
+            this.btnImportExport = new DoubleButtonWidget(
                 "import_export_btns", 
                 "📥 Import LoRAs", 
                 "📤 Export LoRAs", 
                 (e,p,n) => handleImport(this),
                 (e,p,n) => handleExport(this)
-            ));
+            );
+            this.actionBar = addIconButtonRow(this, "lora_action_icons", [
+                { icon: "✨", title: "插入模板", onClick: this.btnImportAsset.callback1 },
+                { icon: "💾", title: "保存到资产库", onClick: this.btnImportAsset.callback2 },
+                { icon: "📥", title: "Import LoRAs", onClick: this.btnImportExport.callback1 },
+                { icon: "📤", title: "Export LoRAs", onClick: this.btnImportExport.callback2 },
+            ]);
 
             // 4. Setup Auto Enable Logic Section (Label only, inputs are standard)
             this.labelAuto = this.addCustomWidget(new LabelWidget("label_auto", "⚙️ Auto Enable Logic", (collapsed) => {
@@ -1035,8 +676,7 @@ app.registerExtension({
             moveToBottom(this.btnAddLow);
 
             // Import/Export and Asset Manager
-            moveToBottom(this.btnImportAsset);
-            moveToBottom(this.btnImportExport);
+            moveToBottom(this.actionBar);
 
             // Big Status Label at the very bottom
             // moveToBottom(this.bigStatusLabel);
@@ -1057,7 +697,8 @@ app.registerExtension({
         nodeType.prototype.addNewLoraWidget = function(streamType, loraData = null) {
             this.loraWidgetsCounter++;
             const name = `LORA_${streamType}_${this.loraWidgetsCounter}`;
-            const widget = new WanVideoLoraWidget(name, streamType);
+            // "High" or "Low"
+            const widget = new LoraWidget(name, streamType, streamType === "High" ? "#2a3b4d" : "#4d2a2a"); // Blueish for High, Reddish for Low
             this.addCustomWidget(widget);
             
             if (loraData) widget.value = loraData;
@@ -1098,6 +739,8 @@ app.registerExtension({
                         settings: settingsData
                     };
                     infoW.value = JSON.stringify(data);
+                    if (o.widgets_values) o.widgets_values[this.widgets.indexOf(infoW)] = infoW.value;
+                    if (o.widgets_values_named) o.widgets_values_named[infoName] = infoW.value;
                 }
             };
             
@@ -1115,9 +758,9 @@ app.registerExtension({
         };
 
         // Configuration (Loading)
-        const onConfigure = nodeType.prototype.onConfigure;
-        nodeType.prototype.onConfigure = function(info) {
-            if (onConfigure) onConfigure.apply(this, arguments);
+        const configure = nodeType.prototype.configure;
+        nodeType.prototype.configure = function(info) {
+            const result = configure.apply(this, arguments);
             
             // Clear existing dynamic widgets to avoid duplicates on reload
             const clearWidgets = (list) => {
@@ -1141,6 +784,12 @@ app.registerExtension({
                         // Handle legacy format (direct array)
                         if (Array.isArray(data)) {
                             data = { loras: data };
+                        }
+
+                        if (data && typeof data === "object" && !data.loras?.length && info.widgets_values_named) {
+                            data.loras = Object.entries(info.widgets_values_named)
+                                .filter(([name, value]) => name.startsWith(`LORA_${type}_`) && value && typeof value === "object")
+                                .map(([, value]) => value);
                         }
 
                         if (data && Array.isArray(data.loras)) {
@@ -1167,55 +816,27 @@ app.registerExtension({
             loadFromInfo("loras_info_low", "Low", "settings_low");
             
             // Restore collapsed states
-            if (info.collapsed_states) {
-                if (this.labelHigh && info.collapsed_states.high) this.labelHigh.setCollapsed(true);
-                if (this.labelLow && info.collapsed_states.low) this.labelLow.setCollapsed(true);
-                if (this.labelAuto && info.collapsed_states.auto) this.labelAuto.setCollapsed(true);
+            const collapsedStates = info.collapsed_states || info.extensions?.collapsed_states;
+            if (collapsedStates) {
+                if (this.labelHigh && collapsedStates.high) this.labelHigh.setCollapsed(true);
+                if (this.labelLow && collapsedStates.low) this.labelLow.setCollapsed(true);
+                if (this.labelAuto && collapsedStates.auto) this.labelAuto.setCollapsed(true);
             }
 
             this.reorderWidgets();
             this.ensureHiddenWidgets();
+            return result;
         };
         
         const onDrawForeground = nodeType.prototype.onDrawForeground;
         nodeType.prototype.onDrawForeground = function(ctx) {
             if (onDrawForeground) onDrawForeground.apply(this, arguments);
 
-            const wKey = this.widgets.find(w => w.name === "key_to_check");
-            const wStatus = this.widgets.find(w => w.name === "Check Status");
-            
-            const keyText = wKey ? wKey.value : "";
-            const statusText = wStatus ? wStatus.value : "";
-            
-            let displayStatus = statusText;
-            if (displayStatus.includes("✅")) displayStatus = "✅ 已启用";
-            else if (displayStatus.includes("❌")) displayStatus = "❌ 未启用";
-            else if (displayStatus.includes("🔒 Force True")) displayStatus = "✅ 强制启用";
-            else if (displayStatus.includes("🔒 Force False")) displayStatus = "❌ 强制关闭";
-            
-            const text = `${keyText}  |  ${displayStatus}`;
-            
-            ctx.save();
-            ctx.globalAlpha = statusLabelSettings.opacity;
-            
-            const margin = 10;
-            const height = statusLabelSettings.fontSize + 20;
-            const posY = this.size[1] + margin;
+            const height = this.finalStatusLabel.computeSize(this.size[0])[1];
+            const posY = this.size[1] + 10;
             const w = this.size[0];
-            
-            // Draw background
-            drawRoundedRectangle(ctx, { pos: [0, posY], size: [w, height], color: statusLabelSettings.bgColor, radius: 5 });
-            
-            ctx.globalAlpha = 1.0;
-            ctx.fillStyle = statusLabelSettings.textColor;
-            ctx.font = `bold ${statusLabelSettings.fontSize}px Arial`;
-            ctx.textAlign = "left";
-            ctx.textBaseline = "middle";
-            
-            ctx.fillText(fitString(ctx, text, w - 20), 10, posY + height / 2);
-            
-            ctx.restore();
-            
+            this.finalStatusLabel.draw(ctx, this, w, posY, height);
+
             // Save bounding box for hit testing
             this.bigLabelBounds = [0, posY, w, height];
         };
@@ -1243,10 +864,10 @@ app.registerExtension({
                 return undefined;
             }
 
-            if (!slot || !slot.widget || !slot.widget.streamType) return null;
+            if (!slot || !slot.widget || !slot.widget.group) return null;
             
             const widget = slot.widget;
-            const streamList = widget.streamType === "High" ? this.highLoraWidgets : this.lowLoraWidgets;
+            const streamList = widget.group === "High" ? this.highLoraWidgets : this.lowLoraWidgets;
             const index = streamList.indexOf(widget);
             
             if (index === -1) return null;
@@ -1340,7 +961,7 @@ app.registerExtension({
                     } 
                 },
                 { 
-                    content: `🗑️ Clear All ${widget.streamType} Stream`, 
+                    content: `🗑️ Clear All ${widget.group} Stream`,
                     callback: () => { 
                         // Remove all widgets of this stream from main widget list
                         streamList.forEach(w => {
@@ -1440,7 +1061,7 @@ app.registerExtension({
                 }
             }
 
-            if (lastWidget && lastWidget.streamType) {
+            if (lastWidget && lastWidget.group) {
                 return { widget: lastWidget, output: { type: "LORA WIDGET" } };
             }
             return null;

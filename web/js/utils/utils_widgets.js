@@ -136,6 +136,25 @@ export class RgthreeBaseWidget {
     }
 }
 
+export function addIconButtonRow(node, name, buttons) {
+    const row = document.createElement("div");
+    Object.assign(row.style, { display: "flex", gap: "6px", alignItems: "center", height: "28px", padding: "0 10px", boxSizing: "border-box" });
+    for (const action of buttons) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = action.icon;
+        button.title = action.title;
+        button.setAttribute("aria-label", action.title);
+        Object.assign(button.style, { width: "30px", height: "26px", flex: "0 0 30px", padding: "0", border: "1px solid #555", borderRadius: "4px", background: "#333", color: "#fff", fontSize: "16px", cursor: "pointer" });
+        button.onpointerdown = event => event.stopPropagation();
+        button.onclick = event => { event.stopPropagation(); action.onClick(event, null, node); };
+        row.appendChild(button);
+    }
+    const widget = node.addDOMWidget(name, "lora_actions", row, { serialize: false, hideOnZoom: false });
+    widget.computeSize = width => [width, 28];
+    return widget;
+}
+
 export class RgthreeBetterButtonWidget extends RgthreeBaseWidget {
     constructor(name, mouseClickCallback, label) {
         super(name);
@@ -292,4 +311,4 @@ export class RgthreeInvisibleWidget extends RgthreeBaseWidget {
             ? this.serializeValueFn(node, index)
             : super.serializeValue(node, index);
     }
-} 
+}

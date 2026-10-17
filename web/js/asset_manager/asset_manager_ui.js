@@ -4,7 +4,7 @@ import { $el, showTopNotification } from "../utils/shared_utils.js";
 import { AMDialog } from "./am_dialog.js";
 import { cssStyles } from "./asset_manager_style.js";
 import { PreviewHandler } from "./asset_manager_preview_handler.js";
-import { DataHandler } from "./asset_manager_data_handler.js";
+import { DataHandler, isSingleModelAsset } from "./asset_manager_data_handler.js";
 import { DragSelectHandler } from "./asset_manager_drag_select.js";
 import { AssetManagerFAB } from "./asset_manager_fab.js";
 import { AssetManagerQuickMenu } from "./asset_manager_quick_menu.js";
@@ -607,9 +607,11 @@ class AssetManagerUI {
             imgSrc = `/a_my_nodes/assets/view_preview?path=${encodeURIComponent(item.preview_image)}`;
         } else if (this.currentTab === 'models') {
             let firstLora = "";
-            if (item.high_loras && item.high_loras.length > 0 && item.high_loras[0].lora) {
+            if (isSingleModelAsset(item) && item.loras?.length) {
+                firstLora = item.loras[0].lora;
+            } else if (!isSingleModelAsset(item) && item.high_loras && item.high_loras.length > 0 && item.high_loras[0].lora) {
                 firstLora = item.high_loras[0].lora;
-            } else if (item.low_loras && item.low_loras.length > 0 && item.low_loras[0].lora) {
+            } else if (!isSingleModelAsset(item) && item.low_loras && item.low_loras.length > 0 && item.low_loras[0].lora) {
                 firstLora = item.low_loras[0].lora;
             }
             if (firstLora && firstLora !== "None") {
@@ -671,6 +673,7 @@ class AssetManagerUI {
             let displayStr = "";
             const highSettings = this.normalizeModelStreamSettings(item.high_settings);
             const lowSettings = this.normalizeModelStreamSettings(item.low_settings);
+            const single = isSingleModelAsset(item);
             
             let validCount = 0;
             let invalidCount = 0;
@@ -684,13 +687,19 @@ class AssetManagerUI {
                     }
                 });
             };
-            countValidInvalid(item.high_loras);
-            countValidInvalid(item.low_loras);
+            if (single) countValidInvalid(item.loras);
+            else {
+                countValidInvalid(item.high_loras);
+                countValidInvalid(item.low_loras);
+            }
             
-            if (item.high_loras && item.high_loras.length > 0 && item.high_loras[0].lora && item.high_loras[0].lora !== "None") {
+            if (single && item.loras?.length) {
+                displayPath = item.loras[0].lora;
+                displayStr = item.loras[0].strength ?? 1.0;
+            } else if (!single && item.high_loras && item.high_loras.length > 0 && item.high_loras[0].lora && item.high_loras[0].lora !== "None") {
                 displayPath = item.high_loras[0].lora;
                 displayStr = item.high_loras[0].strength !== undefined ? item.high_loras[0].strength : 1.0;
-            } else if (item.low_loras && item.low_loras.length > 0 && item.low_loras[0].lora && item.low_loras[0].lora !== "None") {
+            } else if (!single && item.low_loras && item.low_loras.length > 0 && item.low_loras[0].lora && item.low_loras[0].lora !== "None") {
                 displayPath = item.low_loras[0].lora;
                 displayStr = item.low_loras[0].strength !== undefined ? item.low_loras[0].strength : 1.0;
             }
@@ -698,14 +707,17 @@ class AssetManagerUI {
             let descText = "";
             if (displayPath) {
                 descText = `路径: ${displayPath}\n强度: ${displayStr}`;
-                const totalLoras = (item.high_loras?.length || 0) + (item.low_loras?.length || 0);
+                const totalLoras = single ? (item.loras?.length || 0) : (item.high_loras?.length || 0) + (item.low_loras?.length || 0);
                 if (totalLoras > 1) descText += ` (等 ${totalLoras} 个模型)\n[有效: ${validCount} | 丢失/无效: ${invalidCount}]`;
                 else descText += `\n[状态: ${invalidCount > 0 ? '❌ 丢失' : '✅ 正常'}]`;
             } else {
                 descText = "空配置 (请双击添加模型)";
             }
-            descText += `\n[High: LowMem ${highSettings.value2 ? 'On' : 'Off'} | Merge ${highSettings.value3 ? 'On' : 'Off'}]`;
-            descText += `\n[Low: LowMem ${lowSettings.value2 ? 'On' : 'Off'} | Merge ${lowSettings.value3 ? 'On' : 'Off'}]`;
+            if (single) descText += "\n[通用单流]";
+            else {
+                descText += `\n[High: LowMem ${highSettings.value2 ? 'On' : 'Off'} | Merge ${highSettings.value3 ? 'On' : 'Off'}]`;
+                descText += `\n[Low: LowMem ${lowSettings.value2 ? 'On' : 'Off'} | Merge ${lowSettings.value3 ? 'On' : 'Off'}]`;
+            }
             
             contentWrapper.appendChild($el("div", { 
                 className: "am-card-desc", 
@@ -857,10 +869,8 @@ class AssetManagerUI {
                 id: Date.now().toString(),
                 keyword: "新模型检查词",
                 check_mode: "contains",
-                high_settings: { value1: false, value2: false, value3: false },
-                low_settings: { value1: false, value2: false, value3: false },
-                high_loras: [],
-                low_loras: [],
+                stream_type: "single",
+                loras: [],
                 preview_image: ""
             };
         }
@@ -986,7 +996,7 @@ class AssetManagerUI {
             input.dataset.key = key; // 保存 key 到 dataset 以便保存时取值
             
             input.onchange = (e) => { 
-                if (key !== 'high_loras' && key !== 'low_loras') item[key] = e.target.value; 
+                if (key !== 'high_loras' && key !== 'low_loras' && key !== 'loras') item[key] = e.target.value;
             };
             wrapper.appendChild(input);
             return { wrapper, input };
@@ -1035,7 +1045,7 @@ class AssetManagerUI {
                 const header = $el("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: "10px", alignItems: "center" } });
                 
                 header.appendChild($el("strong", { 
-                    textContent: `${streamName === "High" ? "🔼" : "🔽"} ${streamName} Stream`, 
+                    textContent: streamName === "Single" ? "LoRA 列表" : `${streamName === "High" ? "🔼" : "🔽"} ${streamName} Stream`,
                     style: { fontSize: "14px", color: "var(--am-text)" } 
                 }));
                 
@@ -1072,9 +1082,11 @@ class AssetManagerUI {
                     labelEl.appendChild($el("span", { textContent: label }));
                     return labelEl;
                 };
-                settingsRow.appendChild(createSettingToggle("Low Mem", "value2", `${streamName} 流的 Low Mem 设置`));
-                settingsRow.appendChild(createSettingToggle("Merge", "value3", `${streamName} 流的 Merge 设置`));
-                wrapper.appendChild(settingsRow);
+                if (streamName !== "Single") {
+                    settingsRow.appendChild(createSettingToggle("Low Mem", "value2", `${streamName} 流的 Low Mem 设置`));
+                    settingsRow.appendChild(createSettingToggle("Merge", "value3", `${streamName} 流的 Merge 设置`));
+                    wrapper.appendChild(settingsRow);
+                }
 
                 const listContainer = $el("div", { style: { display: "flex", flexDirection: "column", gap: "5px" } });
                 wrapper.appendChild(listContainer);
@@ -1152,7 +1164,7 @@ class AssetManagerUI {
                                     // 为了防止输入框数据丢失，必须在重新渲染前同步 DOM 的数据到 item
                                     formElements.forEach(fe => {
                                         let key = fe.input.dataset.key;
-                                        if(key && key !== 'high_loras' && key !== 'low_loras') {
+                                        if(key && key !== 'high_loras' && key !== 'low_loras' && key !== 'loras') {
                                             item[key] = fe.input.value;
                                         }
                                     });
@@ -1307,13 +1319,44 @@ class AssetManagerUI {
                 return wrapper;
             };
 
-            if (!Array.isArray(item.high_loras)) item.high_loras = [];
-            if (!Array.isArray(item.low_loras)) item.low_loras = [];
-            item.high_settings = this.normalizeModelStreamSettings(item.high_settings);
-            item.low_settings = this.normalizeModelStreamSettings(item.low_settings);
-
-            editWrapper.appendChild(createStreamEditor("High", item.high_loras, item.high_settings));
-            editWrapper.appendChild(createStreamEditor("Low", item.low_loras, item.low_settings));
+            const typeWrapper = $el("label", { style: { display: "block", marginTop: "10px" } }, [
+                $el("span", { textContent: "配置类型 " }),
+            ]);
+            const typeSelect = $el("select", {}, [
+                $el("option", { value: "single", textContent: "通用单流", selected: isSingleModelAsset(item) }),
+                $el("option", { value: "double", textContent: "High / Low 双流", selected: !isSingleModelAsset(item) }),
+            ]);
+            const streamsWrapper = $el("div");
+            const renderStreams = () => {
+                streamsWrapper.replaceChildren();
+                if (isSingleModelAsset(item)) {
+                    if (!Array.isArray(item.loras)) item.loras = [];
+                    for (const branch of ["high", "low"]) {
+                        if (!item[`${branch}_loras`]?.length) continue;
+                        streamsWrapper.appendChild($el("button", {
+                            textContent: `复制 ${branch === "high" ? "High" : "Low"} 到单流`,
+                            onclick: async () => {
+                                if (item.loras.length && !await this.confirm("替换当前单流 LoRA 列表？")) return;
+                                item.loras = item[`${branch}_loras`].map(value => ({ ...value }));
+                                renderStreams();
+                            },
+                        }));
+                    }
+                    streamsWrapper.appendChild(createStreamEditor("Single", item.loras, {}));
+                } else {
+                    if (!Array.isArray(item.high_loras)) item.high_loras = [];
+                    if (!Array.isArray(item.low_loras)) item.low_loras = [];
+                    item.high_settings = this.normalizeModelStreamSettings(item.high_settings);
+                    item.low_settings = this.normalizeModelStreamSettings(item.low_settings);
+                    streamsWrapper.appendChild(createStreamEditor("High", item.high_loras, item.high_settings));
+                    streamsWrapper.appendChild(createStreamEditor("Low", item.low_loras, item.low_settings));
+                }
+            };
+            typeSelect.onchange = () => { item.stream_type = typeSelect.value; renderStreams(); };
+            typeWrapper.appendChild(typeSelect);
+            editWrapper.appendChild(typeWrapper);
+            editWrapper.appendChild(streamsWrapper);
+            renderStreams();
 
             const previewFe = createInput("预览图路径 (可选)", item.preview_image || "", "preview_image");
             formElements.push(previewFe);
@@ -1525,6 +1568,8 @@ class AssetManagerUI {
             
             if (group.items && group.items.length > 0) {
                 group.items.forEach(item => {
+                    if (tabType === 'models' && node.assetStreamType &&
+                        (node.assetStreamType === 'single') !== isSingleModelAsset(item)) return;
                     const itemEl = $el("div", { 
                         className: "am-drawer-item",
                         style: { display: "flex", alignItems: "center", gap: "5px" },

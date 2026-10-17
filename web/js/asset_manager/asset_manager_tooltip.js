@@ -1,4 +1,5 @@
 import { $el } from "../utils/shared_utils.js";
+import { isSingleModelAsset } from "./asset_manager_data_handler.js";
 
 export class AssetManagerTooltip {
     constructor() {
@@ -31,9 +32,11 @@ export class AssetManagerTooltip {
             imgSrc = `/a_my_nodes/assets/view_preview?path=${encodeURIComponent(item.preview_image)}`;
         } else if (type === 'models') {
             let firstLora = "";
-            if (item.high_loras && item.high_loras.length > 0 && item.high_loras[0].lora) {
+            if (isSingleModelAsset(item) && item.loras?.length) {
+                firstLora = item.loras[0].lora;
+            } else if (!isSingleModelAsset(item) && item.high_loras && item.high_loras.length > 0 && item.high_loras[0].lora) {
                 firstLora = item.high_loras[0].lora;
-            } else if (item.low_loras && item.low_loras.length > 0 && item.low_loras[0].lora) {
+            } else if (!isSingleModelAsset(item) && item.low_loras && item.low_loras.length > 0 && item.low_loras[0].lora) {
                 firstLora = item.low_loras[0].lora;
             }
             

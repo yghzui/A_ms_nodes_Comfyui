@@ -1,6 +1,6 @@
 import { app } from "../../../scripts/app.js";
 import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, isLowQuality, } from "./utils/utils_canvas.js";
-import { RgthreeBaseWidget, RgthreeBetterButtonWidget, RgthreeDividerWidget, } from "./utils/utils_widgets.js";
+import { RgthreeBaseWidget, RgthreeDividerWidget, addIconButtonRow } from "./utils/utils_widgets.js";
 import { rgthreeApi } from "./core/rgthree_api.js";
 import { moveArrayItem, removeArrayItem, showTopNotification } from "./utils/shared_utils.js";
 import { rgthree } from "./core/rgthree.js";
@@ -23,7 +23,8 @@ async function showLoraChooser(event, callback, parentMenu, loras, buttonNode, b
     let menuEvent = event;
     let targetX, targetY;
 
-    if (buttonNode && buttonWidget) {
+    // DOM 按钮控件（带 element）用点击事件的屏幕坐标定位，只有画布绘制的控件才用 last_y 换算
+    if (buttonNode && buttonWidget && !buttonWidget.element) {
         const canvasRect = canvas.canvas.getBoundingClientRect();
         const ds = canvas.ds || { scale: 1, offset: [0, 0] };
 
@@ -119,8 +120,13 @@ class LoadLoraBatchNode extends LGraphNode {
         console.log("[LoadLoraBatch] widgets_values:", info.widgets_values);
         
         // 清除现有的widgets
+        // HTML 按钮控件（DOM 控件）由前端 store 注册管理，只清空数组会让元素残留在画布上，故保留它，只清理画布绘制的控件
         if (this.widgets) {
+            const keptWidget = this.widgets.find((w) => w && w.name === "lora_actions");
             this.widgets.length = 0;
+            if (keptWidget) {
+                this.widgets.push(keptWidget);
+            }
         }
         this.widgetButtonSpacer = null;
         
@@ -181,23 +187,27 @@ class LoadLoraBatchNode extends LGraphNode {
         // 添加按钮分隔线
         //this.widgetButtonSpacer = this.addCustomWidget(new RgthreeDividerWidget({ marginTop: 2, marginBottom: 0, thickness: 0 }));
         
-        // 添加增加LoRA按钮
-        const addButton = new RgthreeBetterButtonWidget("➕ 增加LoRA", (event, pos, node) => {
-            // 传入节点和按钮控件信息以实现正确的位置定位
-            showLoraChooser(rgthree.lastCanvasMouseEvent || event, (value) => {
-                if (typeof value === "string") {
-                    if (value !== "NONE") {
-                        this.addNewLoraWidget(value);
-                        const computed = this.computeSize();
-                        this.size[1] = Math.max(this.size[1] || 15, computed[1]);
-                        this.setDirtyCanvas(true, true);
+        // 添加增加LoRA按钮（若已存在则复用，避免重复创建 DOM 控件）
+        let addButton = this.widgets.find((w) => w && w.name === "lora_actions");
+        if (!addButton) {
+            addButton = addIconButtonRow(this, "lora_actions", [{ icon: "+", title: "添加 LoRA", onClick: (event, pos, node) => {
+                // 传入节点和按钮控件信息以实现正确的位置定位
+                showLoraChooser(event || rgthree.lastCanvasMouseEvent, (value) => {
+                    if (typeof value === "string") {
+                        if (value !== "NONE") {
+                            this.addNewLoraWidget(value);
+                            const computed = this.computeSize();
+                            this.size[1] = Math.max(this.size[1] || 15, computed[1]);
+                            this.setDirtyCanvas(true, true);
+                        }
                     }
-                }
-            }, null, null, this, addButton); // 传入节点和按钮控件信息
-            return true;
-        });
-        addButton.serializeValue = () => undefined; // 阻止按钮被序列化
-        this.addCustomWidget(addButton);
+                }, null, null, this, addButton); // 传入节点和按钮控件信息
+                return true;
+            } }]);
+            addButton.serializeValue = () => undefined; // 阻止按钮被序列化
+        }
+        // 按钮始终排在控件列表末尾
+        moveArrayItem(this.widgets, addButton, this.widgets.length - 1);
     }
 
     getSlotInPosition(canvasX, canvasY) {

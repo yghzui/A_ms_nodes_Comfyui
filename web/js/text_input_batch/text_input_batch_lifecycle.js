@@ -1,3 +1,25 @@
+// 左侧图标按钮栏的几何参数（预留宽度需与 text_input_batch_render_core.js 保持一致）
+const BUTTON_SIZE = 20;
+const BUTTON_SPACING = 4;
+const RAIL_PADDING_LEFT = 6;
+export const BUTTON_RAIL_WIDTH = RAIL_PADDING_LEFT + BUTTON_SIZE;
+// 图标栏左外边距：同时作为图标栏与内容区之间的间距，保证左右对称
+export const BUTTON_RAIL_MARGIN = RAIL_PADDING_LEFT;
+// 8 个图标按钮竖向排列的总高度（需与 installDrawingHandlers 中按钮数量保持一致）
+export const BUTTON_RAIL_HEIGHT = 8 * BUTTON_SIZE + 7 * BUTTON_SPACING;
+
+// SVG 图标缓存
+const iconImageCache = new Map();
+function getIconImage(fileName) {
+    let img = iconImageCache.get(fileName);
+    if (!img) {
+        img = new Image();
+        img.src = new URL(`./icons/${fileName}`, import.meta.url).href;
+        iconImageCache.set(fileName, img);
+    }
+    return img;
+}
+
 export function createTextInputBatchLifecycleApi({
     app,
     Tooltip,
@@ -11,6 +33,7 @@ export function createTextInputBatchLifecycleApi({
     installAddButton,
     getLayoutCells,
     getEnsureTextareas,
+    getWidgetsBottom,
     handleImport,
     handleExport,
     handleBatchDelete
@@ -40,22 +63,16 @@ function installDrawingHandlers(node) {
              return;
         }
         
-        // 绘制自定义按钮
-        
-        const buttonHeight = 25;
-        const buttonSpacing = 10;
-        const rowSpacing = 5;
-        const startX = 10;
-        const nodeWidth = this.size[0];
-
+        // 绘制自定义按钮（左侧竖向图标栏）
         const currentViewMode = this.properties?._viewMode || "grid";
+        const railTop = (typeof getWidgetsBottom === 'function' ? getWidgetsBottom(this) : 0) + 8;
 
         // 按钮定义
-        // 顺序：视图切换(左一) -> 全选 -> 全不选 -> 反选 -> 导入 -> 导出 -> 批量删除
+        // 顺序：视图切换 -> 全选 -> 全不选 -> 反选 -> 导入 -> 导出 -> 批量删除 -> 隐藏/显示提示词
         const buttons = [
-            { 
-                text: currentViewMode === 'combo' ? '切换: 列表' : '切换: 下拉', 
-                width: 80,
+            {
+                icon: 'view_toggle.svg',
+                tooltip: currentViewMode === 'combo' ? '切换视图：网格列表' : '切换视图：下拉列表',
                 callback: () => {
                     this.properties._viewMode = (this.properties._viewMode === 'combo') ? 'grid' : 'combo';
                     const items = getItems(this);
@@ -64,9 +81,9 @@ function installDrawingHandlers(node) {
                     app.graph.setDirtyCanvas(true, true);
                 }
             },
-            { 
-                text: '全选', 
-                width: 50,
+            {
+                icon: 'select_all.svg',
+                tooltip: '全选',
                 callback: () => {
                     const items = getItems(this);
                     items.forEach(item => item.enabled = true);
@@ -76,9 +93,9 @@ function installDrawingHandlers(node) {
                     app.graph.setDirtyCanvas(true, true);
                 }
             },
-            { 
-                text: '全不选', 
-                width: 60,
+            {
+                icon: 'deselect_all.svg',
+                tooltip: '全不选',
                 callback: () => {
                     const items = getItems(this);
                     items.forEach(item => item.enabled = false);
@@ -88,9 +105,9 @@ function installDrawingHandlers(node) {
                     app.graph.setDirtyCanvas(true, true);
                 }
             },
-            { 
-                text: '反选', 
-                width: 50,
+            {
+                icon: 'invert.svg',
+                tooltip: '反选',
                 callback: () => {
                     const items = getItems(this);
                     items.forEach(item => item.enabled = !item.enabled);
@@ -100,24 +117,25 @@ function installDrawingHandlers(node) {
                     app.graph.setDirtyCanvas(true, true);
                 }
             },
-            { 
-                text: '📥 导入', 
-                width: 70,
+            {
+                icon: 'import.svg',
+                tooltip: '导入',
                 callback: () => handleImport(this)
             },
-            { 
-                text: '📤 导出', 
-                width: 70,
+            {
+                icon: 'export.svg',
+                tooltip: '导出',
                 callback: () => handleExport(this)
             },
-            { 
-                text: '🗑️ 删除选中', 
-                width: 90,
+            {
+                icon: 'delete_selected.svg',
+                tooltip: '删除选中',
                 callback: () => handleBatchDelete(this)
             },
-            { 
-                text: this.__hidePrompts ? '📝 显示提示词' : '📋 隐藏提示词', 
-                width: 100,
+            {
+                icon: this.__hidePrompts ? 'show_prompt.svg' : 'hide_prompt.svg',
+                tooltip: this.__hidePrompts ? '显示提示词' : '隐藏提示词',
+                active: !!this.__hidePrompts,
                 callback: () => {
                     this.__hidePrompts = !this.__hidePrompts;
                     const items = getItems(this);
@@ -128,85 +146,58 @@ function installDrawingHandlers(node) {
             }
         ];
 
-        // 计算布局行
-        const rows = [];
-        let currentRow = [];
-        let currentRowWidth = startX;
-        
-        buttons.forEach(btn => {
-            if (currentRowWidth + btn.width + buttonSpacing > nodeWidth - 10) { // -10 padding right
-                if (currentRow.length > 0) {
-                    rows.push(currentRow);
-                    currentRow = [];
-                    currentRowWidth = startX;
-                }
-            }
-            currentRow.push(btn);
-            currentRowWidth += btn.width + buttonSpacing;
-        });
-        if (currentRow.length > 0) rows.push(currentRow);
-
-        // 计算起始Y坐标，使按钮组靠底部对齐
-        // 假设底部预留区域足够大，我们将按钮组放在底部
-        const totalHeight = rows.length * buttonHeight + (rows.length - 1) * rowSpacing;
-        // 底部留 5px
-        let startY = this.size[1] - totalHeight - 5;
-        
         // 清空点击区域缓存
         this._customButtons = [];
-        
-        const r = 6;
-        function drawButton(ctx, x, y, w, h, text, hover) {
-            ctx.fillStyle = hover ? 'rgba(235,235,240,0.95)' : 'rgba(235,235,240,0.85)';
+
+        const r = 5;
+        function drawIconButton(ctx, x, y, icon, hover, active) {
+            ctx.fillStyle = active ? 'rgba(120,170,255,0.92)'
+                : (hover ? 'rgba(235,235,240,0.95)' : 'rgba(235,235,240,0.85)');
             ctx.strokeStyle = hover ? 'rgba(80,80,90,0.9)' : 'rgba(120,120,130,0.8)';
             ctx.lineWidth = hover ? 2 : 1;
             ctx.beginPath();
-            
+
             if (ctx.roundRect) {
-                ctx.roundRect(x, y, w, h, r);
+                ctx.roundRect(x, y, BUTTON_SIZE, BUTTON_SIZE, r);
             } else {
                 ctx.moveTo(x + r, y);
-                ctx.lineTo(x + w - r, y);
-                ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-                ctx.lineTo(x + w, y + h - r);
-                ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-                ctx.lineTo(x + r, y + h);
-                ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+                ctx.lineTo(x + BUTTON_SIZE - r, y);
+                ctx.quadraticCurveTo(x + BUTTON_SIZE, y, x + BUTTON_SIZE, y + r);
+                ctx.lineTo(x + BUTTON_SIZE, y + BUTTON_SIZE - r);
+                ctx.quadraticCurveTo(x + BUTTON_SIZE, y + BUTTON_SIZE, x + BUTTON_SIZE - r, y + BUTTON_SIZE);
+                ctx.lineTo(x + r, y + BUTTON_SIZE);
+                ctx.quadraticCurveTo(x, y + BUTTON_SIZE, x, y + BUTTON_SIZE - r);
                 ctx.lineTo(x, y + r);
                 ctx.quadraticCurveTo(x, y, x + r, y);
             }
-            
+
             ctx.closePath();
             ctx.fill();
             ctx.stroke();
-            ctx.fillStyle = 'rgba(30,30,35,1)';
-            ctx.font = 'bold 12px "Microsoft YaHei", Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(text, x + w / 2, y + h / 2);
+
+            const img = getIconImage(icon);
+            if (img && img.complete && img.naturalWidth > 0) {
+                ctx.drawImage(img, x + 3, y + 3, BUTTON_SIZE - 6, BUTTON_SIZE - 6);
+            }
         }
 
-        // 绘制每一行
-        rows.forEach((row, rowIndex) => {
-            let x = startX;
-            let y = startY + rowIndex * (buttonHeight + rowSpacing);
-            
-            row.forEach(btn => {
-                const hover = this._customMouseX >= x && this._customMouseX <= x + btn.width &&
-                              this._customMouseY >= y && this._customMouseY <= y + buttonHeight;
-                
-                drawButton(ctx, x, y, btn.width, buttonHeight, btn.text, hover);
-                
-                // 记录点击区域
-                this._customButtons.push({
-                    rect: { x, y, w: btn.width, h: buttonHeight },
-                    callback: btn.callback
-                });
-                
-                x += btn.width + buttonSpacing;
+        // 左侧竖向排列
+        buttons.forEach((btn, index) => {
+            const x = RAIL_PADDING_LEFT;
+            const y = railTop + index * (BUTTON_SIZE + BUTTON_SPACING);
+            const hover = this._customMouseX >= x && this._customMouseX <= x + BUTTON_SIZE &&
+                          this._customMouseY >= y && this._customMouseY <= y + BUTTON_SIZE;
+
+            drawIconButton(ctx, x, y, btn.icon, hover, !!btn.active);
+
+            // 记录点击区域
+            this._customButtons.push({
+                rect: { x, y, w: BUTTON_SIZE, h: BUTTON_SIZE },
+                callback: btn.callback,
+                tooltip: btn.tooltip
             });
         });
-        
+
         relayoutAndUpdate(ctx);
     };
 
@@ -299,13 +290,27 @@ function installDrawingHandlers(node) {
         this._customMouseX = x;
         this._customMouseY = y;
         
-        // 简单判断是否在按钮区域，触发重绘
-        // 为了性能，可以只在进入/离开按钮区域时 setDirty
-        // 这里简化处理，只要移动就重绘（注意性能，如果卡顿则需要优化）
-        // 由于是 Canvas 绘制，悬浮变色需要重绘
-        // 只有当鼠标在底部区域时才重绘
-        if (y > this.size[1] - 80) { // 更新为 80 以匹配新的按钮区域
-             app.graph.setDirtyCanvas(true, false);
+        // 命中检测：悬浮按钮状态变化时重绘并更新 Tooltip
+        let hovered = null;
+        if (this._customButtons) {
+            for (const btn of this._customButtons) {
+                if (x >= btn.rect.x && x <= btn.rect.x + btn.rect.w &&
+                    y >= btn.rect.y && y <= btn.rect.y + btn.rect.h) {
+                    hovered = btn;
+                    break;
+                }
+            }
+        }
+        
+        const hoverKey = hovered ? (hovered.tooltip || '') : '';
+        if (hoverKey !== this.__hoveredButtonTooltip) {
+            this.__hoveredButtonTooltip = hoverKey;
+            if (hovered && hovered.tooltip) {
+                Tooltip.scheduleShow(e.clientX, e.clientY, hovered.tooltip, '');
+            } else {
+                Tooltip.hide();
+            }
+            app.graph.setDirtyCanvas(true, false);
         }
     };
     
@@ -313,6 +318,8 @@ function installDrawingHandlers(node) {
     node.onMouseLeave = function(e) {
         this._customMouseX = undefined;
         this._customMouseY = undefined;
+        this.__hoveredButtonTooltip = '';
+        Tooltip.hide();
         app.graph.setDirtyCanvas(true, false);
     };
 }
@@ -431,7 +438,8 @@ function initDomRefs(node) {
         "_customSelectAllButtonRect", "_customDeselectAllButtonRect", 
         "_customInvertSelectionButtonRect", "_customViewModeButtonRect",
         "_customButtons",
-        "_customMouseX", "_customMouseY"
+        "_customMouseX", "_customMouseY",
+        "__hoveredButtonTooltip"
     ];
     
     props.forEach(p => {
@@ -465,6 +473,7 @@ app.registerExtension({
                 "_customInvertSelectionButtonRect", "_customViewModeButtonRect",
                 "_customButtons",
                 "_customMouseX", "_customMouseY",
+                "__hoveredButtonTooltip",
                 "__useScrollMode", "__totalContentHeight", "__visibleContentHeight", "__scrollPadding",
                 "__hidePrompts"
             ];

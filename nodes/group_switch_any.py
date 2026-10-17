@@ -32,7 +32,9 @@ class GroupSwitchAny:
         }
 
         stack = inspect.stack()
-        if len(stack) > 2 and stack[2].function == "get_input_info":
+        # 新版 ComfyUI 在 TopologicalSort.get_input_info 这一帧直接调用 INPUT_TYPES()，
+        # 旧版则经由模块级 get_input_info 调用，故同时检查 stack[1] 与 stack[2]。
+        if len(stack) > 1 and any(frame.function == "get_input_info" for frame in stack[1:3]):
             # 允许前端动态添加 input_{group}_{slot} 形式的输入名。
             class AllContainer:
                 def __contains__(self, item):
