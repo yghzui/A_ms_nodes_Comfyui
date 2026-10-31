@@ -88,7 +88,8 @@ export function registerLoraAssetExtension(nodeName, streamType) {
 
                     // execution_start 是全局事件，这里用“节点实例级监听”确保 this 指向当前节点
                     // 并避免整表重渲染：优先局部更新
-                    this._handleExecutionStart = () => {
+                    this._handleNodeExecuting = (event) => {
+                        if (String(event.detail) !== String(this.id)) return;
                         if (this.hitStatus && Object.keys(this.hitStatus).length > 0) {
                             this.hitStatus = {};
                             if (!this.refreshVisibleItemStates()) {
@@ -96,7 +97,7 @@ export function registerLoraAssetExtension(nodeName, streamType) {
                             }
                         }
                     };
-                    api.addEventListener("execution_start", this._handleExecutionStart);
+                    api.addEventListener("executing", this._handleNodeExecuting);
 
                     // 初始化时加载数据并还原选中状态
                     this.loadAssetsData().then(() => {
@@ -135,9 +136,9 @@ export function registerLoraAssetExtension(nodeName, streamType) {
                             window.removeEventListener("blur", this._handleHoverPreviewWindowBlur);
                             this._handleHoverPreviewWindowBlur = null;
                         }
-                        if (this._handleExecutionStart) {
-                            api.removeEventListener("execution_start", this._handleExecutionStart);
-                            this._handleExecutionStart = null;
+                        if (this._handleNodeExecuting) {
+                            api.removeEventListener("executing", this._handleNodeExecuting);
+                            this._handleNodeExecuting = null;
                         }
                         if (this.removeHoverPreview) this.removeHoverPreview();
                     } catch (e) {}

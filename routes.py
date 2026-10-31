@@ -859,6 +859,7 @@ async def upload_custom_edited_image(request):
         image_path_str = data.get("image_path")
         mask_b64 = data.get("mask_data")
         paint_b64 = data.get("paint_data")
+        fill_masked_image_with_gray = data.get("fill_masked_image_with_gray") is True
         
         if not image_path_str:
             return web.Response(status=400, text="Missing image_path")
@@ -915,6 +916,10 @@ async def upload_custom_edited_image(request):
         painted_img = orig_img.copy()
         if paint_img:
             painted_img.alpha_composite(paint_img)
+        if fill_masked_image_with_gray and mask_alpha is not None:
+            painted_img = Image.composite(
+                Image.new("RGBA", (orig_w, orig_h), (128, 128, 128, 255)), painted_img, mask_alpha
+            )
         painted_path = os.path.join(clipspace_dir, f"clipspace-painted-{ts}.png")
         painted_img.save(painted_path)
         

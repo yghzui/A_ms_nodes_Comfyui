@@ -65,6 +65,10 @@
 - `FilterClothingWords`（过滤服装关键词 by My）：对服装相关词汇进行筛选/清洗以辅助下游流程。
 - `NoticeSound`（铃声提醒节点 by My）：在流程完成或关键节点时播放提示音，便于批量流程监控。
 
+#### 姿态与骨骼
+- `ViTPoseKeypointExtractor`（ViTPose Keypoints (Common) by ms）：复用现有 `POSEMODEL`（VitPose + YOLO），只跑 VitPose，不生成面部裁剪/bbox；输出通用 `POSE_KEYPOINT`，可直接接 `SDPoseSaveJson`、`SDPoseDrawKeypoints`、`BodyRatioMapperProportionTransfer`。
+- `ViTPoseDataToKeypoint`（ViTPose Data to Common Keypoints by ms）：把旧 `PoseAndFaceDetection` 的 `POSEDATA` 转成通用 `POSE_KEYPOINT`，用于兼容旧图。
+- `PoseJSONSave`（Pose JSON Save by ms）：把通用 `POSE_KEYPOINT` 保存为 `{fps,frames}` JSON；支持绝对路径，供导演台保存独立姿态数据。
 #### 批量 / 资源加载
 - `LoadImageBatchAdvanced`（批量加载 by My）：按规则批量加载图像集。
 - `MyLoadImageListPlus`（加载图片列表 by My）：读取列表并输出图片序列。

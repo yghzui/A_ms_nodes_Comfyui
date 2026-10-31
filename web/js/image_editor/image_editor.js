@@ -1,5 +1,6 @@
 import { api } from "../../../scripts/api.js";
 import { showTopNotification } from "../utils/shared_utils.js";
+import { createRectangleTool } from "./rectangle_tool.js";
 
 const MAX_DIM = 1536;
 
@@ -32,6 +33,8 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         panX: 0,
         panY: 0,
         cropPreset: savedConfig.cropPreset || 'free',
+        cropExpandColor: savedConfig.cropExpandColor || '#808080',
+        fillMaskedImageWithGray: savedConfig.fillMaskedImageWithGray === true,
         cropRect: null,
         cropHover: null,
         baseImagePath: '',
@@ -48,7 +51,9 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
                 opacity: state.opacity,
                 maskPreviewOpacity: state.maskPreviewOpacity,
                 color: state.color,
-                cropPreset: state.cropPreset
+                cropPreset: state.cropPreset,
+                cropExpandColor: state.cropExpandColor,
+                fillMaskedImageWithGray: state.fillMaskedImageWithGray
             }));
         } catch(e) { console.warn("Failed to save editor config", e); }
     };
@@ -57,6 +62,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     let currentLoadId = 0;
     let isPanning = false, isDrawing = false, cropScaledByWheel = false, cropWheelSaveTimer = null;
     let cropAction = null;
+    let cropDragStart = null;
     let suppressBaseImageOnload = false;
     let panStart = { x: 0, y: 0 };
     let lastPos = { x: 0, y: 0 };
@@ -161,6 +167,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     const tools = [
         { id: 'pan', icon: '🖐️', title: '平移/缩放' },
         { id: 'crop', icon: '✂️', title: '裁剪 (支持自由/常见比例/原比例)' },
+        { id: 'rectangle', icon: '▭', title: '矩形绘制 (Shift 正方形，边界吸合)' },
         { id: 'brushMask', icon: '⚫', title: '遮罩画笔 (绘制遮罩层)' },
         { id: 'brushPaint', icon: '🖌️', title: '绘画画笔 (绘制绘画层)' },
         { id: 'eraser', icon: '🧽', title: '橡皮擦 (擦除当前层)' },
@@ -294,6 +301,18 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     `;
     
     rightBar.appendChild(layerPanel);
+    const grayFillLabel = document.createElement('label');
+    Object.assign(grayFillLabel.style, { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' });
+    const grayFillInput = document.createElement('input');
+    grayFillInput.type = 'checkbox';
+    grayFillInput.checked = state.fillMaskedImageWithGray;
+    grayFillLabel.append(grayFillInput, document.createTextNode('遮罩区域图像填充中性灰（保存时生效）'));
+    grayFillInput.onchange = () => {
+        state.fillMaskedImageWithGray = grayFillInput.checked;
+        saveConfigToStorage();
+        saveState();
+    };
+    rightBar.appendChild(grayFillLabel);
 
     const cropPanel = document.createElement("div");
     cropPanel.style.display = "flex";
@@ -328,12 +347,32 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         btn.style.padding = "6px 8px";
         btn.style.justifyContent = "center";
         btn.onclick = () => {
+            const before = JSON.stringify([state.cropPreset, state.cropRect]);
             setCropPreset(preset.id);
             saveConfigToStorage();
+            if (JSON.stringify([state.cropPreset, state.cropRect]) !== before) saveState();
         };
         cropPresetBtns[preset.id] = btn;
         cropPresetWrap.appendChild(btn);
     });
+
+    const cropExpandColorWrap = document.createElement("label");
+    cropExpandColorWrap.textContent = "外扩颜色";
+    Object.assign(cropExpandColorWrap.style, {
+        display: "flex", alignItems: "center", gap: "10px", fontSize: "12px"
+    });
+    const cropExpandColorInput = document.createElement("input");
+    cropExpandColorInput.type = "color";
+    cropExpandColorInput.value = state.cropExpandColor;
+    cropExpandColorInput.title = "原图范围外的填充颜色，默认中性灰 #808080";
+    Object.assign(cropExpandColorInput.style, {
+        flex: "1", minWidth: "0", height: "30px", cursor: "pointer"
+    });
+    cropExpandColorInput.oninput = (e) => {
+        state.cropExpandColor = e.target.value;
+        saveConfigToStorage();
+    };
+    cropExpandColorWrap.appendChild(cropExpandColorInput);
 
     const cropActionWrap = document.createElement("div");
     cropActionWrap.style.display = "flex";
@@ -358,7 +397,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     cropSnapStatus.style.lineHeight = "1.5";
     cropSnapStatus.textContent = "";
 
-    cropPanel.append(cropHint, cropPresetWrap, cropActionWrap, fitImageCropBtn, cropMeta, cropSnapStatus);
+    cropPanel.append(cropHint, cropPresetWrap, cropExpandColorWrap, cropActionWrap, fitImageCropBtn, cropMeta, cropSnapStatus);
     rightBar.appendChild(createSection("图像裁剪", cropPanel));
 
     // Shape Toggle
@@ -380,7 +419,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     colorInput.style.width = "100%"; colorInput.style.height = "40px";
     colorInput.style.cursor = "pointer"; colorInput.style.border = "none";
     colorInput.style.padding = "0"; colorInput.style.background = "transparent";
-    colorInput.oninput = (e) => { state.color = e.target.value; saveConfigToStorage(); };
+    colorInput.oninput = (e) => { state.color = e.target.value; rectangleTool.render(); saveConfigToStorage(); };
     rightBar.appendChild(createSection("色彩获取 (仅绘制层有效)", colorInput));
 
     // Size
@@ -401,7 +440,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     const opSlider = document.createElement("input");
     opSlider.type = "range"; opSlider.min = "0.01"; opSlider.max = "1"; opSlider.step = "0.01"; opSlider.value = state.opacity;
     opSlider.style.width = "100%";
-    opSlider.oninput = (e) => { state.opacity = parseFloat(e.target.value); opVal.textContent = state.opacity.toFixed(2); saveConfigToStorage(); };
+    opSlider.oninput = (e) => { state.opacity = parseFloat(e.target.value); opVal.textContent = state.opacity.toFixed(2); rectangleTool.render(); saveConfigToStorage(); };
     opDiv.append(opSlider);
     const opSec = createSection("绘制不透明度: ", opDiv);
     opSec.children[0].appendChild(opVal);
@@ -422,6 +461,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         } else {
             maskCanvas.style.opacity = state.maskPreviewOpacity * 0.5; // Dimmer when not active
         }
+        rectangleTool.render();
         saveConfigToStorage();
     };
     maskPreviewOpDiv.append(maskPreviewOpSlider);
@@ -856,28 +896,32 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     };
     const resetCropSelection = () => {
         if (!canvasW || !canvasH) return;
+        const before = JSON.stringify(state.cropRect);
         state.cropRect = createDefaultCropRect();
         cropAction = null;
         drawCropOverlay();
         updateCursorPos(lastMouseE);
+        if (JSON.stringify(state.cropRect) !== before) saveState();
     };
     fitImageCropBtn.onclick = () => {
         if (!canvasW || !canvasH) return;
+        const before = JSON.stringify(state.cropRect);
         state.cropRect = { x: 0, y: 0, width: canvasW, height: canvasH };
         cropAction = null;
         drawCropOverlay();
         updateCursorPos(lastMouseE);
+        if (JSON.stringify(state.cropRect) !== before) saveState();
     };
     const cropCurrentView = (rect) => {
         const rounded = roundRect(clampRectToCanvas(rect, 10));
         const sourceBounds = { x: 0, y: 0, width: canvasW, height: canvasH };
-        const cropCanvas = (source, maskOutside = false) => {
+        const cropCanvas = (source, maskOutside = false, backgroundColor = null) => {
             const out = document.createElement("canvas");
             out.width = rounded.width;
             out.height = rounded.height;
             const ctx = out.getContext("2d");
-            if (maskOutside) {
-                ctx.fillStyle = state.maskColor;
+            if (maskOutside || backgroundColor) {
+                ctx.fillStyle = backgroundColor || state.maskColor;
                 ctx.fillRect(0, 0, rounded.width, rounded.height);
                 const overlap = getRectIntersection(rounded, sourceBounds);
                 if (overlap) ctx.clearRect(overlap.x - rounded.x, overlap.y - rounded.y, overlap.width, overlap.height);
@@ -886,7 +930,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
             return out;
         };
 
-        const baseCropped = cropCanvas(rasterizeBaseImage());
+        const baseCropped = cropCanvas(rasterizeBaseImage(), false, state.cropExpandColor);
         const paintCropped = cropCanvas(paintCanvas);
         const maskCropped = cropCanvas(maskCanvas, true);
 
@@ -914,16 +958,29 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         if (rounded.width === canvasW && rounded.height === canvasH && rounded.x === 0 && rounded.y === 0) {
             state.cropRect = null;
             drawCropOverlay();
+            saveState();
             return;
         }
         cropCurrentView(rounded);
     };
     resetCropBtn.onclick = resetCropSelection;
+    const rectangleTool = createRectangleTool({
+        workArea, state, getSize: () => ({ width: canvasW, height: canvasH }),
+        getPos: (event) => getPos(event), getContext: (layer) => layer === 'mask' ? mCtx : pCtx,
+        saveState: () => saveState(), createBtn,
+    });
+    rightBar.insertBefore(createSection("矩形绘制", rectangleTool.panel), cropPanel.parentElement);
     const updateCursorPos = (e = lastMouseE) => {
         if (!e) return;
         lastMouseE = e;
         const { x, y } = getPos(e);
         const isWithinImage = (x >= 0 && x <= canvasW && y >= 0 && y <= canvasH);
+
+        if (state.tool === 'rectangle') {
+            cursor.style.display = 'none';
+            workArea.style.cursor = isPanning ? 'grabbing' : rectangleTool.getCursor(e);
+            return;
+        }
 
         if (state.tool === 'crop') {
             cursor.style.display = 'none';
@@ -964,8 +1021,11 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     };
 
     // --- State Management ---
-    const setTool = (tool) => {
+    const setTool = (tool, recordHistory = true) => {
+        const previousTool = state.tool;
         state.tool = tool;
+        if (tool !== 'rectangle') rectangleTool.cancel();
+        rectangleTool.render();
         Object.values(toolBtns).forEach(b => {
             b.style.background = "transparent";
             b.style.border = "1px solid transparent";
@@ -999,6 +1059,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         drawCropOverlay();
         updateCropMeta();
         updateCursorPos(lastMouseE);
+        if (recordHistory && tool === 'crop' && previousTool !== 'crop' && canvasW && canvasH) saveState();
     };
 
     const setLayer = (layer) => {
@@ -1052,10 +1113,10 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         const chkBase = document.getElementById('A_chk_base');
         
         if (chkMask) chkMask.onchange = (e) => {
-            maskCanvas.style.visibility = e.target.checked ? "visible" : "hidden";
+            rectangleTool.setLayerVisibility('mask', e.target.checked);
         };
         if (chkPaint) chkPaint.onchange = (e) => {
-            paintCanvas.style.visibility = e.target.checked ? "visible" : "hidden";
+            rectangleTool.setLayerVisibility('paint', e.target.checked);
         };
         if (chkBase) chkBase.onchange = (e) => {
             baseImg.style.visibility = e.target.checked ? "visible" : "hidden";
@@ -1066,18 +1127,21 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         const paintDiv = document.getElementById('A_layer_paint');
         if (maskDiv) maskDiv.onclick = (e) => {
             if(e.target !== chkMask) {
-                setTool('brushMask');
+                if (state.tool === 'rectangle') { setLayer('mask'); rectangleTool.render(); }
+                else setTool('brushMask');
             }
         };
         if (paintDiv) paintDiv.onclick = (e) => {
             if(e.target !== chkPaint) {
-                setTool('brushPaint');
+                if (state.tool === 'rectangle') { setLayer('paint'); rectangleTool.render(); }
+                else setTool('brushPaint');
             }
         };
     }, 100);
 
     const updateTransform = () => {
         canvasWrapper.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
+        rectangleTool.render();
         drawCropOverlay();
         updateCursorPos();
     };
@@ -1094,6 +1158,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     resetViewBtn.onclick = resetView;
 
     // --- History ---
+    let historyRestoreId = 0;
     const saveState = () => {
         state.history = state.history.slice(0, state.historyIndex + 1);
         state.history.push({
@@ -1102,7 +1167,13 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
             height: canvasH,
             baseDirty: state.baseImageDirty,
             paint: paintCanvas.toDataURL(),
-            mask: maskCanvas.toDataURL()
+            mask: maskCanvas.toDataURL(),
+            rectangles: rectangleTool.snapshot(),
+            tool: state.tool,
+            cropRect: state.tool === 'crop' ? cloneRect(state.cropRect) : null,
+            cropPreset: state.cropPreset,
+            cropExpandColor: state.cropExpandColor,
+            fillMaskedImageWithGray: state.fillMaskedImageWithGray
         });
         if (state.history.length > 30) state.history.shift();
         else state.historyIndex++;
@@ -1112,18 +1183,48 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     };
 
     const restoreState = (hState) => {
+        const restoreId = ++historyRestoreId;
+        rectangleTool.cancel();
+        if (cropWheelSaveTimer) clearTimeout(cropWheelSaveTimer);
+        cropWheelSaveTimer = null;
+        cropScaledByWheel = false;
         setCanvasSize(hState.width || canvasW, hState.height || canvasH);
         state.baseImageDirty = !!hState.baseDirty;
         state.cropRect = null;
         cropAction = null;
         setBaseImagePreview(hState.base);
 
+        let restoredLayers = 0;
+        const restoreLayer = (ctx, image) => {
+            if (restoreId !== historyRestoreId) return;
+            ctx.clearRect(0, 0, canvasW, canvasH);
+            ctx.drawImage(image, 0, 0);
+            if (++restoredLayers === 2) {
+                const snapshot = hState.rectangles;
+                setTool(hState.tool, false);
+                setCropPreset(hState.cropPreset);
+                state.cropRect = cloneRect(hState.cropRect);
+                state.cropExpandColor = hState.cropExpandColor;
+                cropExpandColorInput.value = state.cropExpandColor;
+                state.fillMaskedImageWithGray = hState.fillMaskedImageWithGray;
+                grayFillInput.checked = state.fillMaskedImageWithGray;
+                if (snapshot.rectangles.length) {
+                    state.opacity = snapshot.opacity;
+                    opSlider.value = state.opacity;
+                    opVal.textContent = state.opacity.toFixed(2);
+                    setLayer(snapshot.layer);
+                    setTool('rectangle', false);
+                }
+                rectangleTool.restore(snapshot);
+                drawCropOverlay();
+            }
+        };
         const pImg = new Image();
-        pImg.onload = () => { pCtx.clearRect(0, 0, canvasW, canvasH); pCtx.drawImage(pImg, 0, 0); };
+        pImg.onload = () => restoreLayer(pCtx, pImg);
         pImg.src = hState.paint;
         
         const mImg = new Image();
-        mImg.onload = () => { mCtx.clearRect(0, 0, canvasW, canvasH); mCtx.drawImage(mImg, 0, 0); };
+        mImg.onload = () => restoreLayer(mCtx, mImg);
         mImg.src = hState.mask;
         updateInfoLabel();
         drawCropOverlay();
@@ -1261,7 +1362,7 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     };
 
     workArea.addEventListener("mousedown", (e) => {
-        if (e.button === 1 || (e.button === 0 && (state.tool === 'pan' || e.shiftKey || e.code === "Space"))) {
+        if (e.button === 1 || (e.button === 0 && (state.tool === 'pan' || (e.shiftKey && state.tool !== 'rectangle') || e.code === "Space"))) {
             isPanning = true;
             panStart.x = e.clientX - state.panX;
             panStart.y = e.clientY - state.panY;
@@ -1269,7 +1370,10 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
         } else if (e.button === 0) {
             const pos = getPos(e);
 
+            if (state.tool === 'rectangle') return;
+
             if (state.tool === 'crop') {
+                cropDragStart = JSON.stringify(state.cropRect);
                 const handle = getCropHandleAt(pos);
                 if (handle === 'move' && state.cropRect) {
                     cropAction = {
@@ -1405,13 +1509,15 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     window.addEventListener("mouseup", (e) => {
         if (isPanning) {
             isPanning = false;
-            workArea.style.cursor = state.tool === 'pan' ? "grab" : "none";
+            workArea.style.cursor = state.tool === 'rectangle' ? rectangleTool.getCursor(e) : state.tool === 'pan' ? "grab" : "none";
         }
         if (cropAction && state.tool === 'crop') {
             state.cropRect = applyCropSnap(state.cropRect, cropAction, cropSnapEdges);
             cropAction = null;
             drawCropOverlay();
             updateCursorPos(e);
+            if (JSON.stringify(state.cropRect) !== cropDragStart) saveState();
+            cropDragStart = null;
         }
         if (isDrawing) {
             isDrawing = false;
@@ -1685,7 +1791,8 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
                 body: JSON.stringify({
                     image_path: saveBasePath,
                     mask_data: maskBase64,
-                    paint_data: paintBase64
+                    paint_data: paintBase64,
+                    fill_masked_image_with_gray: state.fillMaskedImageWithGray
                 })
             });
 
@@ -1714,6 +1821,8 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     };
 
     const cleanup = () => {
+        historyRestoreId++;
+        rectangleTool.dispose();
         if (cropWheelSaveTimer) clearTimeout(cropWheelSaveTimer);
         window.removeEventListener('mousemove', updateCursorPos);
         window.removeEventListener("keydown", handleKey);
@@ -1722,9 +1831,17 @@ export function showImageEditor(imagePaths, currentIndex, node, onSaveCallback) 
     };
 
     const handleKey = (e) => {
+        if (e.defaultPrevented) return;
         if (e.key === "Escape") cleanup();
-        if (e.ctrlKey && e.key === 'z') undoBtn.click();
-        if (e.ctrlKey && e.key === 'y') redoBtn.click();
+        if (e.ctrlKey && e.key.toLowerCase() === 'z') {
+            e.preventDefault();
+            if (e.shiftKey) redoBtn.click();
+            else undoBtn.click();
+        }
+        if (e.ctrlKey && e.key.toLowerCase() === 'y') {
+            e.preventDefault();
+            redoBtn.click();
+        }
     };
     window.addEventListener("keydown", handleKey);
     cancelBtn.onclick = cleanup;

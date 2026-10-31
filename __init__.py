@@ -56,6 +56,7 @@ from .nodes.bg_removal_colorize import BackgroundRemovalColorize
 from .nodes.smart_object_replace_composite import SmartObjectReplaceComposite
 from .nodes.preview_image_mask import AnyImageMaskPreview
 from .nodes.load_live_photo import LoadLivePhoto
+from .nodes.vitpose_nodes import ViTPoseKeypointExtractor, ViTPoseDataToKeypoint, PoseJSONSave
 
 
 # 延迟注册路由 - 确保在ComfyUI完全初始化后注册
@@ -175,6 +176,9 @@ NODE_CLASS_MAPPINGS = {
     "GroupSwitchAny": GroupSwitchAny, # 任意类型分组切换
     "AnyImageMaskPreview": AnyImageMaskPreview,
     "LoadLivePhoto": LoadLivePhoto, # 加载 Live 图（动态照片）
+    "ViTPoseKeypointExtractor": ViTPoseKeypointExtractor, # ViTPose 独立提取（通用格式）
+    "ViTPoseDataToKeypoint": ViTPoseDataToKeypoint, # ViTPose POSEDATA 转通用格式
+    "PoseJSONSave": PoseJSONSave, # 通用姿态 JSON 保存到指定路径
     "MultiInputStateMapper": MultiInputStateMapper, # 多输入存在状态映射
     "MultiImageConditionReference": MultiImageConditionReference, # 多图条件参考
     "WorkflowGroupPresetManager": WorkflowGroupPresetManager, # 工作流切换组管理器
@@ -258,6 +262,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "GroupSwitchAny": "Group Switch Any by ms", # 任意类型分组切换
     "AnyImageMaskPreview": "Any Image Mask Preview by ms",
     "LoadLivePhoto": "Load Live Photo by ms", # 加载 Live 图（动态照片）
+    "ViTPoseKeypointExtractor": "ViTPose Keypoints (Common) by ms", # ViTPose 独立提取（通用格式）
+    "ViTPoseDataToKeypoint": "ViTPose Data to Common Keypoints by ms", # ViTPose POSEDATA 转通用格式
+    "PoseJSONSave": "Pose JSON Save by ms", # 通用姿态 JSON 保存到指定路径
     "MultiInputStateMapper": "Multi Input State Mapper by ms", # 多输入存在状态映射
     "MultiImageConditionReference": "Multi Image Conditioning Reference by ms", # 多图条件参考
     "WorkflowGroupPresetManager": "Workflow Group Preset Manager by ms", # 工作流切换组管理器
