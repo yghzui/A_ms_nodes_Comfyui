@@ -1,3 +1,5 @@
+// 本文件由主项目 tools/sync_image_editor_core.py 自动生成，禁止手改。
+// 源文件: web_apps/static/image_editor/rectangle_tool.js
 const clamp = (value, max) => Math.max(0, Math.min(value, max));
 
 export function rectangleFromPoints(anchor, point, width, height, tolerance, square = false) {

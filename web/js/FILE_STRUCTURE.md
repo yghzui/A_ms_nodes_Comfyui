@@ -36,7 +36,7 @@ web/js/
 ├── load_image/            # 批量图片节点的绘制、布局、图片管理
 ├── text_input_batch/      # 文本批量输入节点拆分模块
 ├── lora/                  # LoRA 选择器、LoRA 信息、LoRA Widget
-├── image_editor/          # 图片编辑器
+├── image_editor/          # 图片编辑器（image_editor.js 为宿主适配器，core/ 为主项目生成的内核镜像，禁止手改）
 ├── *.js                   # 各具体节点入口文件
 └── FILE_STRUCTURE.md      # 本说明文档
 ```
