@@ -422,7 +422,7 @@ app.registerExtension({
                                 evt.stopImmediatePropagation?.();
                                 await Promise.all(targets.map(t => {
                                     if (t._customHandleIncomingPaths) {
-                                        return t._customHandleIncomingPaths(customPaths);
+                                        return t._customHandleIncomingPaths(customPaths, true);
                                     }
                                     return Promise.resolve();
                                 }));
@@ -461,7 +461,7 @@ app.registerExtension({
 
                             await Promise.all(targets.map(t => {
                                 if (t._customHandleIncomingFiles) {
-                                    return t._customHandleIncomingFiles(files);
+                                    return t._customHandleIncomingFiles(files, true);
                                 }
                                 return Promise.resolve();
                             }));
@@ -685,7 +685,7 @@ app.registerExtension({
                         try {
                             const customPaths = (await self._customReadClipboardPaths?.()) || [];
                             if (customPaths.length) {
-                                await self._customHandleIncomingPaths?.(customPaths);
+                                await self._customHandleIncomingPaths?.(customPaths, true);
                                 return;
                             }
 
@@ -696,7 +696,7 @@ app.registerExtension({
                                 return;
                             }
                             // 复用与拖拽/全局粘贴一致的处理逻辑（含 追加/替换 选择）
-                            await self._customHandleIncomingFiles?.(files);
+                            await self._customHandleIncomingFiles?.(files, true);
                         } catch (err) {
                             console.error('右键粘贴处理失败:', err);
                         }

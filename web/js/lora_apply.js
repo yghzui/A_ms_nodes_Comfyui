@@ -4,7 +4,25 @@ import { modal } from "./utils/modal.js";
 import { $el, showTopNotification } from "./utils/shared_utils.js";
 import { rgthree } from "./core/rgthree.js";
 import { RgthreeBetterButtonWidget, addIconButtonRow } from "./utils/utils_widgets.js";
-import { LoraWidget, LabelWidget, DoubleButtonWidget, StatusLabelWidget, showStatusLabelSettingsModal } from "./lora/lora_common.js";
+import { LoraWidget, LabelWidget, DoubleButtonWidget, StatusLabelWidget, showStatusLabelSettingsModal, getLoraRowSlot, getLoraRowMenuItems } from "./lora/lora_common.js";
+
+// 通用 LoRA 行右键菜单配置：行顺序以 loraWidgets 为准
+const LORA_APPLY_ROW_MENU = {
+    rowList: (node) => node.loraWidgets || [],
+    moveRow: (node, widget, offset, list) => {
+        const index = list.indexOf(widget);
+        const target = index + offset;
+        if (index < 0 || target < 0 || target >= list.length) return;
+        [list[index], list[target]] = [list[target], list[index]];
+        node.reorderLoras();
+    },
+    deleteRow: (node, widget, list) => {
+        const index = list.indexOf(widget);
+        if (index >= 0) list.splice(index, 1);
+        node.widgets = node.widgets.filter(item => item !== widget);
+        node.reorderLoras();
+    },
+};
 
 function normalizeLoras(data) {
     const loras = Array.isArray(data) ? data : data?.loras;
@@ -281,16 +299,18 @@ app.registerExtension({
                 y >= bounds[1] && y <= bounds[1] + bounds[3]) {
                 return { widget: null, output: { type: "STATUS_LABEL_WIDGET" } };
             }
-            return slotInPosition?.apply(this, arguments);
+            return getLoraRowSlot(this, x, y, LORA_APPLY_ROW_MENU) || slotInPosition?.apply(this, arguments);
         };
         const slotMenu = nodeType.prototype.getSlotMenuOptions;
-        nodeType.prototype.getSlotMenuOptions = function (slot) {
+        nodeType.prototype.getSlotMenuOptions = function (slot, event) {
             if (slot?.output?.type === "STATUS_LABEL_WIDGET") {
                 new LiteGraph.ContextMenu([{ content: "设置标签样式 (全局)", callback: showStatusLabelSettingsModal }], {
                     event: rgthree.lastCanvasMouseEvent, className: "dark", scale: Math.max(1, app.canvas.ds.scale),
                 });
                 return;
             }
+            const loraRowItems = getLoraRowMenuItems(this, slot, LORA_APPLY_ROW_MENU);
+            if (loraRowItems) return loraRowItems;
             return slotMenu?.apply(this, arguments);
         };
         const extraMenu = nodeType.prototype.getExtraMenuOptions;

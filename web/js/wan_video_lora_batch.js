@@ -2,8 +2,9 @@ import { app } from "../../../scripts/app.js";
 import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, isLowQuality, } from "./utils/utils_canvas.js";
 import { RgthreeBaseWidget, RgthreeDividerWidget, addIconButtonRow } from "./utils/utils_widgets.js";
 import { rgthreeApi } from "./core/rgthree_api.js";
-import { moveArrayItem, removeArrayItem, showTopNotification } from "./utils/shared_utils.js";
+import { moveArrayItem } from "./utils/shared_utils.js";
 import { rgthree } from "./core/rgthree.js";
+import { getLoraRowSlot, getLoraRowMenuItems } from "./lora/lora_common.js";
 
 console.log("Patching node: wan_video_lora_batch.js");
 console.log("Loaded wan_video_lora_batch.js");
@@ -373,106 +374,19 @@ class WanVideoLoraBatchNode extends LGraphNode {
     }
 
     getSlotInPosition(canvasX, canvasY) {
-        let lastWidget = null;
-        for (const widget of this.widgets) {
-            if (!widget.last_y) return;
-            if (canvasY > this.pos[1] + widget.last_y) {
-                lastWidget = widget;
-                continue;
-            }
-            break;
-        }
-        if (lastWidget && lastWidget.name && lastWidget.name.startsWith("LORA_")) {
-            return { widget: lastWidget, output: { type: "LORA WIDGET" } };
-        }
-        return null;
+        return getLoraRowSlot(this, canvasX, canvasY);
     }
 
     getSlotMenuOptions(slot, event) {
-        if (slot && slot.widget && slot.widget.name && slot.widget.name.startsWith("LORA_")) {
-            const widget = slot.widget;
-            const index = this.widgets.indexOf(widget);
-            const canMoveUp = !!(this.widgets[index - 1]?.name?.startsWith("LORA_"));
-            const canMoveDown = !!(this.widgets[index + 1]?.name?.startsWith("LORA_"));
-            
-            const menuItems = [
-                {
-                    content: `${widget.value.on ? "⚫" : "🟢"} 切换 ${widget.value.on ? "关闭" : "开启"}`,
-                    callback: () => {
-                        widget.value.on = !widget.value.on;
-                    },
+        return getLoraRowMenuItems(this, slot, {
+            extraItems: (node) => [{
+                content: "🗑️ 清空所有LoRA",
+                callback: () => {
+                    node.widgets = node.widgets.filter(widget => !widget.name || !widget.name.startsWith("LORA_"));
+                    node.setDirtyCanvas(true, true);
                 },
-                {
-                    content: `📋 复制模型路径`,
-                    disabled: !widget.value.lora || widget.value.lora === "None",
-                    callback: () => {
-                        if (widget.value.lora && widget.value.lora !== "None") {
-                            // 复制LoRA模型路径到剪贴板
-                            navigator.clipboard.writeText(widget.value.lora).then(() => {
-                                console.log(`[WanVideoLoraBatch] 已复制模型路径: ${widget.value.lora}`);
-                                // 显示顶部提示信息
-                                showTopNotification(`已复制模型路径: ${widget.value.lora}`, 'success');
-                            }).catch(err => {
-                                console.error('[WanVideoLoraBatch] 复制失败:', err);
-                                // 降级方案：使用旧的复制方法
-                                try {
-                                    const textArea = document.createElement('textarea');
-                                    textArea.value = widget.value.lora;
-                                    document.body.appendChild(textArea);
-                                    textArea.select();
-                                    document.execCommand('copy');
-                                    document.body.removeChild(textArea);
-                                    console.log(`[WanVideoLoraBatch] 已复制模型路径(降级): ${widget.value.lora}`);
-                                    showTopNotification(`已复制模型路径: ${widget.value.lora}`, 'success');
-                                } catch (fallbackErr) {
-                                    console.error('[WanVideoLoraBatch] 降级复制也失败:', fallbackErr);
-                                    showTopNotification('复制失败，请手动复制', 'error');
-                                }
-                            });
-                        }
-                    },
-                },
-                {
-                    content: `⬆️ 上移`,
-                    disabled: !canMoveUp,
-                    callback: () => {
-                        moveArrayItem(this.widgets, widget, index - 1);
-                    },
-                },
-                {
-                    content: `⬇️ 下移`,
-                    disabled: !canMoveDown,
-                    callback: () => {
-                        moveArrayItem(this.widgets, widget, index + 1);
-                    },
-                },
-                {
-                    content: `🗑️ 删除`,
-                    callback: () => {
-                        removeArrayItem(this.widgets, widget);
-                    },
-                },
-                {
-                    content: `🗑️ 清空所有LoRA`,
-                    callback: () => {
-                        // 移除所有LoRA控件
-                        this.widgets = this.widgets.filter(widget => !widget.name || !widget.name.startsWith("LORA_"));
-                        this.setDirtyCanvas(true, true);
-                    },
-                },
-            ];
-            
-            // 直接使用LiteGraph.ContextMenu，参考rgthree官方实现
-            const cm = new LiteGraph.ContextMenu(menuItems, {
-                title: "LORA WIDGET",
-                event: rgthree.lastCanvasMouseEvent || event,
-                className: "dark",
-                // 传入缩放，匹配ComfyUI官方的行为，避免缩放下的尺寸/位置异常
-                scale: Math.max(1, app?.canvas?.ds?.scale || 1),
-            });
-            return undefined;
-        }
-        return null;
+            }],
+        });
     }
 
     hasLoraWidgets() {

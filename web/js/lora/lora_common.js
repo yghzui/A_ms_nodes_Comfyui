@@ -4,6 +4,7 @@ import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, 
 import { RgthreeBaseWidget } from "../utils/utils_widgets.js";
 import { modal } from "../utils/modal.js";
 import { rgthreeApi } from "../core/rgthree_api.js";
+import { moveArrayItem, removeArrayItem, showTopNotification } from "../utils/shared_utils.js";
 
 // --- Status Label Settings ---
 let statusLabelSettings = JSON.parse(localStorage.getItem("wan_video_status_label_settings") || "{}");
@@ -110,6 +111,134 @@ export async function showLoraChooser(event, callback, parentMenu, loras, button
          // or the custom widget's coordinate system.
          // Let's simplify and rely on the mouse event which is robust.
     }
+}
+
+// --- LoRA 行右键菜单（通用实现） ---
+export const LORA_ROW_OUTPUT = "LORA WIDGET";
+
+export function isLoraRowWidget(widget) {
+    return !!(widget && widget.name && widget.name.startsWith("LORA_"));
+}
+
+const DEFAULT_LORA_ROW_LABELS = {
+    toggle: (widget) => `${widget.value?.on ? "⚫" : "🟢"} 切换 ${widget.value?.on ? "关闭" : "开启"}`,
+    copyPath: "📋 复制模型路径",
+    moveUp: "⬆️ 上移",
+    moveDown: "⬇️ 下移",
+    delete: "🗑️ 删除",
+};
+
+function getLoraRowList(node, widget, options) {
+    if (options.rowList) return options.rowList(node, widget) || [];
+    return (node.widgets || []).filter(options.isRow || isLoraRowWidget);
+}
+
+/**
+ * 命中 LoRA 行控件，返回供 getSlotMenuOptions 使用的插槽对象
+ */
+export function getLoraRowSlot(node, canvasX, canvasY, options = {}) {
+    const isRow = options.isRow || isLoraRowWidget;
+    let hit = null;
+    for (const widget of node.widgets || []) {
+        if (!isRow(widget) || widget.last_y === undefined) continue;
+        const height = widget.computeSize ? widget.computeSize(node.size[0])[1] : LiteGraph.NODE_WIDGET_HEIGHT;
+        if (height <= 0) continue;
+        const top = node.pos[1] + widget.last_y;
+        if (canvasY >= top && canvasY < top + height) {
+            hit = widget;
+            break;
+        }
+    }
+    return hit ? { widget: hit, output: { type: LORA_ROW_OUTPUT } } : null;
+}
+
+function copyLoraPath(path) {
+    if (!path || path === "None") return;
+    const notify = () => showTopNotification(`已复制模型路径: ${path}`, "success");
+    navigator.clipboard?.writeText(path).then(notify).catch(() => {
+        try {
+            const textArea = document.createElement("textarea");
+            textArea.value = path;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand("copy");
+            document.body.removeChild(textArea);
+            notify();
+        } catch (err) {
+            console.error("[LoRA] 复制模型路径失败:", err);
+            showTopNotification("复制失败，请手动复制", "error");
+        }
+    });
+}
+
+/**
+ * 构建 LoRA 行菜单项。可通过 options 覆盖排序列表、移动/删除行为、文案与额外菜单项
+ */
+export function buildLoraRowMenu(node, widget, options = {}) {
+    const list = getLoraRowList(node, widget, options);
+    const index = list.indexOf(widget);
+    if (index === -1) return null;
+
+    const labels = { ...DEFAULT_LORA_ROW_LABELS, ...(options.labels || {}) };
+    const moveRow = options.moveRow || ((n, w, offset) => {
+        const widgets = n.widgets || [];
+        const from = widgets.indexOf(w);
+        const to = from + offset;
+        if (from < 0 || to < 0 || to >= widgets.length) return;
+        moveArrayItem(widgets, w, to);
+    });
+    const deleteRow = options.deleteRow || ((n, w) => removeArrayItem(n.widgets || [], w));
+    const afterChange = options.afterChange || ((n) => n.setDirtyCanvas?.(true, true));
+
+    const items = [
+        {
+            content: labels.toggle(widget),
+            callback: () => {
+                widget.value.on = !widget.value.on;
+                afterChange(node, widget);
+            },
+        },
+        {
+            content: labels.copyPath,
+            disabled: !widget.value?.lora || widget.value.lora === "None",
+            callback: () => copyLoraPath(widget.value.lora),
+        },
+        {
+            content: labels.moveUp,
+            disabled: index <= 0,
+            callback: () => {
+                moveRow(node, widget, -1, list, index);
+                afterChange(node, widget);
+            },
+        },
+        {
+            content: labels.moveDown,
+            disabled: index >= list.length - 1,
+            callback: () => {
+                moveRow(node, widget, 1, list, index);
+                afterChange(node, widget);
+            },
+        },
+        {
+            content: labels.delete,
+            callback: () => {
+                deleteRow(node, widget, list, index);
+                afterChange(node, widget);
+            },
+        },
+    ];
+
+    if (options.extraItems) items.push(...(options.extraItems(node, widget, index, list) || []));
+    return { title: options.title || "LORA WIDGET", items };
+}
+
+/**
+ * 若插槽命中 LoRA 行则返回右键菜单项数组，未命中返回 null
+ */
+export function getLoraRowMenuItems(node, slot, options = {}) {
+    if (!slot || !slot.widget || slot.output?.type !== LORA_ROW_OUTPUT) return null;
+    const built = buildLoraRowMenu(node, slot.widget, options);
+    return built ? built.items : null;
 }
 
 export class LabelWidget extends RgthreeBaseWidget {

@@ -1,10 +1,11 @@
 import { app } from "../../../scripts/app.js";
 import { drawNumberWidgetPart, drawRoundedRectangle, drawTogglePart, fitString, isLowQuality, } from "./utils/utils_canvas.js";
 import { RgthreeBaseWidget, RgthreeDividerWidget, addIconButtonRow } from "./utils/utils_widgets.js";
-import { moveArrayItem, removeArrayItem, showTopNotification } from "./utils/shared_utils.js";
+import { moveArrayItem, showTopNotification } from "./utils/shared_utils.js";
 import { modal } from "./utils/modal.js";
 import { rgthree } from "./core/rgthree.js";
 import { rgthreeApi } from "./core/rgthree_api.js";
+import { getLoraRowSlot, getLoraRowMenuItems } from "./lora/lora_common.js";
 
 console.log("Loaded load_lora_merge.js");
 
@@ -14,6 +15,33 @@ const ASSET_SAVE_GROUP_STORAGE_KEY = "load_lora_merge_asset_save_group_name";
 const ASSET_SAVE_TARGET_STORAGE_KEY = "load_lora_merge_asset_save_target";
 const ASSET_SAVE_MODE_STORAGE_KEY = "load_lora_merge_asset_save_mode";
 const ASSET_SAVE_ITEM_STORAGE_KEY = "load_lora_merge_asset_save_item_keyword";
+
+// LoRA 行右键菜单配置（保持该节点原有英文文案与扩展项）
+const LOAD_LORA_MERGE_ROW_MENU = {
+    labels: {
+        toggle: (widget) => `${widget.value.on ? "⚫" : "🟢"} Toggle ${widget.value.on ? "Off" : "On"}`,
+        copyPath: "📋 Copy Path",
+        moveUp: "⬆️ Move Up",
+        moveDown: "⬇️ Move Down",
+        delete: "🗑️ Delete",
+    },
+    extraItems: (node) => [
+        {
+            content: "🗑️ Clear All LoRAs",
+            callback: () => {
+                node.widgets = node.widgets.filter(widget => !widget.name || !widget.name.startsWith("LORA_"));
+                node.setDirtyCanvas(true, true);
+            },
+        },
+        {
+            content: node.properties?.useOfficialLoraList ? "Use Custom Lora List" : "Use Official Lora List",
+            callback: () => {
+                if (!node.properties) node.properties = {};
+                node.properties.useOfficialLoraList = !node.properties.useOfficialLoraList;
+            },
+        },
+    ],
+};
 
 function getStoredValue(storageKey, defaultValue = "") {
     try {
@@ -825,69 +853,9 @@ app.registerExtension({
         // Right-click context menu for LoRA widgets
         const getSlotMenuOptions = nodeType.prototype.getSlotMenuOptions;
         nodeType.prototype.getSlotMenuOptions = function(slot) {
-            getSlotMenuOptions?.apply(this, arguments);
-            if (!slot || !slot.widget?.name?.startsWith("LORA_")) return null;
-            
-            const widget = slot.widget;
-            const index = this.widgets.indexOf(widget);
-            const canMoveUp = !!this.widgets[index - 1]?.name?.startsWith("LORA_");
-            const canMoveDown = !!this.widgets[index + 1]?.name?.startsWith("LORA_");
-
-            const menuItems = [
-                {
-                    content: `${widget.value.on ? "⚫" : "🟢"} Toggle ${widget.value.on ? "Off" : "On"}`,
-                    callback: () => { widget.value.on = !widget.value.on; },
-                },
-                {
-                    content: `📋 Copy Path`,
-                    disabled: !widget.value.lora || widget.value.lora === "None",
-                    callback: () => {
-                        if (widget.value.lora && widget.value.lora !== "None") {
-                            navigator.clipboard.writeText(widget.value.lora).then(() => {
-                                showTopNotification(`Copied: ${widget.value.lora}`, 'success');
-                            }).catch(err => {
-                                console.error('Copy failed:', err);
-                            });
-                        }
-                    },
-                },
-                {
-                    content: `⬆️ Move Up`,
-                    disabled: !canMoveUp,
-                    callback: () => { moveArrayItem(this.widgets, widget, index - 1); },
-                },
-                {
-                    content: `⬇️ Move Down`,
-                    disabled: !canMoveDown,
-                    callback: () => { moveArrayItem(this.widgets, widget, index + 1); },
-                },
-                {
-                    content: `🗑️ Delete`,
-                    callback: () => { removeArrayItem(this.widgets, widget); },
-                },
-                {
-                    content: `🗑️ Clear All LoRAs`,
-                    callback: () => {
-                        this.widgets = this.widgets.filter(widget => !widget.name || !widget.name.startsWith("LORA_"));
-                        this.setDirtyCanvas(true, true);
-                    },
-                },
-                {
-                    content: this.properties?.useOfficialLoraList ? "Use Custom Lora List" : "Use Official Lora List",
-                    callback: () => {
-                        if (!this.properties) this.properties = {};
-                        this.properties['useOfficialLoraList'] = !this.properties.useOfficialLoraList;
-                    }
-                },
-            ];
-            
-            new LiteGraph.ContextMenu(menuItems, {  
-                title: "LoRA Item", 
-                event: rgthree.lastCanvasMouseEvent, 
-                className: "dark", 
-                scale: Math.max(1, app?.canvas?.ds?.scale || 1) 
-            });
-            return undefined;
+            const items = getLoraRowMenuItems(this, slot, LOAD_LORA_MERGE_ROW_MENU);
+            if (items) return items;
+            return getSlotMenuOptions?.apply(this, arguments);
         };
 
         const getExtraMenuOptions = nodeType.prototype.getExtraMenuOptions;
@@ -911,19 +879,7 @@ app.registerExtension({
         
         // Add getSlotInPosition for right-click menu support
         nodeType.prototype.getSlotInPosition = function(canvasX, canvasY) {
-            let lastWidget = null;
-            for (const widget of this.widgets) {
-                if (!widget.last_y) return;
-                if (canvasY > this.pos[1] + widget.last_y) {
-                    lastWidget = widget;
-                    continue;
-                }
-                break;
-            }
-            if (lastWidget && lastWidget.name && lastWidget.name.startsWith("LORA_")) {
-                return { widget: lastWidget, output: { type: "LORA WIDGET" } };
-            }
-            return null;
+            return getLoraRowSlot(this, canvasX, canvasY);
         };
 
         // Helper to add custom widgets

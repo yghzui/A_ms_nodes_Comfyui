@@ -5,7 +5,7 @@ import { modal } from "./utils/modal.js";
 import { moveArrayItem, showTopNotification } from "./utils/shared_utils.js";
 import { rgthree } from "./core/rgthree.js";
 import { api } from "../../../scripts/api.js";
-import { LabelWidget, LoraWidget, DoubleButtonWidget, showLoraChooser, StatusLabelWidget, showStatusLabelSettingsModal } from "./lora/lora_common.js";
+import { LabelWidget, LoraWidget, DoubleButtonWidget, showLoraChooser, StatusLabelWidget, showStatusLabelSettingsModal, getLoraRowSlot, getLoraRowMenuItems } from "./lora/lora_common.js";
 
 // --- Helper Functions ---
 
@@ -28,6 +28,77 @@ function saveAssetGroupName(groupName) {
         console.warn("Failed to save asset group:", error);
     }
 }
+
+// LoRA 行右键菜单配置（保持该节点原有英文文案与双流分组逻辑）
+const DOUBLE_STREAM_ROW_MENU = {
+    isRow: (widget) => !!widget.group,
+    rowList: (node, widget) => (widget.group === "High" ? node.highLoraWidgets : node.lowLoraWidgets) || [],
+    labels: {
+        toggle: (widget) => `${widget.value.on ? "⚫" : "🟢"} Toggle ${widget.value.on ? "Off" : "On"}`,
+        copyPath: "📋 Copy Path",
+        moveUp: "⬆️ Move Up",
+        moveDown: "⬇️ Move Down",
+        delete: "🗑️ Delete",
+    },
+    moveRow: (node, widget, offset, list) => {
+        const index = list.indexOf(widget);
+        const target = index + offset;
+        if (index < 0 || target < 0 || target >= list.length) return;
+        [list[index], list[target]] = [list[target], list[index]];
+        node.reorderWidgets();
+        node.setDirtyCanvas(true, true);
+    },
+    deleteRow: (node, widget, list) => {
+        const index = list.indexOf(widget);
+        if (index >= 0) list.splice(index, 1);
+        const wIdx = node.widgets.indexOf(widget);
+        if (wIdx > -1) node.widgets.splice(wIdx, 1);
+        node.reorderWidgets();
+        node.setDirtyCanvas(true, true);
+    },
+    afterChange: (node) => node.setDirtyCanvas(true, true),
+    extraItems: (node, widget, index, list) => [
+        {
+            content: "⏫ Move to Top",
+            disabled: index <= 0 || list.length <= 1,
+            callback: () => {
+                list.splice(index, 1);
+                list.unshift(widget);
+                node.reorderWidgets();
+                node.setDirtyCanvas(true, true);
+            },
+        },
+        {
+            content: "⏬ Move to Bottom",
+            disabled: index >= list.length - 1 || list.length <= 1,
+            callback: () => {
+                list.splice(index, 1);
+                list.push(widget);
+                node.reorderWidgets();
+                node.setDirtyCanvas(true, true);
+            },
+        },
+        {
+            content: `🗑️ Clear All ${widget.group} Stream`,
+            callback: () => {
+                list.forEach(w => {
+                    const wIdx = node.widgets.indexOf(w);
+                    if (wIdx > -1) node.widgets.splice(wIdx, 1);
+                });
+                list.length = 0;
+                node.reorderWidgets();
+                node.setDirtyCanvas(true, true);
+            },
+        },
+        {
+            content: node.properties?.useOfficialLoraList ? "Use Custom Lora List" : "Use Official Lora List",
+            callback: () => {
+                if (!node.properties) node.properties = {};
+                node.properties.useOfficialLoraList = !node.properties.useOfficialLoraList;
+            },
+        },
+    ],
+};
 
 function normalizeAssetStreamSettings(settings) {
     if (!settings || typeof settings !== "object") {
@@ -844,8 +915,6 @@ app.registerExtension({
         // Context Menu for removal
         const getSlotMenuOptions = nodeType.prototype.getSlotMenuOptions;
         nodeType.prototype.getSlotMenuOptions = function(slot) {
-            getSlotMenuOptions?.apply(this, arguments);
-            
             if (slot && slot.output && slot.output.type === "STATUS_LABEL_WIDGET") {
                 const menuItems = [
                     {
@@ -855,141 +924,18 @@ app.registerExtension({
                         }
                     }
                 ];
-                new LiteGraph.ContextMenu(menuItems, { 
-                    title: "Label Settings", 
-                    event: rgthree.lastCanvasMouseEvent || event, 
-                    className: "dark", 
-                    scale: Math.max(1, app?.canvas?.ds?.scale || 1) 
+                new LiteGraph.ContextMenu(menuItems, {
+                    title: "Label Settings",
+                    event: rgthree.lastCanvasMouseEvent,
+                    className: "dark",
+                    scale: Math.max(1, app?.canvas?.ds?.scale || 1)
                 });
                 return undefined;
             }
 
-            if (!slot || !slot.widget || !slot.widget.group) return null;
-            
-            const widget = slot.widget;
-            const streamList = widget.group === "High" ? this.highLoraWidgets : this.lowLoraWidgets;
-            const index = streamList.indexOf(widget);
-            
-            if (index === -1) return null;
-
-            const canMoveUp = index > 0;
-            const canMoveDown = index < streamList.length - 1;
-            const isFirst = index === 0;
-            const isLast = index === streamList.length - 1;
-            
-            const menuItems = [
-                { 
-                    content: `${widget.value.on ? "⚫" : "🟢"} Toggle ${widget.value.on ? "Off" : "On"}`, 
-                    callback: () => { 
-                        widget.value.on = !widget.value.on; 
-                        this.setDirtyCanvas(true, true);
-                    } 
-                },
-                { 
-                    content: `📋 Copy Path`, 
-                    disabled: !widget.value.lora || widget.value.lora === "None", 
-                    callback: () => {
-                        const text = widget.value.lora;
-                        navigator.clipboard.writeText(text).then(() => {
-                            showTopNotification(`Copied: ${text}`, 'success');
-                        }).catch(err => {
-                            // Fallback
-                            const textArea = document.createElement('textarea');
-                            textArea.value = text;
-                            document.body.appendChild(textArea);
-                            textArea.select();
-                            try {
-                                document.execCommand('copy');
-                                showTopNotification(`Copied: ${text}`, 'success');
-                            } catch (err) {
-                                showTopNotification('Copy failed', 'error');
-                            }
-                            document.body.removeChild(textArea);
-                        });
-                    } 
-                },
-                { 
-                    content: `⬆️ Move Up`, 
-                    disabled: !canMoveUp, 
-                    callback: () => {
-                        const temp = streamList[index];
-                        streamList[index] = streamList[index - 1];
-                        streamList[index - 1] = temp;
-                        this.reorderWidgets();
-                        this.setDirtyCanvas(true, true);
-                    } 
-                },
-                { 
-                    content: `⬇️ Move Down`, 
-                    disabled: !canMoveDown, 
-                    callback: () => {
-                        const temp = streamList[index];
-                        streamList[index] = streamList[index + 1];
-                        streamList[index + 1] = temp;
-                        this.reorderWidgets();
-                        this.setDirtyCanvas(true, true);
-                    } 
-                },
-                { 
-                    content: `⏫ Move to Top`, 
-                    disabled: isFirst || streamList.length <= 1, 
-                    callback: () => {
-                        streamList.splice(index, 1);
-                        streamList.unshift(widget);
-                        this.reorderWidgets();
-                        this.setDirtyCanvas(true, true);
-                    }
-                },
-                { 
-                    content: `⏬ Move to Bottom`, 
-                    disabled: isLast || streamList.length <= 1, 
-                    callback: () => {
-                        streamList.splice(index, 1);
-                        streamList.push(widget);
-                        this.reorderWidgets();
-                        this.setDirtyCanvas(true, true);
-                    }
-                },
-                { 
-                    content: `🗑️ Delete`, 
-                    callback: () => {
-                        streamList.splice(index, 1);
-                        const wIdx = this.widgets.indexOf(widget);
-                        if (wIdx > -1) this.widgets.splice(wIdx, 1);
-                        this.reorderWidgets();
-                        this.setDirtyCanvas(true, true);
-                    } 
-                },
-                { 
-                    content: `🗑️ Clear All ${widget.group} Stream`,
-                    callback: () => { 
-                        // Remove all widgets of this stream from main widget list
-                        streamList.forEach(w => {
-                            const wIdx = this.widgets.indexOf(w);
-                            if (wIdx > -1) this.widgets.splice(wIdx, 1);
-                        });
-                        // Clear the tracking array
-                        streamList.length = 0;
-                        this.reorderWidgets();
-                        this.setDirtyCanvas(true, true);
-                    } 
-                },
-                {
-                    content: this.properties?.useOfficialLoraList ? "Use Custom Lora List" : "Use Official Lora List",
-                    callback: () => {
-                        if (!this.properties) this.properties = {};
-                        this.properties['useOfficialLoraList'] = !this.properties.useOfficialLoraList;
-                    }
-                },
-            ];
-
-            new LiteGraph.ContextMenu(menuItems, { 
-                title: "LoRA Item", 
-                event: rgthree.lastCanvasMouseEvent || event, 
-                className: "dark", 
-                scale: Math.max(1, app?.canvas?.ds?.scale || 1) 
-            });
-            return undefined;
+            const items = getLoraRowMenuItems(this, slot, DOUBLE_STREAM_ROW_MENU);
+            if (items) return items;
+            return getSlotMenuOptions?.apply(this, arguments);
         };
 
         const getExtraMenuOptions = nodeType.prototype.getExtraMenuOptions;
@@ -1024,47 +970,15 @@ app.registerExtension({
         
         // Add getSlotInPosition for right-click menu support
         nodeType.prototype.getSlotInPosition = function(canvasX, canvasY) {
-            let lastWidget = null;
-            // Iterate widgets to find which one is under the mouse
-            // The canvasY is relative to the node position usually? 
-            // LiteGraph's getSlotInPosition is called with node-relative coordinates or canvas coordinates?
-            // Wait, looking at LoadLoraMerge: 
-            // if (canvasY > this.pos[1] + widget.last_y)
-            // This suggests canvasY is in Canvas coordinates.
-            
-            // Let's verify coordinates. 
-            // If getSlotInPosition is called by LiteGraph, it usually passes coordinates.
-            // But LoadLoraMerge implementation implies canvasY is absolute canvas coord?
-            // "this.pos[1]" is node Y. "widget.last_y" is relative Y.
-            
             // Check if mouse is over the external big status label
             if (this.bigLabelBounds) {
                 const [lx, ly, lw, lh] = this.bigLabelBounds;
-                // canvasX and canvasY passed to getSlotInPosition are node-relative coordinates!
-                if (canvasX >= lx && canvasX <= lx + lw && 
+                if (canvasX >= lx && canvasX <= lx + lw &&
                     canvasY >= ly && canvasY <= ly + lh) {
                     return { widget: null, output: { type: "STATUS_LABEL_WIDGET" } };
                 }
             }
-
-            for (const widget of this.widgets) {
-                if (widget.last_y === undefined) continue;
-                
-                // Simple hit test based on vertical position
-                // Assuming widgets are stacked vertically and take full width
-                const widgetY = this.pos[1] + widget.last_y;
-                const widgetHeight = widget.computeSize ? widget.computeSize(this.size[0])[1] : LiteGraph.NODE_WIDGET_HEIGHT;
-                
-                if (canvasY >= widgetY && canvasY < widgetY + widgetHeight) {
-                    lastWidget = widget;
-                    break;
-                }
-            }
-
-            if (lastWidget && lastWidget.group) {
-                return { widget: lastWidget, output: { type: "LORA WIDGET" } };
-            }
-            return null;
+            return getLoraRowSlot(this, canvasX, canvasY, DOUBLE_STREAM_ROW_MENU);
         };
     }
 });
