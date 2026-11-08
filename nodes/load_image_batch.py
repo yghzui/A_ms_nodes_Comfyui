@@ -120,7 +120,9 @@ class LoadImageBatchAdvanced:
         all_paths = raw_paths + folder_images
         
         if not all_paths:
-            return ([None], [None], [""], 0, "")
+            # 没选图时：图像给 [None]（文本编码器等会跳过），遮罩给全 0 占位——
+            # 羽化/遮罩绑定节点不接受 None，全 0 遮罩在绑定节点里等价于「不重绘、整图生成」。
+            return ([None], [torch.zeros((1, 512, 512))], [""], 0, "")
 
         template_paths = []
         if reuse_mask:
@@ -180,6 +182,9 @@ class LoadImageBatchAdvanced:
                         mask_np = 1.0 - mask_np
                         if normalize_mask:
                             mask_np = np.clip(mask_np, 0.0, 1.0)
+                        # alpha=250~255 这种「几乎不透明」的值多是格式转换残留，
+                        # 不抹掉就会被当成重绘区域，羽化收缩后表现为四周一圈不重绘。
+                        mask_np[mask_np < 0.1] = 0.0
 
                     size_key = (width, height)
                     if size_key not in size_to_edited_mask:
@@ -242,6 +247,8 @@ class LoadImageBatchAdvanced:
                     if normalize_mask:
                         # 仍保持 0..1 区间
                         mask_np = np.clip(mask_np, 0.0, 1.0)
+                    # 同预扫描：alpha 只有 0~5/255 的透明差异视为无遮罩
+                    mask_np[mask_np < 0.1] = 0.0
 
                 if reuse_mask and size_to_edited_mask:
                     size_key = (width, height)

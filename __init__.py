@@ -54,6 +54,8 @@ from .nodes.multi_image_condition_reference import MultiImageConditionReference
 from .nodes.workflow_group_preset_manager import WorkflowGroupPresetManager
 from .nodes.bg_removal_colorize import BackgroundRemovalColorize
 from .nodes.smart_object_replace_composite import SmartObjectReplaceComposite
+from .nodes.qwen_image21_align import QwenImage21AlignSize, QwenImage21RestoreSize
+from .nodes.image_fit_pixels import ImageFitPixelsMs
 from .nodes.preview_image_mask import AnyImageMaskPreview
 from .nodes.load_live_photo import LoadLivePhoto
 from .nodes.vitpose_nodes import ViTPoseKeypointExtractor, ViTPoseDataToKeypoint, PoseJSONSave
@@ -184,6 +186,9 @@ NODE_CLASS_MAPPINGS = {
     "WorkflowGroupPresetManager": WorkflowGroupPresetManager, # 工作流切换组管理器
     "BackgroundRemovalColorize": BackgroundRemovalColorize, # 背景移除换色增强
     "SmartObjectReplaceComposite": SmartObjectReplaceComposite, # 智能对象替换合成
+    "QwenImage21AlignSize": QwenImage21AlignSize, # Qwen2.1 宽高对齐
+    "QwenImage21RestoreSize": QwenImage21RestoreSize, # Qwen2.1 尺寸复原
+    "ImageFitPixelsMs": ImageFitPixelsMs, # 按百万像素缩放（含遮罩）
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadAndResizeImageMy": "Load & Resize Image by ms", # 加载并调整图片大小
@@ -270,6 +275,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "WorkflowGroupPresetManager": "Workflow Group Preset Manager by ms", # 工作流切换组管理器
     "BackgroundRemovalColorize": "Background Removal Colorize by ms", # 背景移除换色增强
     "SmartObjectReplaceComposite": "Smart Object Replace Composite by ms", # 智能对象替换合成
+    "QwenImage21AlignSize": "Qwen2.1 Size Align by ms", # Qwen2.1 宽高对齐
+    "QwenImage21RestoreSize": "Qwen2.1 Size Restore by ms", # Qwen2.1 尺寸复原
+    "ImageFitPixelsMs": "Image Fit Pixels by ms", # 按百万像素缩放
 }
 
 WEB_DIRECTORY = "./web/js"
