@@ -1,5 +1,5 @@
 // 本文件由主项目 tools/sync_image_editor_core.py 自动生成，禁止手改。
-// 源文件: web_apps/static/image_editor/crop_utils.js
+// 源文件: apps/web_apps/static/image_editor/crop_utils.js
 export const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
 export const cloneRect = (rect) => rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null;
@@ -49,20 +49,7 @@ export const clampRectToCanvas = (rect, canvasW, canvasH, minSize = 1) => {
 
 export const createDefaultCropRect = (cropPreset, canvasW, canvasH) => {
     if (!canvasW || !canvasH) return null;
-    const aspectRatio = getCurrentCropAspectRatio(cropPreset, canvasW, canvasH);
-    const padding = 0.08;
-    const maxWidth = Math.max(1, canvasW * (1 - padding * 2));
-    const maxHeight = Math.max(1, canvasH * (1 - padding * 2));
-    if (!aspectRatio) {
-        return { x: canvasW * padding, y: canvasH * padding, width: maxWidth, height: maxHeight };
-    }
-    let width = maxWidth;
-    let height = width / aspectRatio;
-    if (height > maxHeight) {
-        height = maxHeight;
-        width = height * aspectRatio;
-    }
-    return { x: (canvasW - width) / 2, y: (canvasH - height) / 2, width, height };
+    return { x: 0, y: 0, width: canvasW, height: canvasH };
 };
 
 export const getCropHandleAt = (cropRect, scale, pos, hitBoost = 0) => {
@@ -130,9 +117,30 @@ export const buildAspectRectFromAnchor = (anchor, point, cropPreset, canvasW, ca
     return clampRectToCanvas({ x, y, width, height }, canvasW, canvasH, 10);
 };
 
-export const resizeCropRect = (startRect, handle, pos, cropPreset, canvasW, canvasH) => {
+export const resizeCropRect = (startRect, handle, pos, cropPreset, canvasW, canvasH, symmetric = false) => {
     const aspectRatio = getCurrentCropAspectRatio(cropPreset, canvasW, canvasH);
     const minSize = 10;
+    if (symmetric) {
+        const centerX = startRect.x + startRect.width / 2;
+        const centerY = startRect.y + startRect.height / 2;
+        const ratio = aspectRatio || startRect.width / Math.max(startRect.height, minSize);
+        let width = startRect.width;
+        let height = startRect.height;
+        if (['nw', 'ne', 'sw', 'se'].includes(handle)) {
+            const scaleX = Math.abs(pos.x - centerX) / Math.max(startRect.width / 2, minSize / 2);
+            const scaleY = Math.abs(pos.y - centerY) / Math.max(startRect.height / 2, minSize / 2);
+            const scale = Math.max(scaleX, scaleY, minSize / Math.max(startRect.width, startRect.height));
+            width = Math.max(startRect.width * scale, minSize);
+            height = Math.max(startRect.height * scale, minSize);
+        } else if (handle === 'e' || handle === 'w') {
+            width = Math.max(Math.abs(pos.x - centerX) * 2, minSize);
+            if (aspectRatio) height = Math.max(width / ratio, minSize);
+        } else {
+            height = Math.max(Math.abs(pos.y - centerY) * 2, minSize);
+            if (aspectRatio) width = Math.max(height * ratio, minSize);
+        }
+        return clampRectToCanvas({ x: centerX - width / 2, y: centerY - height / 2, width, height }, canvasW, canvasH, minSize);
+    }
     if (!aspectRatio) {
         let nextRect = { ...startRect };
         if (handle.includes('n')) {

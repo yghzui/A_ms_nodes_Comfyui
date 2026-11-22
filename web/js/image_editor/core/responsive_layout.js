@@ -1,5 +1,5 @@
 // 本文件由主项目 tools/sync_image_editor_core.py 自动生成，禁止手改。
-// 源文件: web_apps/static/image_editor/responsive_layout.js
+// 源文件: apps/web_apps/static/image_editor/responsive_layout.js
 export const MOBILE_BREAKPOINT = 900;
 
 export const syncCompactPanelState = (ctx, open) => {

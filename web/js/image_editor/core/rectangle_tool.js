@@ -1,5 +1,5 @@
 // 本文件由主项目 tools/sync_image_editor_core.py 自动生成，禁止手改。
-// 源文件: web_apps/static/image_editor/rectangle_tool.js
+// 源文件: apps/web_apps/static/image_editor/rectangle_tool.js
 const clamp = (value, max) => Math.max(0, Math.min(value, max));
 
 export function rectangleFromPoints(anchor, point, width, height, tolerance, square = false) {
@@ -36,17 +36,27 @@ const corners = rect => [
     { x: rect.x, y: rect.y + rect.height }, { x: rect.x + rect.width, y: rect.y + rect.height },
 ];
 
-export function createRectangleTool({ workArea, state, getSize, getPos, getContext, saveState, createBtn }) {
+export function createRectangleTool({ workArea, state, getSize, getPos, getContext, saveState, createBtn, compositeLayer }) {
+    const layerOpacity = () => state.layer === 'mask' ? state.maskOpacity : state.paintOpacity;
     let rect = null;
-    let rectangles = [];
+    let maskRectangles = [];
+    let rectangles = state.layer === 'mask' ? maskRectangles : [];
     let selectedIndex = -1;
     let action = null;
     let dragStart = null;
+    let activeLayer = state.layer;
+    let maskBase = null;
+    const maskStrokeBase = document.createElement('canvas');
     let color = '#808080';
+    const drawingColor = () => state.layer === 'mask' ? (state.maskColor || '#000000') : color;
     let previewSource = null;
     let sourceVisibility = '';
+    let maskPreviewFrame = null;
+    let maskRaster = null;
     const preview = document.createElement('canvas');
     const releasePreview = () => {
+        if (maskPreviewFrame !== null) cancelAnimationFrame(maskPreviewFrame);
+        maskPreviewFrame = null;
         if (previewSource) previewSource.style.visibility = sourceVisibility;
         previewSource = null;
         preview.remove();
@@ -78,7 +88,6 @@ export function createRectangleTool({ workArea, state, getSize, getPos, getConte
     const panel = document.createElement('div');
     Object.assign(panel.style, { display: 'flex', flexDirection: 'column', gap: '10px' });
     const hint = document.createElement('div');
-    hint.textContent = '连续拖出多个矩形，点击已有框可移动或拉角调整；Ctrl 拖出重叠框。边界自动吸合，Shift 正方形，Enter 全部应用，Esc 全部取消，Delete 删除当前框。';
     Object.assign(hint.style, { fontSize: '12px', color: '#aaa', lineHeight: '1.5' });
     const status = document.createElement('div');
     Object.assign(status.style, { fontSize: '12px', color: '#ffca5a' });
@@ -100,12 +109,119 @@ export function createRectangleTool({ workArea, state, getSize, getPos, getConte
     buttons.append(applyBtn, cancelBtn, deleteBtn);
     panel.append(hint, colorLabel, status, buttons);
 
+    const isMask = () => state.layer === 'mask';
+    const cancelMaskDrag = () => {
+        if (activeLayer !== 'mask' || !action) return;
+        maskRectangles.splice(0, maskRectangles.length, ...JSON.parse(dragStart));
+        action = null;
+        dragStart = null;
+    };
+    const syncLayer = () => {
+        if (activeLayer === state.layer) return;
+        cancelMaskDrag();
+        activeLayer = state.layer;
+        rectangles = isMask() ? maskRectangles : [];
+        selectedIndex = rectangles.length - 1;
+        rect = rectangles[selectedIndex] || null;
+        action = null;
+    };
+    const renderMaskPixels = (ctx, base) => {
+        const { width, height } = base;
+        if (maskRaster?.width !== width || maskRaster?.height !== height) {
+            maskRaster = ctx.createImageData(width, height);
+        }
+        const image = maskRaster;
+        image.data.set(base.data);
+        for (const item of maskRectangles) {
+            const left = Math.round(item.x);
+            const top = Math.round(item.y);
+            const right = Math.round(item.x + item.width);
+            const bottom = Math.round(item.y + item.height);
+            for (let y = top; y < bottom; y++) {
+                for (let x = left; x < right; x++) {
+                    const pixel = (y * width + x) * 4;
+                    const previous = image.data[pixel + 3];
+                    if (!item.overlap && previous >= item.alpha) continue;
+                    image.data[pixel] = image.data[pixel + 1] = image.data[pixel + 2] = 0;
+                    image.data[pixel + 3] = item.overlap
+                        ? Math.round(previous + item.alpha * (1 - previous / 255)) : item.alpha;
+                }
+            }
+        }
+        ctx.putImageData(image, 0, 0);
+    };
+    const commitMask = () => {
+        const ctx = getContext('mask');
+        const { width, height } = getSize();
+        maskBase ??= ctx.getImageData(0, 0, width, height);
+        renderMaskPixels(ctx, maskBase);
+        if (!maskRectangles.length) maskBase = null;
+    };
+    const scheduleMaskPreview = () => {
+        if (maskPreviewFrame !== null) return;
+        maskPreviewFrame = requestAnimationFrame(() => {
+            maskPreviewFrame = null;
+            if (!action || !isMask() || state.tool !== 'rectangle') return;
+            const ctx = getContext('mask');
+            const source = ctx.canvas;
+            if (previewSource !== source) {
+                releasePreview();
+                preview.width = source.width;
+                preview.height = source.height;
+                preview.style.cssText = source.style.cssText;
+                source.parentElement.insertBefore(preview, source);
+                previewSource = source;
+                sourceVisibility = source.style.visibility;
+                source.style.visibility = 'hidden';
+            }
+            const base = maskBase ?? (action.previewBase ??= ctx.getImageData(0, 0, source.width, source.height));
+            renderMaskPixels(preview.getContext('2d'), base);
+        });
+    };
+    const previewPaint = () => {
+        const source = getContext('paint').canvas;
+        preview.width = source.width;
+        preview.height = source.height;
+        preview.style.cssText = source.style.cssText;
+        const previewCtx = preview.getContext('2d');
+        previewCtx.drawImage(source, 0, 0);
+        if (state.allowOverlap) {
+            previewCtx.globalAlpha = layerOpacity();
+            previewCtx.fillStyle = drawingColor();
+            rectangles.forEach(item => {
+                const x = Math.round(item.x), y = Math.round(item.y);
+                previewCtx.fillRect(x, y, Math.round(item.x + item.width) - x, Math.round(item.y + item.height) - y);
+            });
+        } else {
+            const shapes = document.createElement('canvas');
+            shapes.width = source.width;
+            shapes.height = source.height;
+            const shapesCtx = shapes.getContext('2d');
+            shapesCtx.fillStyle = drawingColor();
+            rectangles.forEach(item => {
+                const x = Math.round(item.x), y = Math.round(item.y);
+                shapesCtx.fillRect(x, y, Math.round(item.x + item.width) - x, Math.round(item.y + item.height) - y);
+            });
+            compositeLayer(previewCtx, shapes);
+        }
+        source.parentElement.insertBefore(preview, source);
+        sourceVisibility = source.style.visibility;
+        previewSource = source;
+        source.style.visibility = 'hidden';
+    };
     const render = () => {
+        syncLayer();
         if (selectedIndex >= 0 && rect) rectangles[selectedIndex] = rect;
-        releasePreview();
         const active = state.tool === 'rectangle';
+        if (active && isMask() && action) scheduleMaskPreview();
+        else releasePreview();
         panel.style.display = active ? 'flex' : 'none';
+        colorLabel.style.display = state.layer === 'paint' ? 'flex' : 'none';
         overlay.style.display = active ? 'block' : 'none';
+        applyBtn.style.display = cancelBtn.style.display = isMask() ? 'none' : 'flex';
+        hint.textContent = isMask()
+            ? '松手即保存矩形。拖动框内可移动，拖角可调整，Ctrl 可画重叠框，Shift 可画正方形，Delete 删除当前框。'
+            : '连续拖出多个矩形，点击已有框可移动或拉角调整；Ctrl 拖出重叠框。边界自动吸合，Shift 正方形，Enter 全部应用，Esc 全部取消，Delete 删除当前框。';
         applyBtn.disabled = !active || !rectangles.some(item => item.width >= 1 && item.height >= 1);
         cancelBtn.disabled = rectangles.length === 0;
         deleteBtn.disabled = selectedIndex < 0;
@@ -122,23 +238,7 @@ export function createRectangleTool({ workArea, state, getSize, getPos, getConte
         box.style.display = rect ? 'block' : 'none';
         guides.forEach(guide => { guide.style.display = 'none'; });
         if (!rect) return;
-        const ctx = getContext(state.layer);
-        const source = ctx.canvas;
-        preview.width = source.width;
-        preview.height = source.height;
-        preview.style.cssText = source.style.cssText;
-        const previewCtx = preview.getContext('2d');
-        previewCtx.drawImage(source, 0, 0);
-        previewCtx.globalAlpha = state.opacity;
-        previewCtx.fillStyle = color;
-        rectangles.forEach(item => {
-            const x = Math.round(item.x), y = Math.round(item.y);
-            previewCtx.fillRect(x, y, Math.round(item.x + item.width) - x, Math.round(item.y + item.height) - y);
-        });
-        source.parentElement.insertBefore(preview, source);
-        sourceVisibility = source.style.visibility;
-        previewSource = source;
-        source.style.visibility = 'hidden';
+        if (!isMask()) previewPaint();
         rectangles.forEach((item, index) => {
             if (index === selectedIndex) return;
             const outline = document.createElement('div');
@@ -166,25 +266,65 @@ export function createRectangleTool({ workArea, state, getSize, getPos, getConte
         });
         if (snapped.some(Boolean)) status.textContent += ' · 已吸合图片边界';
     };
-    const cancel = () => { rect = null; rectangles = []; selectedIndex = -1; action = null; render(); };
+    const cancel = () => {
+        syncLayer();
+        cancelMaskDrag();
+        action = null;
+        if (!isMask()) rectangles = [];
+        selectedIndex = rectangles.length - 1;
+        rect = rectangles[selectedIndex] || null;
+        render();
+    };
+    const flattenMask = () => {
+        if (activeLayer === 'mask' && action) cancel();
+        if (!maskRectangles.length) return;
+        maskRectangles.length = 0;
+        maskBase = null;
+        if (activeLayer === 'mask') cancel();
+    };
+    const addMaskStroke = stroke => {
+        if (!maskBase) return;
+        const { width, height } = getSize();
+        maskStrokeBase.width = width;
+        maskStrokeBase.height = height;
+        const ctx = maskStrokeBase.getContext('2d', { willReadFrequently: true });
+        ctx.putImageData(maskBase, 0, 0);
+        compositeLayer(ctx, stroke);
+        maskBase = ctx.getImageData(0, 0, width, height);
+        commitMask();
+    };
     const cancelEdit = () => {
         if (!rectangles.length) return;
         cancel();
         saveState();
     };
     const apply = () => {
+        if (isMask()) return;
         const valid = rectangles.filter(item => item.width >= 1 && item.height >= 1);
         if (!valid.length) return;
         const ctx = getContext(state.layer);
-        ctx.save();
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.globalAlpha = state.opacity;
-        ctx.fillStyle = color;
-        valid.forEach(item => {
-            const x = Math.round(item.x), y = Math.round(item.y);
-            ctx.fillRect(x, y, Math.round(item.x + item.width) - x, Math.round(item.y + item.height) - y);
-        });
-        ctx.restore();
+        if (state.allowOverlap) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = layerOpacity();
+            ctx.fillStyle = drawingColor();
+            valid.forEach(item => {
+                const x = Math.round(item.x), y = Math.round(item.y);
+                ctx.fillRect(x, y, Math.round(item.x + item.width) - x, Math.round(item.y + item.height) - y);
+            });
+            ctx.restore();
+        } else {
+            const shapes = document.createElement('canvas');
+            shapes.width = ctx.canvas.width;
+            shapes.height = ctx.canvas.height;
+            const shapesCtx = shapes.getContext('2d');
+            shapesCtx.fillStyle = drawingColor();
+            valid.forEach(item => {
+                const x = Math.round(item.x), y = Math.round(item.y);
+                shapesCtx.fillRect(x, y, Math.round(item.x + item.width) - x, Math.round(item.y + item.height) - y);
+            });
+            compositeLayer(ctx, shapes);
+        }
         cancel();
         saveState();
     };
@@ -196,6 +336,7 @@ export function createRectangleTool({ workArea, state, getSize, getPos, getConte
         selectedIndex = rectangles.length - 1;
         rect = rectangles[selectedIndex] || null;
         action = null;
+        if (isMask()) commitMask();
         render();
         saveState();
     };
@@ -242,7 +383,7 @@ export function createRectangleTool({ workArea, state, getSize, getPos, getConte
         const imageCorner = hitCorner(imagePoints, pos);
         const selectionCorner = rect && !event.ctrlKey ? hitCorner(corners(rect), pos) : -1;
         if (selectionCorner >= 0) {
-            action = { type: 'resize', anchor: corners(rect)[3 - selectionCorner] };
+            action = { type: 'resize', anchor: corners(rect)[3 - selectionCorner], rect: { ...rect } };
         } else if (imageCorner >= 0) {
             action = { type: 'new', anchor: imagePoints[imageCorner] };
         } else if (!event.ctrlKey && rect && pos.x >= rect.x && pos.x <= rect.x + rect.width && pos.y >= rect.y && pos.y <= rect.y + rect.height) {
@@ -256,6 +397,10 @@ export function createRectangleTool({ workArea, state, getSize, getPos, getConte
         }
         if (action.type === 'new') {
             rect = { ...action.anchor, width: 0, height: 0 };
+            if (isMask()) {
+                rect.alpha = Math.round(layerOpacity() * 255);
+                rect.overlap = state.allowOverlap;
+            }
             rectangles.push(rect);
             selectedIndex = rectangles.length - 1;
         }
@@ -270,22 +415,38 @@ export function createRectangleTool({ workArea, state, getSize, getPos, getConte
         const pos = getPos(event);
         const { width, height } = getSize();
         const tolerance = 3 / state.scale;
-        rect = action.type === 'move'
+        const geometry = action.type === 'move'
             ? moveRectangle(action.rect, pos.x - action.start.x, pos.y - action.start.y, width, height, tolerance)
             : rectangleFromPoints(action.anchor, pos, width, height, tolerance, event.shiftKey);
+        rect = { ...rect, ...geometry };
         render();
     };
     const up = event => {
         if (!action) return;
         move(event);
+        const newRectangle = action.type === 'new';
+        if (isMask() && action.type === 'resize' && (rect.width < 1 || rect.height < 1)) {
+            rect = rectangles[selectedIndex] = action.rect;
+        }
         action = null;
+        if (isMask() && newRectangle) {
+            if (rect.width < 1 || rect.height < 1) {
+                rectangles.pop();
+                selectedIndex = rectangles.length - 1;
+                rect = rectangles[selectedIndex] || null;
+            }
+        }
+        if (JSON.stringify(rectangles) !== dragStart) {
+            if (isMask()) commitMask();
+            saveState();
+        }
+        render();
         workArea.style.cursor = getCursor(event);
-        if (JSON.stringify(rectangles) !== dragStart) saveState();
         dragStart = null;
     };
     const key = event => {
         if (state.tool !== 'rectangle' || !rect || event.target.matches?.('input, textarea, select, [contenteditable="true"]')) return;
-        if (event.key === 'Enter' || event.key === 'Escape') {
+        if (!isMask() && (event.key === 'Enter' || event.key === 'Escape')) {
             event.preventDefault();
             if (event.key === 'Enter') apply();
             else cancelEdit();
@@ -298,15 +459,19 @@ export function createRectangleTool({ workArea, state, getSize, getPos, getConte
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
     window.addEventListener('keydown', key);
-    return { panel, render, cancel, apply, getCursor,
+    return { panel, render, cancel, apply, getCursor, flattenMask, addMaskStroke,
         snapshot() {
             return { rectangles: rectangles.map(item => ({ ...item })), selectedIndex, color,
-                layer: state.layer, opacity: state.opacity };
+                layer: state.layer, opacity: layerOpacity(), maskBase,
+                maskRectangles: maskRectangles.map(item => ({ ...item })) };
         },
         restore(snapshot) {
             cancel();
-            rectangles = snapshot.rectangles.map(item => ({ ...item }));
-            selectedIndex = snapshot.selectedIndex;
+            maskBase = snapshot.maskBase;
+            maskRectangles = snapshot.maskRectangles.map(item => ({ ...item }));
+            rectangles = isMask() ? maskRectangles : (snapshot.layer === 'paint'
+                ? snapshot.rectangles.map(item => ({ ...item })) : []);
+            selectedIndex = snapshot.layer === state.layer ? snapshot.selectedIndex : rectangles.length - 1;
             rect = rectangles[selectedIndex] || null;
             color = snapshot.color;
             colorInput.value = color;
@@ -314,8 +479,12 @@ export function createRectangleTool({ workArea, state, getSize, getPos, getConte
         }, setLayerVisibility(layer, visible) {
         const source = getContext(layer).canvas;
         const visibility = visible ? 'visible' : 'hidden';
-        if (previewSource === source) sourceVisibility = visibility;
-        source.style.visibility = visibility;
+        if (previewSource === source) {
+            sourceVisibility = visibility;
+            preview.style.visibility = visibility;
+        } else {
+            source.style.visibility = visibility;
+        }
         render();
     }, dispose() {
         releasePreview();

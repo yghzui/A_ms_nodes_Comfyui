@@ -1,5 +1,5 @@
 // 本文件由主项目 tools/sync_image_editor_core.py 自动生成，禁止手改。
-// 源文件: web_apps/static/image_editor/editor_core.js
+// 源文件: apps/web_apps/static/image_editor/editor_core.js
 import {
     applyCropSnap,
     buildAspectRectFromAnchor,
@@ -20,6 +20,9 @@ import {
 } from "./crop_utils.js";
 import { createRectangleTool } from "./rectangle_tool.js";
 import { applyResponsiveLayout as applyResponsiveEditorLayout, syncCompactPanelState } from "./responsive_layout.js";
+import { compositeLayerCanvas } from "./composite.js";
+import { fillEnclosedLayer } from "./enclosed_fill.js";
+import { deriveLinkedLayerData } from "./linked_layers.js";
 
 const MAX_DIM = 1536;
 
@@ -86,7 +89,14 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
         layer: 'mask', // Default to mask
         shape: savedConfig.shape || 'round', // round, square
         size: savedConfig.size || 60,
-        opacity: savedConfig.opacity !== undefined ? savedConfig.opacity : 1.0,
+        maskOpacity: savedConfig.maskOpacity !== undefined ? savedConfig.maskOpacity
+            : (savedConfig.opacity !== undefined ? savedConfig.opacity : 1.0),
+        paintOpacity: savedConfig.paintOpacity !== undefined ? savedConfig.paintOpacity
+            : (savedConfig.opacity !== undefined ? savedConfig.opacity : 1.0),
+        allowOverlap: savedConfig.allowOverlap === true,
+        linkPaintColor: savedConfig.linkPaintColor || '#ff0000',
+        linkPaintOpacity: savedConfig.linkPaintOpacity !== undefined ? savedConfig.linkPaintOpacity : 1.0,
+        linkMaskOpacity: savedConfig.linkMaskOpacity !== undefined ? savedConfig.linkMaskOpacity : 1.0,
         maskPreviewOpacity: savedConfig.maskPreviewOpacity !== undefined ? savedConfig.maskPreviewOpacity : 0.65, // 遮罩层整体预览透明度
         color: savedConfig.color || '#ff0000', // 画笔默认红色
         maskColor: 'rgba(0, 0, 0, 1)', // 遮罩固定使用黑色绘制
@@ -109,7 +119,12 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
             localStorage.setItem("myNodesImageEditorConfig", JSON.stringify({
                 shape: state.shape,
                 size: state.size,
-                opacity: state.opacity,
+                maskOpacity: state.maskOpacity,
+                paintOpacity: state.paintOpacity,
+                allowOverlap: state.allowOverlap,
+                linkPaintColor: state.linkPaintColor,
+                linkPaintOpacity: state.linkPaintOpacity,
+                linkMaskOpacity: state.linkMaskOpacity,
                 maskPreviewOpacity: state.maskPreviewOpacity,
                 color: state.color,
                 cropPreset: state.cropPreset,
@@ -118,6 +133,8 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
             }));
         } catch(e) { console.warn("Failed to save editor config", e); }
     };
+
+    const layerOpacity = (layer = state.layer) => layer === 'mask' ? state.maskOpacity : state.paintOpacity;
 
     let origW = 0, origH = 0, canvasW = 0, canvasH = 0;
     let currentLoadId = 0;
@@ -194,6 +211,7 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
     const invertBtn = createBtn("◐ 反转遮罩");
     const resetViewBtn = createBtn("□ 缩放归位");
     const clearBtn = createBtn("∅ 一键清除");
+    const fillEnclosedBtn = createBtn("▧ 填充闭环");
     const saveBtn = createBtn("✓ 保存", "#4CAF50");
     const cancelBtn = createBtn("⨯ 取消", "#f44336");
 
@@ -208,15 +226,16 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
     closeBtn.onmouseenter = () => closeBtn.style.color = "#f44336";
     closeBtn.onmouseleave = () => closeBtn.style.color = "#fff";
 
-    topBar.append(title, undoBtn, redoBtn, invertBtn, resetViewBtn, clearBtn, saveBtn, cancelBtn, spacer, closeBtn);
+    topBar.append(title, undoBtn, redoBtn, invertBtn, resetViewBtn, clearBtn, fillEnclosedBtn, saveBtn, cancelBtn, spacer, closeBtn);
     editor.appendChild(topBar);
-    const topActionButtons = [undoBtn, redoBtn, invertBtn, resetViewBtn, clearBtn, saveBtn, cancelBtn, closeBtn];
+    const topActionButtons = [undoBtn, redoBtn, invertBtn, resetViewBtn, clearBtn, fillEnclosedBtn, saveBtn, cancelBtn, closeBtn];
     const topActionButtonLabels = new Map([
         [undoBtn, { full: "↺ 撤销", compact: "↺" }],
         [redoBtn, { full: "↻ 重做", compact: "↻" }],
         [invertBtn, { full: "◐ 反转遮罩", compact: "◐" }],
         [resetViewBtn, { full: "□ 缩放归位", compact: "□" }],
         [clearBtn, { full: "∅ 一键清除", compact: "∅" }],
+        [fillEnclosedBtn, { full: "▧ 填充闭环", compact: "▧" }],
         [saveBtn, { full: "✓ 保存", compact: "✓" }],
         [cancelBtn, { full: "⨯ 取消", compact: "⨯" }],
         [closeBtn, { full: "✖", compact: "✖" }]
@@ -247,9 +266,8 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
     const tools = [
         { id: 'pan', icon: '🖐️', title: '平移/缩放' },
         { id: 'crop', icon: '✂️', title: '裁剪 (支持自由/常见比例/原比例)' },
-        { id: 'rectangle', icon: '▭', title: '矩形绘制 (Shift 正方形，边界吸合)' },
-        { id: 'brushMask', icon: '⚫', title: '遮罩画笔 (绘制遮罩层)' },
-        { id: 'brushPaint', icon: '🖌️', title: '绘画画笔 (绘制绘画层)' },
+        { id: 'brushMask', icon: '⚫', title: '遮罩绘制' },
+        { id: 'brushPaint', icon: '🖌️', title: '彩色绘画' },
         { id: 'eraser', icon: '🧽', title: '橡皮擦 (擦除当前层)' },
         { id: 'eyedropper', icon: '💧', title: '吸管 (取色)' }
     ];
@@ -259,12 +277,16 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
         const btn = document.createElement("button");
         btn.textContent = t.icon;
         btn.title = t.title;
+        btn.setAttribute("aria-label", t.title);
         Object.assign(btn.style, {
             width: "40px", height: "40px", fontSize: "20px", background: "transparent",
             border: "1px solid transparent", borderRadius: "8px", cursor: "pointer", color: "#fff",
             transition: "all 0.2s"
         });
-        btn.onclick = () => setTool(t.id);
+        btn.onclick = () => {
+            if (t.id === 'brushMask' || t.id === 'brushPaint') selectDrawingLayer(t.id);
+            else setTool(t.id);
+        };
         toolBtns[t.id] = btn;
         leftBar.appendChild(btn);
     });
@@ -342,7 +364,7 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
     Object.assign(rightBar.style, {
         width: "260px", background: "#2a2a2a", borderLeft: "1px solid #444",
         padding: "20px", display: "flex", flexDirection: "column", gap: "25px", boxSizing: "border-box",
-        overflowY: "auto"
+        flexShrink: "0", minHeight: "0", overflow: "hidden", colorScheme: "dark"
     });
     mainArea.appendChild(rightBar);
 
@@ -412,7 +434,7 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
 
     // Layer Toggle
     const layerPanel = document.createElement("div");
-    layerPanel.style.cssText = `margin-top:20px; border-top: 1px solid #444; padding-top:10px; display:flex; flex-direction:column; gap:10px;`;
+    layerPanel.style.cssText = `flex:none; display:flex; flex-direction:column; gap:10px;`;
     
     layerPanel.innerHTML = `
         <div style="font-weight:bold; margin-bottom:5px; color:#ddd; font-size:14px;">图层面板</div>
@@ -443,6 +465,25 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
     `;
     
     rightBar.appendChild(layerPanel);
+    const toolSettings = document.createElement("div");
+    toolSettings.setAttribute("role", "region");
+    toolSettings.setAttribute("aria-label", "当前工具参数");
+    Object.assign(toolSettings.style, {
+        flex: "1", minHeight: "0", overflowY: "auto", scrollbarGutter: "stable",
+        display: "flex", flexDirection: "column", gap: "16px"
+    });
+    const drawingMethod = document.createElement("div");
+    drawingMethod.setAttribute("role", "group");
+    drawingMethod.setAttribute("aria-label", "绘制方式");
+    Object.assign(drawingMethod.style, { display: "flex", gap: "10px" });
+    const methodButtons = {
+        brush: createBtn("画笔", "transparent"),
+        rectangle: createBtn("矩形", "transparent")
+    };
+    for (const button of Object.values(methodButtons)) button.style.flex = "1";
+    drawingMethod.append(...Object.values(methodButtons));
+    const methodSection = createSection("绘制方式", drawingMethod);
+    toolSettings.appendChild(methodSection);
     const grayFillLabel = document.createElement('label');
     Object.assign(grayFillLabel.style, { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' });
     const grayFillInput = document.createElement('input');
@@ -454,7 +495,8 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
         saveConfigToStorage();
         saveState();
     };
-    rightBar.appendChild(grayFillLabel);
+    const grayFillSection = document.createElement("div");
+    grayFillSection.appendChild(grayFillLabel);
 
     const cropPanel = document.createElement("div");
     cropPanel.style.display = "flex";
@@ -462,7 +504,7 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
     cropPanel.style.gap = "10px";
 
     const cropHint = document.createElement("div");
-    cropHint.textContent = "拖拽创建裁剪框，支持框出图片外区域作为扩图区域，框内拖动可移动，拖角点可缩放。";
+    cropHint.textContent = "拖拽创建裁剪框，支持框出图片外区域作为扩图区域，框内拖动可移动，拖角点可缩放；按住 Shift 拖边可中心对称缩放，拖角可四边等比缩放。";
     cropHint.style.fontSize = "12px";
     cropHint.style.color = "#9aa0a6";
     cropHint.style.lineHeight = "1.5";
@@ -540,7 +582,7 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
     cropSnapStatus.textContent = "";
 
     cropPanel.append(cropHint, cropPresetWrap, cropExpandColorWrap, cropActionWrap, fitImageCropBtn, cropMeta, cropSnapStatus);
-    rightBar.appendChild(createSection("图像裁剪", cropPanel));
+    const cropSection = createSection("图像裁剪", cropPanel);
 
     // Shape Toggle
     const shapeDiv = document.createElement("div");
@@ -553,7 +595,7 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
     shapeBtns.round.onclick = () => { setShape('round'); saveConfigToStorage(); };
     shapeBtns.square.onclick = () => { setShape('square'); saveConfigToStorage(); };
     shapeDiv.append(shapeBtns.round, shapeBtns.square);
-    rightBar.appendChild(createSection("笔刷形状", shapeDiv));
+    const shapeSection = createSection("笔刷形状", shapeDiv);
 
     // Color
     const colorInput = document.createElement("input");
@@ -562,7 +604,7 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
     colorInput.style.cursor = "pointer"; colorInput.style.border = "none";
     colorInput.style.padding = "0"; colorInput.style.background = "transparent";
     colorInput.oninput = (e) => { state.color = e.target.value; rectangleTool.render(); saveConfigToStorage(); };
-    rightBar.appendChild(createSection("色彩获取 (仅绘制层有效)", colorInput));
+    const colorSection = createSection("画笔颜色", colorInput);
 
     // Size
     const sizeDiv = document.createElement("div");
@@ -574,19 +616,101 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
     sizeDiv.append(sizeSlider);
     const sizeSec = createSection("笔刷大小: ", sizeDiv);
     sizeSec.children[0].appendChild(sizeVal);
-    rightBar.appendChild(sizeSec);
 
-    // Opacity
-    const opDiv = document.createElement("div");
-    const opVal = document.createElement("span"); opVal.textContent = state.opacity.toFixed(2);
-    const opSlider = document.createElement("input");
-    opSlider.type = "range"; opSlider.min = "0.01"; opSlider.max = "1"; opSlider.step = "0.01"; opSlider.value = state.opacity;
-    opSlider.style.width = "100%";
-    opSlider.oninput = (e) => { state.opacity = parseFloat(e.target.value); opVal.textContent = state.opacity.toFixed(2); rectangleTool.render(); saveConfigToStorage(); };
-    opDiv.append(opSlider);
-    const opSec = createSection("绘制不透明度: ", opDiv);
-    opSec.children[0].appendChild(opVal);
-    rightBar.appendChild(opSec);
+    const createLayerOpacityControl = (label, field) => {
+        const container = document.createElement("div");
+        const value = document.createElement("span");
+        value.textContent = state[field].toFixed(2);
+        const slider = document.createElement("input");
+        slider.setAttribute("aria-label", label.trim());
+        slider.type = "range"; slider.min = "0.01"; slider.max = "1"; slider.step = "0.01"; slider.value = state[field];
+        slider.style.width = "100%";
+        slider.oninput = () => {
+            state[field] = Number(slider.value);
+            value.textContent = state[field].toFixed(2);
+            rectangleTool.render();
+            saveConfigToStorage();
+        };
+        container.append(slider);
+        const section = createSection(label, container);
+        section.children[0].appendChild(value);
+        return section;
+    };
+    const maskOpacitySection = createLayerOpacityControl("遮罩绘制不透明度 ", "maskOpacity");
+    const paintOpacitySection = createLayerOpacityControl("绘画绘制不透明度 ", "paintOpacity");
+
+    const overlapLabel = document.createElement("label");
+    Object.assign(overlapLabel.style, { display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", lineHeight: "1.5" });
+    const overlapInput = document.createElement("input");
+    overlapInput.type = "checkbox";
+    overlapInput.checked = state.allowOverlap;
+    overlapInput.title = "关闭时，重复涂抹同一位置保持既有颜色与不透明度；开启后按半透明叠加。";
+    const overlapText = document.createElement("span");
+    overlapText.textContent = "允许同处叠加（默认关闭）";
+    overlapLabel.append(overlapInput, overlapText);
+    overlapInput.onchange = () => {
+        state.allowOverlap = overlapInput.checked;
+        saveConfigToStorage();
+        rectangleTool.render();
+    };
+    const overlapSection = createSection("图层合成", overlapLabel);
+
+    const linkPanel = document.createElement("div");
+    Object.assign(linkPanel.style, { display: "flex", flexDirection: "column", gap: "8px", fontSize: "12px" });
+    linkPanel.setAttribute("role", "group");
+    linkPanel.setAttribute("aria-label", "图层同步");
+    const syncActions = document.createElement("div");
+    Object.assign(syncActions.style, { display: "flex", gap: "6px" });
+    const maskToPaintBtn = createBtn("遮罩 → 绘画");
+    const paintToMaskBtn = createBtn("绘画 → 遮罩");
+    for (const button of [maskToPaintBtn, paintToMaskBtn]) {
+        Object.assign(button.style, {
+            flex: "1", justifyContent: "center", padding: "6px 4px", fontSize: "12px"
+        });
+        button.title = "以源图层替换目标图层一次，可撤销。";
+    }
+    maskToPaintBtn.onclick = () => syncLayerOnce('mask_to_paint');
+    paintToMaskBtn.onclick = () => syncLayerOnce('paint_to_mask');
+    syncActions.append(maskToPaintBtn, paintToMaskBtn);
+    const syncSettings = document.createElement("details");
+    const syncSummary = document.createElement("summary");
+    syncSummary.textContent = "同步参数";
+    const linkColor = document.createElement("input");
+    linkColor.type = "color";
+    linkColor.setAttribute("aria-label", "同步绘画颜色");
+    linkColor.value = state.linkPaintColor;
+    const colorLabel = document.createElement("label");
+    colorLabel.append("绘画颜色 ", linkColor);
+    linkColor.oninput = () => {
+        state.linkPaintColor = linkColor.value;
+        saveConfigToStorage();
+    };
+    const syncOpacityControl = (labelText, field) => {
+        const label = document.createElement("label");
+        const slider = document.createElement("input");
+        const value = document.createElement("span");
+        slider.type = "range";
+        slider.min = "0.01";
+        slider.max = "1";
+        slider.step = "0.01";
+        slider.value = state[field];
+        slider.style.width = "100%";
+        slider.setAttribute("aria-label", labelText);
+        value.textContent = Number(slider.value).toFixed(2);
+        slider.oninput = () => {
+            state[field] = Number(slider.value);
+            value.textContent = state[field].toFixed(2);
+            saveConfigToStorage();
+        };
+        label.append(labelText + " ", value, slider);
+        return label;
+    };
+    syncSettings.append(syncSummary, colorLabel, syncOpacityControl("同步绘画不透明度", "linkPaintOpacity"),
+        syncOpacityControl("同步遮罩不透明度", "linkMaskOpacity"));
+    linkPanel.append(syncActions, syncSettings);
+    const linkSection = createSection("图层同步", linkPanel);
+    linkSection.style.flexShrink = "0";
+    rightBar.append(linkSection, toolSettings);
 
     // Mask Preview Opacity
     const maskPreviewOpDiv = document.createElement("div");
@@ -609,7 +733,6 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
     maskPreviewOpDiv.append(maskPreviewOpSlider);
     const maskPreviewOpSec = createSection("遮罩预览透明度: ", maskPreviewOpDiv);
     maskPreviewOpSec.children[0].appendChild(maskPreviewOpVal);
-    rightBar.appendChild(maskPreviewOpSec);
 
 
     let lastMouseE = null;
@@ -860,6 +983,7 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
         const paintCropped = cropCanvas(paintCanvas);
         const maskCropped = cropCanvas(maskCanvas, true);
 
+        rectangleTool.flattenMask();
         setCanvasSize(rounded.width, rounded.height);
         pCtx.clearRect(0, 0, canvasW, canvasH);
         mCtx.clearRect(0, 0, canvasW, canvasH);
@@ -894,8 +1018,36 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
         workArea, state, getSize: () => ({ width: canvasW, height: canvasH }),
         getPos: (event) => getPos(event), getContext: (layer) => layer === 'mask' ? mCtx : pCtx,
         saveState: () => saveState(), createBtn,
+        compositeLayer: (context, overlay) => compositeLayerCanvas(context, overlay, layerOpacity(), state.allowOverlap),
     });
-    rightBar.insertBefore(createSection("矩形绘制", rectangleTool.panel), cropPanel.parentElement);
+    const rectangleSection = createSection("矩形绘制", rectangleTool.panel);
+    toolSettings.append(maskOpacitySection, paintOpacitySection, overlapSection, shapeSection,
+        sizeSec, colorSection, rectangleSection, cropSection, maskPreviewOpSec, grayFillSection);
+    const drawingMethods = { mask: 'brush', paint: 'brush' };
+    let displayedContext = '';
+    const refreshToolSettings = () => {
+        const isBrush = state.tool === 'brushMask' || state.tool === 'brushPaint';
+        const isRectangle = state.tool === 'rectangle';
+        const isDrawingTool = isBrush || isRectangle;
+        const isMask = state.layer === 'mask';
+        const isEraser = state.tool === 'eraser';
+        const showMaskSettings = isMask && (isDrawingTool || isEraser || state.tool === 'eyedropper');
+        updateChoiceButtons(methodButtons, drawingMethods[state.layer]);
+        methodSection.hidden = !isDrawingTool;
+        maskOpacitySection.hidden = !(isMask && (isDrawingTool || isEraser));
+        paintOpacitySection.hidden = !(!isMask && (isDrawingTool || isEraser));
+        overlapSection.hidden = !isDrawingTool;
+        shapeSection.hidden = sizeSec.hidden = !(isBrush || isEraser);
+        colorSection.hidden = !(isBrush && !isMask);
+        rectangleSection.hidden = !isRectangle;
+        cropSection.hidden = state.tool !== 'crop';
+        maskPreviewOpSec.hidden = grayFillSection.hidden = !showMaskSettings;
+        const context = `${state.tool}:${state.layer}`;
+        if (displayedContext !== context) toolSettings.scrollTop = 0;
+        displayedContext = context;
+    };
+    methodButtons.brush.onclick = () => setTool(state.layer === 'mask' ? 'brushMask' : 'brushPaint');
+    methodButtons.rectangle.onclick = () => setTool('rectangle');
     const updateCursorPos = (e = lastMouseE) => {
         if (!e) return;
         lastMouseE = e;
@@ -960,42 +1112,52 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
     };
 
     // --- State Management ---
+    const selectDrawingLayer = (brush) => {
+        const layer = brush === 'brushMask' ? 'mask' : 'paint';
+        const method = drawingMethods[layer];
+        if (method === 'rectangle') {
+            if (state.layer !== layer) rectangleTool.cancel();
+            setLayer(layer);
+            setTool('rectangle');
+        } else {
+            setTool(brush);
+        }
+    };
     const setTool = (tool, recordHistory = true) => {
         const previousTool = state.tool;
         state.tool = tool;
         if (tool !== 'crop') state.cropHover = null;
         if (tool !== 'rectangle') rectangleTool.cancel();
-        rectangleTool.render();
+        if (tool === 'brushMask' || tool === 'brushPaint') drawingMethods[tool === 'brushMask' ? 'mask' : 'paint'] = 'brush';
+        if (tool === 'rectangle') drawingMethods[state.layer] = 'rectangle';
         Object.values(toolBtns).forEach(b => {
             b.style.background = "transparent";
             b.style.border = "1px solid transparent";
+            b.setAttribute("aria-pressed", "false");
         });
         cropAction = null;
         
         // Handle tool selection
         if (tool === 'brushMask') {
-            toolBtns.brushMask.style.background = '#4CAF50';
-            toolBtns.brushMask.style.border = '1px solid #66bb6a';
             setLayer('mask'); // Automatically switch to mask layer
-            tempCanvas.style.opacity = 0;
         } else if (tool === 'brushPaint') {
-            toolBtns.brushPaint.style.background = '#4CAF50';
-            toolBtns.brushPaint.style.border = '1px solid #66bb6a';
             setLayer('paint'); // Automatically switch to paint layer
-            tempCanvas.style.opacity = 0;
         } else if (tool === 'crop') {
-            toolBtns.crop.style.background = '#4CAF50';
-            toolBtns.crop.style.border = '1px solid #66bb6a';
-            tempCanvas.style.opacity = 0;
             if (!state.cropRect && canvasW && canvasH) {
                 state.cropRect = createDefaultCropRect(state.cropPreset, canvasW, canvasH);
             }
-        } else if (toolBtns[tool]) {
-            toolBtns[tool].style.background = '#4CAF50';
-            toolBtns[tool].style.border = '1px solid #66bb6a';
-            tempCanvas.style.opacity = 0;
+        }
+        tempCanvas.style.opacity = 0;
+        const activeButton = toolBtns[tool === 'rectangle'
+            ? (state.layer === 'mask' ? 'brushMask' : 'brushPaint') : tool];
+        if (activeButton) {
+            activeButton.style.background = '#4CAF50';
+            activeButton.style.border = '1px solid #66bb6a';
+            activeButton.setAttribute("aria-pressed", "true");
         }
         if (tool !== 'crop') tempCtx.clearRect(0, 0, canvasW, canvasH);
+        refreshToolSettings();
+        rectangleTool.render();
         drawCropOverlay();
         updateCropMeta();
         updateCursorPos(lastMouseE);
@@ -1006,15 +1168,19 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
         state.layer = layer;
         
         // Update layer panel active state
-        const maskDiv = document.getElementById("A_layer_mask");
-        const paintDiv = document.getElementById("A_layer_paint");
+        const maskDiv = layerPanel.querySelector("#A_layer_mask");
+        const paintDiv = layerPanel.querySelector("#A_layer_paint");
         
         if (maskDiv && paintDiv) {
             maskDiv.style.border = layer === 'mask' ? "1px solid #4CAF50" : "1px solid transparent";
-            maskDiv.querySelector('.active-badge').style.display = layer === 'mask' ? "block" : "none";
+            Object.assign(maskDiv.querySelector('.active-badge').style, {
+                display: "block", visibility: layer === 'mask' ? "visible" : "hidden"
+            });
             
             paintDiv.style.border = layer === 'paint' ? "1px solid #4CAF50" : "1px solid transparent";
-            paintDiv.querySelector('.active-badge').style.display = layer === 'paint' ? "block" : "none";
+            Object.assign(paintDiv.querySelector('.active-badge').style, {
+                display: "block", visibility: layer === 'paint' ? "visible" : "hidden"
+            });
         }
         
         // Visual feedback for layer
@@ -1031,14 +1197,31 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
         }
     };
 
+    const syncLayerOnce = (direction) => {
+        if (state.historyIndex < 0 || pendingHistoryIndex !== null || isDrawing || !canvasW || !canvasH) return;
+        const toPaint = direction === 'mask_to_paint';
+        const source = toPaint ? mCtx : pCtx;
+        const target = toPaint ? pCtx : mCtx;
+        const sourceData = source.getImageData(0, 0, canvasW, canvasH);
+        const opacity = toPaint ? state.linkPaintOpacity : state.linkMaskOpacity;
+        const derived = deriveLinkedLayerData(sourceData, direction, state.linkPaintColor, opacity);
+        if (!toPaint) rectangleTool.flattenMask();
+        target.putImageData(new ImageData(derived, canvasW, canvasH), 0, 0);
+        rectangleTool.render();
+        saveState();
+    };
+
+    const updateChoiceButtons = (buttons, selected) => {
+        for (const [key, button] of Object.entries(buttons)) {
+            const active = key === selected;
+            button.style.background = active ? "#555" : "transparent";
+            button.style.border = active ? "1px solid #888" : "1px solid transparent";
+            button.setAttribute("aria-pressed", String(active));
+        }
+    };
     const setShape = (shape) => {
         state.shape = shape;
-        Object.values(shapeBtns).forEach(b => {
-            b.style.background = "transparent";
-            b.style.border = "1px solid transparent";
-        });
-        shapeBtns[shape].style.background = "#555";
-        shapeBtns[shape].style.border = "1px solid #888";
+        updateChoiceButtons(shapeBtns, shape);
         updateCursorPos();
     };
 
@@ -1067,14 +1250,12 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
         const paintDiv = document.getElementById('A_layer_paint');
         if (maskDiv) maskDiv.onclick = (e) => {
             if(e.target !== chkMask) {
-                if (state.tool === 'rectangle') { setLayer('mask'); rectangleTool.render(); }
-                else setTool('brushMask');
+                selectDrawingLayer('brushMask');
             }
         };
         if (paintDiv) paintDiv.onclick = (e) => {
             if(e.target !== chkPaint) {
-                if (state.tool === 'rectangle') { setLayer('paint'); rectangleTool.render(); }
-                else setTool('brushPaint');
+                selectDrawingLayer('brushPaint');
             }
         };
     }, 100);
@@ -1137,7 +1318,16 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
 
     // --- History ---
     let historyRestoreId = 0;
+    let pendingHistoryIndex = null;
+    const refreshHistoryButtons = () => {
+        undoBtn.style.opacity = state.historyIndex > 0 ? "1" : "0.5";
+        redoBtn.style.opacity = state.historyIndex < state.history.length - 1 ? "1" : "0.5";
+    };
     const saveState = () => {
+        if (pendingHistoryIndex !== null) {
+            historyRestoreId++;
+            pendingHistoryIndex = null;
+        }
         state.history = state.history.slice(0, state.historyIndex + 1);
         state.history.push({
             base: baseImg.src,
@@ -1151,17 +1341,45 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
             cropRect: state.tool === 'crop' ? cloneRect(state.cropRect) : null,
             cropPreset: state.cropPreset,
             cropExpandColor: state.cropExpandColor,
-            fillMaskedImageWithGray: state.fillMaskedImageWithGray
+            fillMaskedImageWithGray: state.fillMaskedImageWithGray,
+            allowOverlap: state.allowOverlap
         });
         if (state.history.length > 30) state.history.shift();
         else state.historyIndex++;
         
-        undoBtn.style.opacity = state.historyIndex > 0 ? "1" : "0.5";
-        redoBtn.style.opacity = state.historyIndex < state.history.length - 1 ? "1" : "0.5";
+        refreshHistoryButtons();
     };
 
-    const restoreState = (hState) => {
+    const decodeHistoryImage = async src => {
+        const image = new Image();
+        image.src = src;
+        await image.decode();
+        return image;
+    };
+    const restoreState = async (index) => {
+        const hState = state.history[index];
         const restoreId = ++historyRestoreId;
+        pendingHistoryIndex = index;
+        const baseChanged = baseImg.src !== hState.base;
+        let paintImage, maskImage;
+        try {
+            [paintImage, maskImage] = await Promise.all([
+                decodeHistoryImage(hState.paint),
+                decodeHistoryImage(hState.mask),
+                baseChanged ? decodeHistoryImage(hState.base) : null
+            ]);
+        } catch (error) {
+            if (restoreId === historyRestoreId) {
+                pendingHistoryIndex = null;
+                host.notify("无法恢复图片编辑历史：" + error.message, "error");
+            }
+            return;
+        }
+        if (restoreId !== historyRestoreId) return;
+        pendingHistoryIndex = null;
+        if (isDrawing || cropAction) return;
+        const activeTool = state.tool;
+        const activeLayer = state.layer;
         rectangleTool.cancel();
         if (cropWheelSaveTimer) clearTimeout(cropWheelSaveTimer);
         cropWheelSaveTimer = null;
@@ -1170,70 +1388,42 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
         state.baseImageDirty = !!hState.baseDirty;
         state.cropRect = null;
         cropAction = null;
-        setBaseImagePreview(hState.base);
-
-        let restoredLayers = 0;
-        const restoreLayer = (ctx, image) => {
-            if (restoreId !== historyRestoreId) return;
-            ctx.clearRect(0, 0, canvasW, canvasH);
-            ctx.drawImage(image, 0, 0);
-            if (++restoredLayers === 2) {
-                const snapshot = hState.rectangles;
-                setTool(hState.tool, false);
-                setCropPreset(hState.cropPreset);
-                state.cropRect = cloneRect(hState.cropRect);
-                state.cropExpandColor = hState.cropExpandColor;
-                cropExpandColorInput.value = state.cropExpandColor;
-                state.fillMaskedImageWithGray = hState.fillMaskedImageWithGray;
-                grayFillInput.checked = state.fillMaskedImageWithGray;
-                if (snapshot.rectangles.length) {
-                    state.opacity = snapshot.opacity;
-                    opSlider.value = state.opacity;
-                    opVal.textContent = state.opacity.toFixed(2);
-                    setLayer(snapshot.layer);
-                    setTool('rectangle', false);
-                }
-                rectangleTool.restore(snapshot);
-                drawCropOverlay();
-            }
-        };
-        const pImg = new Image();
-        pImg.onload = () => restoreLayer(pCtx, pImg);
-        pImg.src = hState.paint;
-        
-        const mImg = new Image();
-        mImg.onload = () => restoreLayer(mCtx, mImg);
-        mImg.src = hState.mask;
+        if (baseChanged) setBaseImagePreview(hState.base);
+        pCtx.drawImage(paintImage, 0, 0);
+        mCtx.drawImage(maskImage, 0, 0);
+        setCropPreset(hState.cropPreset);
+        state.cropRect = cloneRect(hState.cropRect);
+        state.cropExpandColor = hState.cropExpandColor;
+        cropExpandColorInput.value = state.cropExpandColor;
+        state.fillMaskedImageWithGray = hState.fillMaskedImageWithGray;
+        grayFillInput.checked = state.fillMaskedImageWithGray;
+        state.allowOverlap = hState.allowOverlap === true;
+        overlapInput.checked = state.allowOverlap;
+        rectangleTool.restore(hState.rectangles);
+        setLayer(activeLayer);
+        setTool(activeTool, false);
+        state.historyIndex = index;
+        refreshHistoryButtons();
         updateInfoLabel();
-        drawCropOverlay();
         updateTransform();
     };
 
-    undoBtn.onclick = () => {
-        if (state.historyIndex > 0) {
-            state.historyIndex--;
-            restoreState(state.history[state.historyIndex]);
-            undoBtn.style.opacity = state.historyIndex > 0 ? "1" : "0.5";
-            redoBtn.style.opacity = "1";
-        }
+    const stepHistory = direction => {
+        const index = (pendingHistoryIndex ?? state.historyIndex) + direction;
+        if (index >= 0 && index < state.history.length) restoreState(index);
     };
-
-    redoBtn.onclick = () => {
-        if (state.historyIndex < state.history.length - 1) {
-            state.historyIndex++;
-            restoreState(state.history[state.historyIndex]);
-            undoBtn.style.opacity = "1";
-            redoBtn.style.opacity = state.historyIndex < state.history.length - 1 ? "1" : "0.5";
-        }
-    };
+    undoBtn.onclick = () => stepHistory(-1);
+    redoBtn.onclick = () => stepHistory(1);
 
     clearBtn.onclick = () => {
+        rectangleTool.flattenMask();
         pCtx.clearRect(0, 0, canvasW, canvasH);
         mCtx.clearRect(0, 0, canvasW, canvasH);
         saveState();
     };
 
     invertBtn.onclick = () => {
+        rectangleTool.flattenMask();
         const mData = mCtx.getImageData(0, 0, canvasW, canvasH);
         for (let i = 0; i < mData.data.length; i += 4) {
             // Invert the alpha channel (0 becomes 255, >0 becomes 0)
@@ -1262,6 +1452,7 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
 
     const mergeTempCanvas = () => {
         if (state.tool !== 'eraser') {
+            if (state.layer === 'mask') rectangleTool.addMaskStroke(tempCanvas);
             // Because we already drew the tempCanvas directly to targetCtx during the real-time preview loop in drawLine,
             // we just need to clear the backup state and temp canvas.
             tempCtx.isFirstPoint = true;
@@ -1274,7 +1465,7 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
         const targetCtx = isMask ? mCtx : pCtx;
         
         targetCtx.globalCompositeOperation = 'destination-out';
-        targetCtx.globalAlpha = state.opacity;
+        targetCtx.globalAlpha = layerOpacity();
         
         targetCtx.drawImage(tempCanvas, 0, 0);
         
@@ -1284,6 +1475,25 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
         
         tempCtx.clearRect(0, 0, canvasW, canvasH);
     };
+
+    const fillAllEnclosures = () => {
+        if (!canvasW || !canvasH) return;
+        const targetContext = state.layer === 'mask' ? mCtx : pCtx;
+        const sourceData = targetContext.getImageData(0, 0, canvasW, canvasH);
+        const color = state.layer === 'mask' ? '#000000' : state.color;
+        const rgb = [1, 3, 5].map(offset => Number.parseInt(color.slice(offset, offset + 2), 16));
+        const count = fillEnclosedLayer(sourceData.data, canvasW, canvasH, rgb, layerOpacity());
+        if (!count) {
+            host.notify("当前图层没有可填充的封闭区域", "warning");
+            return;
+        }
+        if (state.layer === 'mask') rectangleTool.flattenMask();
+        targetContext.putImageData(sourceData, 0, 0);
+        saveState();
+        host.notify(`已填充当前图层的 ${count} 个封闭区域像素`, "success");
+    };
+    fillEnclosedBtn.title = "填充当前图层所有封闭区域；快捷键 F。使用当前笔刷颜色和不透明度。";
+    fillEnclosedBtn.onclick = fillAllEnclosures;
 
     const drawLine = (ctx, from, to) => {
         ctx.globalCompositeOperation = 'source-over';
@@ -1331,10 +1541,7 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
             ctx.isFirstPoint = false;
             
             // 把现在的 tempCanvas 合并到底层作为预览
-            targetCtx.globalCompositeOperation = 'source-over';
-            targetCtx.globalAlpha = state.opacity;
-            targetCtx.drawImage(tempCanvas, 0, 0);
-            targetCtx.globalAlpha = 1.0;
+            compositeLayerCanvas(targetCtx, tempCanvas, layerOpacity(), state.allowOverlap);
         }
     };
 
@@ -1349,7 +1556,7 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
             try { workArea.setPointerCapture(e.pointerId); } catch (_) {}
         }
         activePointerId = typeof e.pointerId === "number" ? e.pointerId : null;
-        if (e.button === 1 || (isPrimaryAction && (state.tool === 'pan' || e.shiftKey || e.code === "Space"))) {
+        if (e.button === 1 || (isPrimaryAction && (state.tool === 'pan' || (e.shiftKey && state.tool !== 'crop') || e.code === "Space"))) {
             e.preventDefault();
             isPanning = true;
             panStart.x = e.clientX - state.panX;
@@ -1430,6 +1637,7 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
                             }
                         }
                     }
+                    rectangleTool.flattenMask();
                     mCtx.putImageData(mData, 0, 0);
                     saveState();
                     return;
@@ -1451,6 +1659,7 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
             // Set up real-time preview state for new stroke
             tempCtx.isFirstPoint = true;
             const isMask = state.layer === 'mask';
+            if (isMask && state.tool === 'eraser') rectangleTool.flattenMask();
             tempCtx.backupData = (isMask ? mCtx : pCtx).getImageData(0, 0, canvasW, canvasH);
             
             if (state.tool === 'eraser') {
@@ -1510,7 +1719,7 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
                     height: startRect.height
                 };
             } else if (cropAction.type === 'resize' && state.cropRect) {
-                state.cropRect = resizeCropRect(cropAction.startRect, cropAction.handle, pos, state.cropPreset, canvasW, canvasH);
+                state.cropRect = resizeCropRect(cropAction.startRect, cropAction.handle, pos, state.cropPreset, canvasW, canvasH, e.shiftKey);
             } else if (cropAction.type === 'new') {
                 state.cropRect = buildAspectRectFromAnchor(cropAction.startPos, pos, state.cropPreset, canvasW, canvasH);
             }
@@ -1652,6 +1861,7 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
                 w = Math.floor(w * ratio);
                 h = Math.floor(h * ratio);
             }
+            rectangleTool.flattenMask();
             setCanvasSize(w, h);
             state.cropRect = null;
             state.cropHover = null;
@@ -1858,6 +2068,12 @@ export function showImageEditor({ imagePaths, currentIndex, host }) {
     const handleKey = (e) => {
         if (e.defaultPrevented) return;
         if (e.key === "Escape") cleanup();
+        if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey
+            && !e.target.matches?.('input, textarea, select, [contenteditable="true"]')) {
+            e.preventDefault();
+            fillAllEnclosures();
+            return;
+        }
         if (e.ctrlKey && e.key.toLowerCase() === 'z') {
             e.preventDefault();
             if (e.shiftKey) redoBtn.click();
