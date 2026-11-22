@@ -7,10 +7,13 @@
 模型内部会把参考图重新缩放到自己的面积基准上，尺度一变就等于平移，输出和参考对不齐。
 
 这里的做法是：
-1. 按图像面积推一个基准 resolution（或手动给），对齐到 32 的倍数；
-2. 在「宽×高 ≈ resolution²」的白名单里挑一个比例最接近输入、且面积接近、比例接近标准比例的尺寸；
-3. 校验这个尺寸是缩放的**不动点**（按 resolution 再缩一次仍是它自己），保证模型内部缩放是恒等变换；
+1. 按图像面积推一个基准 resolution（default 自动推、manual 手动给），对齐到 32 的倍数；
+2. default 模式优先找「让编码器算出同一尺寸」的那个 resolution，找到就只补边（零重采样）；
+3. 找不到（极端画幅确实无解）才在「宽×高 ≈ resolution²」的白名单里挑一个比例最接近输入的尺寸，
+   并校验它是不动点（按 resolution 再缩一次仍是它自己），保证模型内部缩放是恒等变换；
 4. 把图像（以及遮罩）实际裁剪/补边/拉伸到该尺寸。
+
+resolution 只有两种情况下才是 0：custom（画布尺寸自己给、走空潜空间）和没有输入图像。
 
 这样宽度、高度、resolution 三者自洽，参考图与潜空间逐像素对应，不再出现偏移。
 """
@@ -38,6 +41,57 @@ def _snap_resolution(value):
     snapped = int(round(float(value) / _STEP)) * _STEP
     snapped = max(_MIN_RESOLUTION, min(_MAX_RESOLUTION, snapped))
     return snapped if snapped in _RESOLUTIONS else min(_RESOLUTIONS, key=lambda item: abs(item - snapped))
+
+
+def _auto_resolution(width, height):
+    """按面积推一个基准分辨率（与 BlueBox 的 default 一致）：sqrt(w*h) 对齐到 32。"""
+    return _snap_resolution(math.sqrt(float(width) * float(height)))
+
+
+def _encoder_size(width, height, resolution):
+    """复刻 comfy_extras/nodes_qwen.py 里 TextEncodeQwenImage21 的缩放取整：
+    resolution>0 时按面积 resolution² 等比缩放，宽高各自取整到 32 的倍数。"""
+    ratio = float(width) / float(height)
+    size_w = int(round(math.sqrt(resolution * resolution * ratio) / _STEP)) * _STEP
+    size_h = int(round(math.sqrt(resolution * resolution / ratio) / _STEP)) * _STEP
+    return max(_STEP, size_w), max(_STEP, size_h)
+
+
+def _fixed_point_resolution(width, height, resolution):
+    """找一个让编码器算出 (width, height) 的 resolution。
+
+    找到就把 resolution 传给编码器后它不会再缩放，图像可以保持 1:1 只补边；
+    找不到（宽高比越极端越容易没有解）就返回 None，由调用方退回白名单尺寸自己先缩好。
+    """
+    for step in (0, 1, -1):
+        candidate = resolution + step * _STEP
+        if candidate < _MIN_RESOLUTION or candidate > _MAX_RESOLUTION:
+            continue
+        if candidate not in _RESOLUTIONS:
+            continue
+        if _encoder_size(width, height, candidate) == (width, height):
+            return candidate
+    return None
+
+
+def _fit_fixed_point(width, height):
+    """先按原尺寸找不动点；找不到就把画布各扩一档 32 再试（多出来的是边，内容仍 1:1）。
+
+    返回 (画布宽, 画布高, resolution)，全都找不到时返回 None。
+    """
+    resolution = _auto_resolution(width, height)
+    found = _fixed_point_resolution(width, height, resolution)
+    if found is not None:
+        return width, height, found
+    for grow_width, grow_height in ((_STEP, 0), (0, _STEP), (_STEP, _STEP)):
+        canvas_width, canvas_height = width + grow_width, height + grow_height
+        if canvas_width > _MAX_SIDE or canvas_height > _MAX_SIDE:
+            continue
+        found = _fixed_point_resolution(canvas_width, canvas_height,
+                                        _auto_resolution(canvas_width, canvas_height))
+        if found is not None:
+            return canvas_width, canvas_height, found
+    return None
 
 
 def _ratio_distance(left, right):
@@ -229,7 +283,7 @@ class QwenImage21AlignSize:
                 "image": ("IMAGE", {"tooltip": "要对齐的参考图，通常接第 1 张参考图。"}),
                 "resolution_mode": (list(_RESOLUTION_MODES), {
                     "default": "default",
-                    "tooltip": "default=只补边到 32 的倍数（不缩放，resolution 传 0），配合复原节点可保证输出宽高与输入完全一致；manual=按下面的基准分辨率缩放到稳定尺寸；custom=用指定宽高出空潜空间。",
+                    "tooltip": "default=按图像面积自动推 resolution（约 √(宽×高)，对齐 32）：能保持 1:1 时只补边不重采样，无解时才缩一次；manual=用下面的基准分辨率缩放到稳定尺寸；custom=用指定宽高出空潜空间（resolution 传 0），图和遮罩原样透传、不缩放不补边。",
                 }),
                 "resolution_value": ("INT", {
                     "default": 1024, "min": _MIN_RESOLUTION, "max": _MAX_RESOLUTION, "step": _STEP,
@@ -237,7 +291,7 @@ class QwenImage21AlignSize:
                 }),
                 "mode": (list(_MODES), {
                     "default": "pad32",
-                    "tooltip": "仅 manual 模式生效：pad32=只补边不缩放（default 模式固定用这个）；stretch=拉伸；crop=居中裁切；pad=等比缩放后补黑边。",
+                    "tooltip": "default / manual 都生效：pad32=优先只补边不缩放（default 模式找不到 1:1 解时才退回 stretch）；stretch=拉伸；crop=居中裁切；pad=等比缩放后补黑边。custom 模式不缩图。",
                 }),
                 "custom_width": ("INT", {
                     "default": 1024, "min": _MIN_SIDE, "max": _MAX_SIDE, "step": _CUSTOM_STEP,
@@ -258,8 +312,10 @@ class QwenImage21AlignSize:
     FUNCTION = "align"
     CATEGORY = "A_my_nodes/image"
     DESCRIPTION = (
-        "Qwen-Image 2.1 宽高对齐：custom 模式把画布宽高向上取整到 8 的倍数并输出 mode=empty"
-        "（直接接潜空间来源的 mode）；其余模式输出 mode=auto。没有参考图时也回 mode=empty 并给零遮罩。"
+        "Qwen-Image 2.1 宽高对齐：default 按面积自动推 resolution（约 √(宽×高)、对齐 32），"
+        "能保持 1:1 时只补边，无解时才缩一次；manual 用指定分辨率；custom 用指定画布宽高"
+        "（宽高向上取整到 16 的倍数）并输出 resolution=0 / mode=empty，图与遮罩原样透传。"
+        "没有参考图时也回 mode=empty 并给零遮罩。"
     )
 
     def align(self, image, resolution_mode="default", resolution_value=1024, mode="pad32",
@@ -278,32 +334,51 @@ class QwenImage21AlignSize:
         _, height, width, _ = image.shape
 
         if resolution_mode == "custom":
-            # 自定义宽高 = 空潜空间出图：只把画布宽高对齐到 8 的倍数，图原样透传
+            # 自定义宽高 = 空潜空间出图：画布宽高对齐到 16 的倍数，图和遮罩都原样透传。
+            # 没接遮罩时给一块与参考图同尺寸的零遮罩（不能用画布尺寸，否则遮罩和图片对不上）。
             target_width = _ceil_step16(custom_width)
             target_height = _ceil_step16(custom_height)
             if _is_empty(mask):
-                aligned_mask = torch.zeros((image.shape[0], target_height, target_width),
+                aligned_mask = torch.zeros((image.shape[0], height, width),
                                            dtype=image.dtype, device=image.device)
             else:
                 aligned_mask = mask.unsqueeze(0) if mask.dim() == 2 else mask
             return (image, aligned_mask, target_width, target_height, 0, "empty", False)
 
         if resolution_mode == "default":
-            # 只补边不缩放：宽高向上取整到 32 的倍数，内容保持 1:1（零重采样）。
-            # resolution 传 0，编码器就按参考图自身尺寸取整到 32，706/688 这类尺寸不会再被缩放一次。
+            # 按面积自动推 resolution（和 BlueBox 的 default 语义一致），0 只留给 custom / 无图。
+            # 优先找让编码器算出同一尺寸的 resolution（必要时画布各扩一档 32），找到就零重采样；
+            # 实在无解（约 0.4% 的画幅）才按白名单尺寸自己缩一次，避免编码器那边二次缩放。
             target_width = _ceil_step(width)
             target_height = _ceil_step(height)
-            resolution = 0
+            fitted = _fit_fixed_point(target_width, target_height)
+            use_mode = None
+            if fitted is not None:
+                target_width, target_height, resolution = fitted
+                aligned_image = _pad_center(image, target_width, target_height)
+            else:
+                resolution = _auto_resolution(target_width, target_height)
+                target_width, target_height = _pick_target_size(
+                    target_width, target_height, resolution, tol_ratio=1.0)[0]
+                target_width, target_height = _snap_to_fixed_point(
+                    target_width, target_height, resolution, 1.0, width, height)
+                use_mode = "stretch" if mode == "pad32" else mode
+                aligned_image = _apply_geometry(image, target_width, target_height, use_mode)
+                print(f"[QwenImage21AlignSize] {width}x{height} 在 resolution={resolution} 下没有 "
+                      f"1:1 不动点，重采样到 {target_width}x{target_height}（{use_mode}）。")
             if target_width * target_height > 4 * 1024 * 1024:
-                print(f"[QwenImage21AlignSize] 输入 {width}x{height} 会按原尺寸出图（补边到 "
-                      f"{target_width}x{target_height}，约 {(target_width * target_height) / 1e6:.1f}MP），"
+                print(f"[QwenImage21AlignSize] 输入 {width}x{height} 会按 "
+                      f"{target_width}x{target_height}（约 {(target_width * target_height) / 1e6:.1f}MP）出图，"
                       f"显存和耗时都会明显上升，建议先在前面缩到 1536 左右。")
-            aligned_image = _pad_center(image, target_width, target_height)
             if _is_empty(mask):
                 aligned_mask = torch.zeros((aligned_image.shape[0], target_height, target_width),
                                            dtype=aligned_image.dtype, device=aligned_image.device)
             else:
-                aligned_mask = _pad_center(mask, target_width, target_height, is_mask=True)
+                if use_mode is None:
+                    aligned_mask = _pad_center(mask, target_width, target_height, is_mask=True)
+                else:
+                    aligned_mask = _apply_geometry(mask, target_width, target_height, use_mode,
+                                                   pad_value=0.0, is_mask=True)
                 if aligned_mask.dim() == 2:
                     aligned_mask = aligned_mask.unsqueeze(0)
             return (aligned_image, aligned_mask, target_width, target_height, resolution, "auto", True)
