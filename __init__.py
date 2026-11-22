@@ -18,6 +18,7 @@ from .nodes.load_lora_batch import LoadLoraBatch
 from .nodes.wan_video_lora_batch import WanVideoLoraBatch
 from .nodes.load_lora_merge import LoadLoraMerge
 from .nodes.lora_apply import LoraApply, LoraApplyAsset
+from .nodes.lora_folder_loader import LoraFolderLoader
 from .nodes.index_selector import IndexSelector
 from .nodes.my_batch_manager import MyBatchManager
 from .nodes.image_batch_accumulator import ImageBatchAccumulator
@@ -33,6 +34,8 @@ from .nodes.math import ImageToSequenceWithMask
 from .nodes.text_input_batch import TextInputBatch, TextDictSplitter
 # 新增导入：文本字典检查节点
 from .nodes.text_dict_checker import TextDictChecker
+# 新增导入：按标点移除前后内容
+from .nodes.text_punct_removal import TextPunctRemoveMs
 # 新增导入：图像扩展节点
 from .nodes.image_expand import ImageExpand
 # 新增导入：增强版图像混合节点
@@ -148,6 +151,8 @@ NODE_CLASS_MAPPINGS = {
     "TextDictSplitter": TextDictSplitter, # 文本字典分割
     # 文本字典检查
     "TextDictChecker": TextDictChecker, # 文本字典检查
+    # 按标点移除前后内容
+    "TextPunctRemoveMs": TextPunctRemoveMs, # 按标点移除前后内容
     # 图像扩展
     "ImageExpand": ImageExpand, # 图像扩展
     # 增强版图像混合
@@ -155,6 +160,7 @@ NODE_CLASS_MAPPINGS = {
     # 图像截取
     "ImageTakeLast": ImageTakeLast, # 截取最后几张图片
     "LoadLoraMerge": LoadLoraMerge, # 加载并合并 LoRA
+    "LoraFolderLoader": LoraFolderLoader, # 按文件夹批量加载 LoRA
     "IndexSelector": IndexSelector, # 索引选择器
     "MyBatchManager": MyBatchManager, # 批量管理器
     # 图像拼接多输入
@@ -242,10 +248,12 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "TextInputBatch": "Text Input Batch by ms", # 文本批量输入
     "TextDictSplitter": "Text Dict Splitter by ms", # 文本字典分割
     "TextDictChecker": "Text Dict Checker by ms", # 文本字典检查
+    "TextPunctRemoveMs": "Remove Around Punctuation by ms", # 按标点移除前后内容
     "ImageExpand": "Image Expand by ms", # 图像扩展
     "ImageBlendAdvanceMy": "Image Blend Advance My by ms", # 增强版图像混合
     "ImageTakeLast": "Image Take Last by ms", # 截取最后几张图片
     "LoadLoraMerge": "Load Lora Merge by ms", # 加载并合并 LoRA
+    "LoraFolderLoader": "LoRA Folder Loader by ms", # 按文件夹批量加载 LoRA
     "IndexSelector": "Index Selector by ms", # 索引选择器
     "MyBatchManager": "My Batch Manager by ms", # 批量管理器
     "ImageConcatMultiMs": "Image Concat Multi by ms", # 图像拼接多输入

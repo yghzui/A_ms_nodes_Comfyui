@@ -28,6 +28,7 @@ from .nodes.workflow_group_store import (
     load_workflow_groups_db,
     save_workflow_groups_db,
 )
+from .nodes.lora_folder_loader import list_lora_files
 
 # 全局日志打印控制开关
 ENABLE_DEBUG_PRINT = False
@@ -715,6 +716,20 @@ async def search_pinyin(request):
         print(f"❌ [AssetManager] 拼音搜索失败: {e}")
         return web.json_response({"error": str(e), "matches": []})
 
+# ================= LoRA 文件夹加载器 (Lora Folder Loader) API =================
+async def list_lora_folder(request):
+    """扫描指定文件夹内的 LoRA 文件，供节点刷新按钮使用"""
+    folder = request.query.get("path", "")
+    recursive = str(request.query.get("recursive", "1")).strip().lower() not in ("0", "false", "no", "off")
+    try:
+        resolved, files = list_lora_files(folder, recursive=recursive)
+    except FileNotFoundError as e:
+        return web.json_response({"error": str(e), "files": []}, status=404)
+    except Exception as e:
+        print(f"❌ [LoraFolderLoader] 扫描文件夹失败: {e}")
+        return web.json_response({"error": str(e), "files": []}, status=400)
+    return web.json_response({"folder": resolved, "files": files})
+
 # ====================================================================
 
 # 路由注册函数 - 这个函数会在ComfyUI初始化时被调用
@@ -805,6 +820,13 @@ def register_routes():
                 PromptServer.instance.routes.post("/a_my_nodes/assets/check_models_exist")(check_models_exist)
                 PromptServer.instance.routes.post("/a_my_nodes/assets/search_pinyin")(search_pinyin)
                 print("✅ 资产管理系统 (Asset Manager) API 注册成功！")
+
+            # 注册 LoRA 文件夹加载器 API
+            if "/a_my_nodes/lora_folder/list" not in existing_routes:
+                PromptServer.instance.routes.get("/a_my_nodes/lora_folder/list")(list_lora_folder)
+                print("✅ LoRA 文件夹扫描路由 /a_my_nodes/lora_folder/list 注册成功！")
+            else:
+                print("⚠️ 路由 /a_my_nodes/lora_folder/list 已经存在，跳过注册")
 
             _routes_registered = True  # 设置注册标志
         else:

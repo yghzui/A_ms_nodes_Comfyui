@@ -244,5 +244,8 @@
   },
   "ImageFitPixelsMs": {
     "display_name": "按百万像素缩放（含遮罩）by ms"
+  },
+  "TextPunctRemoveMs": {
+    "display_name": "按标点移除前后内容 by ms"
   }
 }
