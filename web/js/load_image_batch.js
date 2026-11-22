@@ -1121,7 +1121,8 @@ app.registerExtension({
                             e.preventDefault();
                             e.stopPropagation();
                             
-                            this.clearImageWithConfirmation(i);
+                            this.hideTooltip();
+                            this.executeClear(i);
                             return true;
                         }
                     }
